@@ -14,8 +14,8 @@ if (!$categoria_id) {
 }
 
 $sql = "SELECT i.*, p.nombre_pareja, p.jugador1_id, p.jugador2_id,
-        COALESCE(u1.nombre, p.jugador1_nombre_manual) as jugador1_nombre, 
-        COALESCE(u2.nombre, p.jugador2_nombre_manual) as jugador2_nombre
+        COALESCE(u1.nombre, p.jugador1_nombre_manual) as nombre_jugador_1, 
+        COALESCE(u2.nombre, p.jugador2_nombre_manual) as nombre_jugador_2
         FROM torneo_inscripciones i 
         JOIN torneo_parejas p ON i.pareja_id = p.id
         LEFT JOIN usuarios u1 ON p.jugador1_id = u1.id
