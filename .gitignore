@@ -1,0 +1,14 @@
+# Configuración y Bases de Datos
+db.php
+academia-padel-firebase-adminsdk-fbsvc-e982fff4f3.json
+
+# Archivos de Sistema
+.DS_Store
+Thumbs.db
+
+# Directorios de Archivos Subidos
+uploads/
+temp/
+
+# Logs
+*.log

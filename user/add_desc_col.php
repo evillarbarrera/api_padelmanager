@@ -1,0 +1,1 @@
+<?php require_once '../db.php'; $sql = 'ALTER TABLE usuarios ADD COLUMN descripcion TEXT AFTER categoria'; if ($conn->query($sql)) { echo 'Column descripcion added'; } else { echo 'Error: ' . $conn->error; }
