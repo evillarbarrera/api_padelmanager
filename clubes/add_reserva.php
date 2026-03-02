@@ -35,13 +35,13 @@ if (!$cancha_id || !$fecha || !$hora_inicio) {
     exit;
 }
 
-// 1. Validar disponibilidad
+// 1. Validar disponibilidad (Overlap check: existing_start < new_end AND existing_end > new_start)
 $sqlCheck = "SELECT id FROM reservas_cancha 
              WHERE cancha_id = ? AND fecha = ? 
-             AND ((hora_inicio < ? AND hora_fin > ?) OR (hora_inicio < ? AND hora_fin > ?))
+             AND hora_inicio < ? AND hora_fin > ?
              AND estado != 'Cancelada'";
 $stmtCheck = $conn->prepare($sqlCheck);
-$stmtCheck->bind_param("isssss", $cancha_id, $fecha, $hora_fin, $hora_inicio, $hora_inicio, $hora_inicio);
+$stmtCheck->bind_param("isss", $cancha_id, $fecha, $hora_fin, $hora_inicio);
 $stmtCheck->execute();
 if ($stmtCheck->get_result()->num_rows > 0) {
     http_response_code(409);
