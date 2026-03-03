@@ -38,6 +38,16 @@ if ($pack_id === 0 || $jugador_id === 0) {
     exit;
 }
 
+// Validar que el pack esté activo
+$checkPack = $conn->prepare("SELECT id FROM packs WHERE id = ? AND activo = 1");
+$checkPack->bind_param("i", $pack_id);
+$checkPack->execute();
+if ($checkPack->get_result()->num_rows === 0) {
+    http_response_code(400);
+    echo json_encode(["error" => "El pack seleccionado ya no está disponible o no existe"]);
+    exit;
+}
+
 // fechas calculadas SOLO AQUÍ
 $fecha_inicio = date('Y-m-d');
 $fecha_fin    = date('Y-m-d', strtotime('+6 months'));

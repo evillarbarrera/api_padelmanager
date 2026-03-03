@@ -90,8 +90,8 @@ $cantidad_personas = $data['cantidad_personas'] ?? 1;
 
 $sql = "
   INSERT INTO packs
-  (entrenador_id, nombre, descripcion, tipo, sesiones_totales, duracion_sesion_min, precio, capacidad_minima, capacidad_maxima, dia_semana, hora_inicio, rango_horario_inicio, rango_horario_fin, categoria, cantidad_personas)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  (entrenador_id, nombre, descripcion, tipo, sesiones_totales, duracion_sesion_min, precio, capacidad_minima, capacidad_maxima, dia_semana, hora_inicio, rango_horario_inicio, rango_horario_fin, categoria, cantidad_personas, activo)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
 ";
 
 $stmt = $conn->prepare($sql);

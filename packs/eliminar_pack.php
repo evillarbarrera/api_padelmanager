@@ -21,8 +21,9 @@ if ($auth !== 'Bearer ' . base64_encode("1|padel_academy")) {
 require_once "../db.php";
 
 $data = json_decode(file_get_contents("php://input"), true);
+$id = $data['id'] ?? $data['pack_id'] ?? null;
 
-if (!$data || !isset($data['id'])) {
+if (!$id) {
     http_response_code(400);
     echo json_encode(["error" => "Falta id"]);
     exit;
@@ -30,7 +31,7 @@ if (!$data || !isset($data['id'])) {
 
 // Marcar pack como inactivo
 $stmt = $conn->prepare("UPDATE packs SET activo = 0 WHERE id = ?");
-$stmt->bind_param("i", $data['id']);
+$stmt->bind_param("i", $id);
 
 if ($stmt->execute()) {
     echo json_encode(["success" => true]);

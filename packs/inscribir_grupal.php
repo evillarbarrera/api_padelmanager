@@ -40,7 +40,7 @@ $conn->begin_transaction();
 
 try {
     // 1. Obtener información del pack
-    $sql_pack = "SELECT * FROM packs WHERE id = ? AND tipo = 'grupal'";
+    $sql_pack = "SELECT * FROM packs WHERE id = ? AND tipo = 'grupal' AND activo = 1";
     $stmt = $conn->prepare($sql_pack);
     $stmt->bind_param("i", $pack_id);
     $stmt->execute();
