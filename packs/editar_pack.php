@@ -1,5 +1,5 @@
 <?php
-header("Access-Control-Allow-Origin: http://localhost:8100");
+header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Authorization, Content-Type");
 header("Content-Type: application/json");
@@ -25,6 +25,8 @@ if ($auth !== 'Bearer ' . base64_encode("1|padel_academy")) {
 
 // Obtener datos del body
 $data = json_decode(file_get_contents("php://input"), true);
+error_log("Updating pack: " . json_encode($data));
+
 $entrenador_id = $data['entrenador_id'] ?? 0; // ID recibido desde Angular
 
 if (!$data || !isset($data['id'])) {
@@ -68,23 +70,23 @@ $cat = $data['categoria'] ?? null;
 
 $stmt = $conn->prepare($sql);
 $stmt->bind_param(
-    "sssiidissiiissii",
-    $data['nombre'],
-    $data['descripcion'],
-    $data['tipo'],
-    $data['sesiones_totales'],
-    $data['duracion_sesion_min'],
-    $data['precio'],
-    $cant_pers,
-    $r_inicio,
-    $r_fin,
-    $cap_min,
-    $cap_max,
-    $dia,
-    $h_inicio,
-    $cat,
-    $data['id'],
-    $entrenador_id
+    "sssiiiiissiiisii", // 16 total
+    $data['nombre'],      // 1 (s)
+    $data['descripcion'], // 2 (s)
+    $data['tipo'],        // 3 (s)
+    $data['sesiones_totales'],    // 4 (i)
+    $data['duracion_sesion_min'], // 5 (i)
+    $data['precio'],              // 6 (i)
+    $cant_pers,                   // 7 (i)
+    $r_inicio,                    // 8 (s)
+    $r_fin,                       // 9 (s)
+    $cap_min,              // 10 (i)
+    $cap_max,              // 11 (i)
+    $dia,                  // 12 (i)
+    $h_inicio,             // 13 (s)
+    $cat,                  // 14 (s)
+    $data['id'],           // 15 (i)
+    $entrenador_id         // 16 (i)
 );
 
 if ($stmt->execute()) {

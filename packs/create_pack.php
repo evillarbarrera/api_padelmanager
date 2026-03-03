@@ -46,7 +46,7 @@ if ($tipo === 'individual') {
   $categoria = $data['categoria'] ?? null;
 
   // Validaciones
-  if (!$capacidad_minima || !$capacidad_maxima || !$dia_semana || !$hora_inicio || !$categoria) {
+  if (!$capacidad_minima || !$capacidad_maxima || ($dia_semana === null) || !$hora_inicio || !$categoria) {
     http_response_code(400);
     echo json_encode(["error" => "Para packs grupales son obligatorios: capacidad_minima, capacidad_maxima, dia_semana, hora_inicio, categoria"]);
     exit;
@@ -94,9 +94,12 @@ $sql = "
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
 ";
 
+// Debug log for incoming data
+error_log("Creating pack with: " . json_encode($data));
+
 $stmt = $conn->prepare($sql);
 $stmt->bind_param(
-  "isssiiiiisssiii",
+  "isssiiiiiiisssi", // 15 total: i s s s i i i i i i s s s s i
   $entrenador_id,
   $data['nombre'],
   $data['descripcion'],

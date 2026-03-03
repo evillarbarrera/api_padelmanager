@@ -138,8 +138,8 @@ try {
     // Fetch phones, emails AND names
     $sqlData = "
         SELECT 
-            u1.telefono as cel_jugador, u1.nombre as nom_jugador, u1.usuario as email_jugador,
-            u2.telefono as cel_entrenador, u2.nombre as nom_entrenador, u2.usuario as email_entrenador
+            u1.id as jugador_id, u1.telefono as cel_jugador, u1.nombre as nom_jugador, u1.usuario as email_jugador,
+            u2.id as entrenador_id, u2.telefono as cel_entrenador, u2.nombre as nom_entrenador, u2.usuario as email_entrenador
         FROM usuarios u1 
         JOIN reservas r ON r.id = ?
         JOIN usuarios u2 ON u2.id = r.entrenador_id
@@ -205,6 +205,23 @@ try {
 
             if (!empty($emailJugador)) enviarCorreoSMTP($emailJugador, $subject, $bodyPlayer);
             if (!empty($emailEntrenador)) enviarCorreoSMTP($emailEntrenador, $subject, $bodyCoach);
+
+            // 3. PUSH (Save to DB)
+            // Notificar al Entrenador
+            $stmtNotifE = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'clase_cancelada', 0)");
+            $tPushE = "🚫 Clase Cancelada por Alumno";
+            $mPushE = "$nomJugador ha cancelado la clase del $fechaFmt a las $horaFmt";
+            $stmtNotifE->bind_param("iss", $resP['entrenador_id'] ?? $reserva['entrenador_id'], $tPushE, $mPushE); // Check where entrenador_id is
+            $stmtNotifE->execute();
+            $stmtNotifE->close();
+
+            // Notificar al Jugador
+            $stmtNotifJ = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'cancelacion_confirmada', 0)");
+            $tPushJ = "🚫 Cancelación Confirmada";
+            $mPushJ = "Has cancelado tu clase del $fechaFmt a las $horaFmt.";
+            $stmtNotifJ->bind_param("iss", $jugador_id, $tPushJ, $mPushJ);
+            $stmtNotifJ->execute();
+            $stmtNotifJ->close();
         }
     }
     // --- NOTIFICATIONS END ---

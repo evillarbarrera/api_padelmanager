@@ -12,8 +12,9 @@ require_once '../db.php';
 
 // Log errors to file
 function logError($msg) {
-    // Sin logging a archivo, solo en memoria si necesitamos debug
-    // error_log($msg); // Descomentar si quieres logs en error_log del servidor
+    $logFile = "notifications_v2.log";
+    $timestamp = date('Y-m-d H:i:s');
+    file_put_contents($logFile, "[$timestamp] $msg\n", FILE_APPEND);
 }
 
 try {
