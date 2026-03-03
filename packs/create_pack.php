@@ -99,7 +99,7 @@ error_log("Creating pack with: " . json_encode($data));
 
 $stmt = $conn->prepare($sql);
 $stmt->bind_param(
-  "isssiiiiiiisssi", // 15 total: i s s s i i i i i i s s s s i
+  "isssiiiiiissssi", 
   $entrenador_id,
   $data['nombre'],
   $data['descripcion'],
