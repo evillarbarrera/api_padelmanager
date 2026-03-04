@@ -70,7 +70,7 @@ $cat = $data['categoria'] ?? null;
 
 $stmt = $conn->prepare($sql);
 $stmt->bind_param(
-    "sssiiiiissiiisii", // 16 total
+    "sssiiiissiiissii", // 16 total: nombre(s), desc(s), tipo(s), sesiones(i), duracion(i), precio(i), cant_pers(i), r_inicio(s), r_fin(s), cap_min(i), cap_max(i), dia(i), h_ini(s), cat(s), id(i), entrenador_id(i)
     $data['nombre'],      // 1 (s)
     $data['descripcion'], // 2 (s)
     $data['tipo'],        // 3 (s)

@@ -1,6 +1,8 @@
 <?php
 require_once "db.php";
-$result = $conn->query("DESCRIBE packs");
-while($row = $result->fetch_assoc()) {
-    print_r($row);
+$res = $conn->query("DESCRIBE packs");
+$cols = [];
+while($row = $res->fetch_assoc()) {
+    $cols[] = $row;
 }
+echo json_encode($cols);
