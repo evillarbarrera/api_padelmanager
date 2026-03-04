@@ -14,6 +14,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once "../db.php";
 
+$month = isset($_GET['month']) ? (int)$_GET['month'] : 0;
+$year = isset($_GET['year']) ? (int)$_GET['year'] : 0;
+
 $stats = [
     'total_usuarios' => 0,
     'total_entrenadores' => 0,
@@ -21,26 +24,31 @@ $stats = [
     'total_clubes' => 0,
     'total_packs_vendidos' => 0,
     'ingresos_packs' => 0,
-    'total_torneos' => 0
+    'ganancia_estimada' => 0,
+    'total_torneos' => 0,
+    'packs_individuales' => 0,
+    'packs_multijugador' => 0,
+    'packs_grupales' => 0
 ];
 
-// Usuarios
+// Usuarios (No se filtran por fecha ya que es el total acumulado)
 try {
     $sql_users = "SELECT rol, COUNT(*) as count FROM usuarios GROUP BY rol";
     $res_users = $conn->query($sql_users);
     if ($res_users) {
         while ($row = $res_users->fetch_assoc()) {
             $stats['total_usuarios'] += $row['count'];
-            if (strtolower($row['rol']) === 'entrenador') {
+            $rol = strtolower($row['rol']);
+            if ($rol === 'entrenador' || $rol === 'entrenador_padel') {
                 $stats['total_entrenadores'] += $row['count'];
-            } elseif (strtolower($row['rol']) === 'jugador') {
+            } elseif ($rol === 'jugador') {
                 $stats['total_jugadores'] += $row['count'];
             }
         }
     }
 } catch (Exception $e) {}
 
-// Clubes
+// Clubes (No se filtran por fecha)
 try {
     $sql_clubes = "SELECT COUNT(*) as count FROM clubes";
     $res_clubes = $conn->query($sql_clubes);
@@ -49,22 +57,49 @@ try {
     }
 } catch (Exception $e) {}
 
-// Packs vendidos y ganancias
+// Packs vendidos y ganancias (Filtrado por mes/año si aplica)
 try {
-    $sql_packs = "SELECT COUNT(pj.id) as total_packs, SUM(p.precio) as total_ingresos 
+    $wherePacks = " WHERE 1=1 ";
+    if ($month > 0 && $year > 0) {
+        $wherePacks .= " AND MONTH(pj.fecha_inicio) = $month AND YEAR(pj.fecha_inicio) = $year";
+    }
+
+    $sql_packs = "SELECT p.tipo, p.cantidad_personas, COUNT(pj.id) as total_packs, SUM(p.precio) as total_ingresos 
                   FROM pack_jugadores pj 
-                  JOIN packs p ON pj.pack_id = p.id";
+                  JOIN packs p ON pj.pack_id = p.id
+                  $wherePacks
+                  GROUP BY p.tipo, p.cantidad_personas";
+                  
     $res_packs = $conn->query($sql_packs);
-    if ($res_packs && $row = $res_packs->fetch_assoc()) {
-        $stats['total_packs_vendidos'] = (int)$row['total_packs'];
-        $stats['ingresos_packs'] = (float)$row['total_ingresos'];
+    if ($res_packs) {
+        while ($row = $res_packs->fetch_assoc()) {
+            $count = (int)$row['total_packs'];
+            $ingresos = (float)$row['total_ingresos'];
+            
+            $stats['total_packs_vendidos'] += $count;
+            $stats['ingresos_packs'] += $ingresos;
+            
+            if ($row['tipo'] === 'grupal') {
+                $stats['packs_grupales'] += $count;
+            } else if ($row['tipo'] === 'individual') {
+                if ($row['cantidad_personas'] > 1) {
+                    $stats['packs_multijugador'] += $count;
+                } else {
+                    $stats['packs_individuales'] += $count;
+                }
+            }
+        }
         $stats['ganancia_estimada'] = $stats['ingresos_packs'] * 0.035;
     }
 } catch (Exception $e) {}
 
 // Torneos
 try {
-    $sql_torneos = "SELECT COUNT(*) as count FROM torneos";
+    $whereTorneos = " WHERE 1=1 ";
+    if ($month > 0 && $year > 0) {
+        $whereTorneos .= " AND MONTH(fecha) = $month AND YEAR(fecha) = $year";
+    }
+    $sql_torneos = "SELECT COUNT(*) as count FROM torneos $whereTorneos";
     $res_torneos = $conn->query($sql_torneos);
     if ($res_torneos && $row = $res_torneos->fetch_assoc()) {
         $stats['total_torneos'] = (int)$row['count'];
