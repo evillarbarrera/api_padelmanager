@@ -89,12 +89,12 @@ if ($stmt->execute()) {
         $packNombre = $details['pack_nombre'];
         $sesiones = $details['sesiones_totales'];
 
-        $subject = "💎 Nuevo Pack Adquirido - $packNombre";
+        $subject = "Nuevo Pack Adquirido - $packNombre";
 
         // Correo para el Jugador
         $bodyJugador = "
         <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
-            <h2 style='color: #111;'>💎 ¡Felicidades por tu nuevo Pack!</h2>
+            <h2 style='color: #111;'>¡Felicidades por tu nuevo Pack!</h2>
             <p>Hola <strong>$nomJugador</strong>,</p>
             <p>Has adquirido con éxito el pack <strong>$packNombre</strong> con el entrenador <strong>$nomEntrenador</strong>.</p>
             <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;'>
@@ -110,7 +110,7 @@ if ($stmt->execute()) {
         // Correo para el Entrenador
         $bodyEntrenador = "
         <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
-            <h2 style='color: #111;'>💎 Nuevo Alumno con Pack</h2>
+            <h2 style='color: #111;'>Nuevo Alumno con Pack</h2>
             <p>Hola <strong>$nomEntrenador</strong>,</p>
             <p>El jugador <strong>$nomJugador</strong> ha adquirido tu pack <strong>$packNombre</strong>.</p>
             <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;'>
@@ -128,9 +128,9 @@ if ($stmt->execute()) {
 
         // --- PUSH NOTIFICATIONS (Save to DB) ---
         // Notificar al Entrenador
-        $entrenador_id = $details['entrenador_id'] ?? 0;
+        $entrenador_id = intval($details['entrenador_id'] ?? 0);
         if ($entrenador_id > 0) {
-            $tituloPush = "💎 Nuevo Pack Vendido";
+            $tituloPush = "Nuevo Pack Vendido";
             $mensajePush = "$nomJugador ha adquirido el pack: $packNombre";
             $stmtNotif = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'nuevo_pack', 0)");
             $stmtNotif->bind_param("iss", $entrenador_id, $tituloPush, $mensajePush);
@@ -140,7 +140,7 @@ if ($stmt->execute()) {
 
         // Notificar al Jugador
         if ($jugador_id > 0) {
-            $tituloPush = "💎 Pack Activo";
+            $tituloPush = "Pack Activo";
             $mensajePush = "Tu pack $packNombre ya está activo. ¡Puedes agendar tus clases!";
             $stmtNotif = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'pack_activado', 0)");
             $stmtNotif->bind_param("iss", $jugador_id, $tituloPush, $mensajePush);
