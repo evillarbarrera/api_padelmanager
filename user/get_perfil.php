@@ -62,6 +62,8 @@ ensureColumnUsers($conn, 'google_id', "VARCHAR(255) NULL");
 ensureColumnUsers($conn, 'proveedor', "VARCHAR(50) DEFAULT 'App'");
 ensureColumnUsers($conn, 'foto', "VARCHAR(255) NULL");
 ensureColumnUsers($conn, 'foto_perfil', "VARCHAR(255) NULL");
+ensureColumnUsers($conn, 'mp_collector_id', "VARCHAR(100) NULL");
+
 
 $user_id = $_GET['user_id'] ?? 0;
 
@@ -72,7 +74,8 @@ if (!$user_id) {
 }
 
 // 1. Fetch user data
-$sqlUser = "SELECT id, nombre, usuario, rol, foto, foto_perfil, instagram, facebook, telefono, categoria, descripcion, created_at, google_id, proveedor, banco_titular, banco_rut, banco_nombre, banco_tipo_cuenta, banco_numero_cuenta FROM usuarios WHERE id = ?";
+$sqlUser = "SELECT id, nombre, usuario, rol, foto, foto_perfil, instagram, facebook, telefono, categoria, descripcion, created_at, google_id, proveedor, banco_titular, banco_rut, banco_nombre, banco_tipo_cuenta, banco_numero_cuenta, mp_collector_id FROM usuarios WHERE id = ?";
+
 $stmtUser = $conn->prepare($sqlUser);
 $stmtUser->bind_param("i", $user_id);
 $stmtUser->execute();

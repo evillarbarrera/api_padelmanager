@@ -34,17 +34,19 @@ if (!$user_id) {
     exit;
 }
 
-// Update user data including bank details
+// Update user data including bank details and MP
 $banco_titular = $data['banco_titular'] ?? null;
 $banco_rut = $data['banco_rut'] ?? null;
 $banco_nombre = $data['banco_nombre'] ?? null;
 $banco_tipo_cuenta = $data['banco_tipo_cuenta'] ?? null;
 $banco_numero_cuenta = $data['banco_numero_cuenta'] ?? null;
+$mp_collector_id = $data['mp_collector_id'] ?? null;
 
-$sqlUser = "UPDATE usuarios SET nombre = ?, telefono = ?, instagram = ?, facebook = ?, foto_perfil = ?, categoria = ?, descripcion = ?, banco_titular = ?, banco_rut = ?, banco_nombre = ?, banco_tipo_cuenta = ?, banco_numero_cuenta = ? WHERE id = ?";
+$sqlUser = "UPDATE usuarios SET nombre = ?, telefono = ?, instagram = ?, facebook = ?, foto_perfil = ?, categoria = ?, descripcion = ?, banco_titular = ?, banco_rut = ?, banco_nombre = ?, banco_tipo_cuenta = ?, banco_numero_cuenta = ?, mp_collector_id = ? WHERE id = ?";
 $stmtUser = $conn->prepare($sqlUser);
-$stmtUser->bind_param("ssssssssssssi", $data['nombre'], $data['telefono'], $data['instagram'], $data['facebook'], $data['foto_perfil'], $data['categoria'], $data['descripcion'], $banco_titular, $banco_rut, $banco_nombre, $banco_tipo_cuenta, $banco_numero_cuenta, $user_id);
+$stmtUser->bind_param("sssssssssssssi", $data['nombre'], $data['telefono'], $data['instagram'], $data['facebook'], $data['foto_perfil'], $data['categoria'], $data['descripcion'], $banco_titular, $banco_rut, $banco_nombre, $banco_tipo_cuenta, $banco_numero_cuenta, $mp_collector_id, $user_id);
 $stmtUser->execute();
+
 
 // 2. Update or Insert address
 $sqlCheckAddr = "SELECT id FROM direcciones WHERE usuario_id = ?";

@@ -33,13 +33,17 @@ if (!$entrenador_id) {
     exit;
 }
 
-$transbank = isset($data['transbank_active']) ? intval($data['transbank_active']) : 1;
+$transbank = isset($data['transbank_activo']) ? intval($data['transbank_activo']) : 1;
 $comision = isset($data['comision_activa']) ? intval($data['comision_activa']) : 1;
-$porcentaje = isset($data['comision_porcentaje']) ? floatval($data['comision_porcentaje']) : 3.50;
 
-$sql = "UPDATE usuarios SET transbank_active = ?, comision_activa = ?, comision_porcentaje = ? WHERE id = ?";
+$porcentaje = isset($data['comision_porcentaje']) ? floatval($data['comision_porcentaje']) : 3.50;
+$mp_id = $data['mp_collector_id'] ?? null;
+
+$sql = "UPDATE usuarios SET transbank_activo = ?, comision_activa = ?, comision_porcentaje = ?, mp_collector_id = ? WHERE id = ?";
+
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("iidi", $transbank, $comision, $porcentaje, $entrenador_id);
+$stmt->bind_param("iidsi", $transbank, $comision, $porcentaje, $mp_id, $entrenador_id);
+
 
 if ($stmt->execute()) {
     echo json_encode(["success" => true]);

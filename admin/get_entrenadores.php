@@ -27,8 +27,9 @@ if (empty($auth) || trim($auth) !== trim($expectedToken)) {
 // Get all trainers with their bank and config data
 $sql = "SELECT id, nombre, usuario, foto, foto_perfil, telefono, categoria, 
         banco_titular, banco_rut, banco_nombre, banco_tipo_cuenta, banco_numero_cuenta,
-        transbank_active, comision_activa, comision_porcentaje
+        transbank_activo, comision_activa, comision_porcentaje, mp_collector_id
         FROM usuarios WHERE rol = 'entrenador' ORDER BY nombre ASC";
+
 
 $result = $conn->query($sql);
 $entrenadores = [];

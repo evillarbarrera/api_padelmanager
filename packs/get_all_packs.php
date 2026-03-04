@@ -39,7 +39,7 @@ $sql = "
   SELECT p.*, 
          e.nombre as entrenador_nombre,
          e.foto_perfil as entrenador_foto,
-         e.transbank_active,
+         e.transbank_activo,
          (SELECT descripcion FROM usuarios WHERE id = e.id) as entrenador_descripcion,
          (SELECT COUNT(*) FROM inscripciones_grupales ig2 WHERE ig2.pack_id = p.id AND ig2.estado = 'activo') as cupos_ocupados,
          (p.capacidad_maxima - (SELECT COUNT(*) FROM inscripciones_grupales ig3 WHERE ig3.pack_id = p.id AND ig3.estado = 'activo')) as cupos_disponibles,

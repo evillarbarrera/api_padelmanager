@@ -14,6 +14,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once "../db.php";
 
+require_once "mercado_pago_service.php";
+
 $input = json_decode(file_get_contents("php://input"), true);
 $pack_id = $input['pack_id'] ?? 0;
 $jugador_id = $input['jugador_id'] ?? 0;
@@ -27,8 +29,13 @@ if (!$pack_id || !$jugador_id) {
     exit;
 }
 
-// 1. Get Pack Details to check availability
-$sqlPack = "SELECT id, nombre, precio, tipo, capacidad_maxima, cupos_ocupados FROM packs WHERE id = ?";
+// 1. Get Pack and Trainer Details
+$sqlPack = "
+    SELECT p.*, e.id as entrenador_id, e.comision_activa, e.comision_porcentaje, e.mp_collector_id
+    FROM packs p 
+    JOIN usuarios e ON e.id = p.entrenador_id 
+    WHERE p.id = ?
+";
 $stmtPack = $conn->prepare($sqlPack);
 $stmtPack->bind_param("i", $pack_id);
 $stmtPack->execute();
@@ -40,32 +47,48 @@ if (!$pack) {
     exit;
 }
 
-// 2. Capacidad check for group packs
+// 2. Capacidad check
 if ($pack['tipo'] === 'grupal' && $pack['cupos_ocupados'] >= $pack['capacidad_maxima']) {
     http_response_code(400);
     echo json_encode(["error" => "Lo sentimos, no quedan cupos disponibles."]);
     exit;
 }
 
-// 3. Initiate Mock Transaction
-// In a real Transbank integration, we would create a transaction in their API here.
-// For this Mock, we generate a token that carries the payload.
+// 3. Calculate Commission (Marketplace Fee)
+$finalAmount = (float)($amount ?: $pack['precio']);
+$marketplaceFee = 0;
+if ($pack['comision_activa'] == 1) {
+    $marketplaceFee = $finalAmount * ($pack['comision_porcentaje'] / 100);
+}
 
-$tokenData = [
+// 4. Initiate Mercado Pago Preference
+$prefData = [
     "pack_id" => (int)$pack_id,
     "jugador_id" => (int)$jugador_id,
-    "amount" => (int)($amount ?: $pack['precio']),
+    "amount" => $finalAmount,
+    "marketplace_fee" => $marketplaceFee,
+    "trainer_mp_id" => $pack['mp_collector_id'],
+    "title" => $pack['nombre'],
     "origin" => $origin,
-    "reserva_id" => $reserva_id,
-    "ts" => time()
+    "reserva_id" => $reserva_id
 ];
 
-$token = base64_encode(json_encode($tokenData));
-$url = "https://api.padelmanager.cl/pagos/mock_bank.php";
 
-echo json_encode([
-    "success" => true,
-    "token" => $token,
-    "url" => $url,
-    "message" => "Transacción iniciada"
-]);
+
+$preference = MercadoPagoService::createPreference($prefData);
+
+if ($preference && isset($preference['init_point'])) {
+    echo json_encode([
+        "success" => true,
+        "token" => $preference['id'], // We send the preference ID as token
+        "url" => $preference['init_point'], // Mercado Pago Checkout URL
+        "message" => "Transacción iniciada"
+    ]);
+} else {
+    http_response_code(500);
+    echo json_encode([
+        "success" => false, 
+        "error" => "Error al crear preferencia de Mercado Pago"
+    ]);
+}
+
