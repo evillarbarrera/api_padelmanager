@@ -231,14 +231,14 @@ try {
             if ($celEntrenador) enviarWhatsApp($celEntrenador, 'reserva_confirmada', 'es_CL', $vars);
 
             // 2. EMAIL
-            $subject = "🎾 Reserva Confirmada - " . $fechaFmt . " " . $horaFmt;
+            $subject = "Reserva Confirmada - " . $fechaFmt . " " . $horaFmt;
             
             // Email content for Player
             $recurringMsg = $recurrencia > 1 ? "<p style='color: #d32f2f;'><strong>Esta es una serie de $recurrencia semanas consecutivas en este mismo horario.</strong></p>" : "";
             
             $bodyPlayer = "
             <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
-                <h2 style='color: #111;'>🎾 ¡Tu entrenamiento está confirmado!</h2>
+                <h2 style='color: #111;'>¡Tu entrenamiento está confirmado!</h2>
                 <p>Hola <strong>$nomJugador</strong>,</p>
                 <p>Tu reserva con el entrenador <strong>$nomEntrenador</strong> ha sido agendada con éxito.</p>
                 $recurringMsg
@@ -254,7 +254,7 @@ try {
             // Email content for Coach
             $bodyCoach = "
             <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
-                <h2 style='color: #111;'>🎾 Nueva Reserva Recibida</h2>
+                <h2 style='color: #111;'>Nueva Reserva Recibida</h2>
                 <p>Hola <strong>$nomEntrenador</strong>,</p>
                 <p>El jugador <strong>$nomJugador</strong> ha reservado una clase contigo.</p>
                 $recurringMsg
@@ -273,7 +273,7 @@ try {
             // 3. PUSH (Save to DB)
             // Para el Entrenador
             $stmtNotifE = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'nueva_reserva', 0)");
-            $tPushE = "🎾 Nueva Clase Agendada";
+            $tPushE = "Nueva Clase Agendada";
             $mPushE = $nomJugador . " ha reservado clase el " . $fechaFmt . " a las " . $horaFmt;
             $stmtNotifE->bind_param("iss", $data['entrenador_id'], $tPushE, $mPushE);
             $stmtNotifE->execute();
@@ -281,7 +281,7 @@ try {
 
             // Para el Jugador
             $stmtNotifJ = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'reserva_confirmada', 0)");
-            $tPushJ = "🎾 Clase Confirmada";
+            $tPushJ = "Clase Confirmada";
             $mPushJ = "Tu clase con $nomEntrenador el día $fechaFmt a las $horaFmt está confirmada.";
             $stmtNotifJ->bind_param("iss", $data['jugador_id'], $tPushJ, $mPushJ);
             $stmtNotifJ->execute();
