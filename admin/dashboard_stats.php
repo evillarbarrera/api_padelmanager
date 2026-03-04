@@ -28,10 +28,11 @@ $stats = [
     'total_torneos' => 0,
     'packs_individuales' => 0,
     'packs_multijugador' => 0,
-    'packs_grupales' => 0
+    'packs_grupales' => 0,
+    'nuevos_usuarios' => 0
 ];
 
-// Usuarios (No se filtran por fecha ya que es el total acumulado)
+// Usuarios (Totales)
 try {
     $sql_users = "SELECT rol, COUNT(*) as count FROM usuarios GROUP BY rol";
     $res_users = $conn->query($sql_users);
@@ -44,6 +45,19 @@ try {
             } elseif ($rol === 'jugador') {
                 $stats['total_jugadores'] += $row['count'];
             }
+        }
+    }
+} catch (Exception $e) {}
+
+// Nuevos Usuarios (Mes filtrado)
+try {
+    $whereUsers = "";
+    if ($month > 0 && $year > 0) {
+        $whereUsers = " WHERE MONTH(created_at) = $month AND YEAR(created_at) = $year";
+        $sql_new = "SELECT COUNT(*) as count FROM usuarios $whereUsers";
+        $res_new = $conn->query($sql_new);
+        if ($res_new && $row = $res_new->fetch_assoc()) {
+            $stats['nuevos_usuarios'] = (int)$row['count'];
         }
     }
 } catch (Exception $e) {}
