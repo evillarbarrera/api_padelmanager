@@ -57,9 +57,9 @@ if ($myLat && $myLng) {
 
 $sql .= "
   FROM packs p
-  LEFT JOIN usuarios e ON e.id = p.entrenador_id
+  INNER JOIN usuarios e ON e.id = p.entrenador_id
   LEFT JOIN direcciones d ON d.usuario_id = e.id
-  WHERE p.activo = 1
+  WHERE p.activo = 1 AND e.rol = 'entrenador'
 ";
 
 if ($entrenador_id) {
