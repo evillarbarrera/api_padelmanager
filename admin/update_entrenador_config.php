@@ -1,0 +1,48 @@
+<?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Content-Type: application/json");
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
+require_once "../db.php";
+
+$headers = getallheaders();
+$auth = $headers['Authorization'] ?? $headers['authorization'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+$expectedToken = 'Bearer ' . base64_encode("1|padel_academy");
+
+if (empty($auth) || trim($auth) !== trim($expectedToken)) {
+    http_response_code(401);
+    echo json_encode(["error" => "Unauthorized"]);
+    exit;
+}
+
+$data = json_decode(file_get_contents("php://input"), true);
+$entrenador_id = $data['entrenador_id'] ?? 0;
+
+if (!$entrenador_id) {
+    http_response_code(400);
+    echo json_encode(["error" => "entrenador_id is required"]);
+    exit;
+}
+
+$transbank = isset($data['transbank_active']) ? intval($data['transbank_active']) : 1;
+$comision = isset($data['comision_activa']) ? intval($data['comision_activa']) : 1;
+$porcentaje = isset($data['comision_porcentaje']) ? floatval($data['comision_porcentaje']) : 3.50;
+
+$sql = "UPDATE usuarios SET transbank_active = ?, comision_activa = ?, comision_porcentaje = ? WHERE id = ?";
+$stmt = $conn->prepare($sql);
+$stmt->bind_param("iidi", $transbank, $comision, $porcentaje, $entrenador_id);
+
+if ($stmt->execute()) {
+    echo json_encode(["success" => true]);
+} else {
+    echo json_encode(["success" => false, "error" => $conn->error]);
+}

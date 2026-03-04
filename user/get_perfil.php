@@ -72,7 +72,7 @@ if (!$user_id) {
 }
 
 // 1. Fetch user data
-$sqlUser = "SELECT id, nombre, usuario, rol, foto, foto_perfil, instagram, facebook, telefono, categoria, descripcion, created_at, google_id, proveedor FROM usuarios WHERE id = ?";
+$sqlUser = "SELECT id, nombre, usuario, rol, foto, foto_perfil, instagram, facebook, telefono, categoria, descripcion, created_at, google_id, proveedor, banco_titular, banco_rut, banco_nombre, banco_tipo_cuenta, banco_numero_cuenta FROM usuarios WHERE id = ?";
 $stmtUser = $conn->prepare($sqlUser);
 $stmtUser->bind_param("i", $user_id);
 $stmtUser->execute();
