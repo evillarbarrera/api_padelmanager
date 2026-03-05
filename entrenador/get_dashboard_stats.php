@@ -35,8 +35,7 @@ $data = [
     "total_alumnos" => 0,
     "clases_mes" => 0,
     "clases_grupales_mes" => 0,
-    "clases_hoy" => 0,
-    "proximo_mes_proyeccion" => 0
+    "clases_hoy" => 0
 ];
 
 // 1. Cantidad de alumnos total (únicos con packs activos o reservas activas)
@@ -110,4 +109,3 @@ $data["clases_hoy"] = $total_hoy;
 
 echo json_encode($data);
 $conn->close();
-?>
