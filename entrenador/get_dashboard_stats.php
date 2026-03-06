@@ -107,5 +107,30 @@ $res_hoy_res = $stmt->get_result()->fetch_assoc();
 $total_hoy = (int)$res_hoy_res['total'];
 $data["clases_hoy"] = $total_hoy;
 
+// 4. Promo Check (3 months free)
+$sql_promo = "SELECT created_at FROM usuarios WHERE id = ?";
+$stmt_promo = $conn->prepare($sql_promo);
+$stmt_promo->bind_param("i", $entrenador_id);
+$stmt_promo->execute();
+$res_promo = $stmt_promo->get_result()->fetch_assoc();
+
+$data["promo_activa"] = false;
+$data["promo_dias_restantes"] = 0;
+
+if ($res_promo && !empty($res_promo['created_at'])) {
+    $created = new DateTime($res_promo['created_at']);
+    $now = new DateTime();
+    
+    // Calculate 3 months later date
+    $threeMonthsLater = clone $created;
+    $threeMonthsLater->modify('+3 months');
+    
+    if ($now < $threeMonthsLater) {
+        $data["promo_activa"] = true;
+        $interval = $now->diff($threeMonthsLater);
+        $data["promo_dias_restantes"] = (int)$interval->format("%r%a");
+    }
+}
+
 echo json_encode($data);
 $conn->close();

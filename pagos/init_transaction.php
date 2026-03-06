@@ -31,7 +31,7 @@ if (!$pack_id || !$jugador_id) {
 
 // 1. Get Pack and Trainer Details
 $sqlPack = "
-    SELECT p.*, e.id as entrenador_id, e.comision_activa, e.comision_porcentaje, e.mp_collector_id
+    SELECT p.*, e.id as entrenador_id, e.comision_activa, e.comision_porcentaje, e.mp_collector_id, e.created_at as coach_created_at
     FROM packs p 
     JOIN usuarios e ON e.id = p.entrenador_id 
     WHERE p.id = ?
@@ -57,7 +57,20 @@ if ($pack['tipo'] === 'grupal' && $pack['cupos_ocupados'] >= $pack['capacidad_ma
 // 3. Calculate Commission (Marketplace Fee)
 $finalAmount = (float)($amount ?: $pack['precio']);
 $marketplaceFee = 0;
-if ($pack['comision_activa'] == 1) {
+
+// Promo logic: 3 months free for new coaches
+$is_promo_period = false;
+if (isset($pack['coach_created_at']) && !empty($pack['coach_created_at'])) {
+    $created = new DateTime($pack['coach_created_at']);
+    $now = new DateTime();
+    $interval = $created->diff($now);
+    $totalMonths = ($interval->y * 12) + $interval->m;
+    if ($totalMonths < 3) {
+        $is_promo_period = true;
+    }
+}
+
+if ($pack['comision_activa'] == 1 && !$is_promo_period) {
     $marketplaceFee = $finalAmount * ($pack['comision_porcentaje'] / 100);
 }
 
