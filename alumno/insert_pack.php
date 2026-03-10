@@ -31,6 +31,8 @@ $data = json_decode($input, true);
 
 $pack_id    = isset($data['pack_id']) ? (int)$data['pack_id'] : 0;
 $jugador_id = isset($data['jugador_id']) ? (int)$data['jugador_id'] : 0;
+$cupon_id   = isset($data['cupon_id']) ? (int)$data['cupon_id'] : null;
+$precio_pagado = isset($data['precio_pagado']) ? (float)$data['precio_pagado'] : null;
 
 if ($pack_id === 0 || $jugador_id === 0) {
     http_response_code(400);
@@ -53,14 +55,21 @@ $fecha_inicio = date('Y-m-d');
 $fecha_fin    = date('Y-m-d', strtotime('+6 months'));
 
 $sql = "INSERT INTO pack_jugadores
-        (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin)
-        VALUES (?, ?, 0, ?, ?)";
+        (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin, cupon_id, precio_pagado)
+        VALUES (?, ?, 0, ?, ?, ?, ?)";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("iiss", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin);
+$stmt->bind_param("iisssid", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $cupon_id, $precio_pagado);
 
 if ($stmt->execute()) {
     $pack_jugador_id = $conn->insert_id;
+
+    // Actualizar uso del cupón si existe
+    if ($cupon_id) {
+        $updateCupon = $conn->prepare("UPDATE cupones SET uso_actual = uso_actual + 1 WHERE id = ?");
+        $updateCupon->bind_param("i", $cupon_id);
+        $updateCupon->execute();
+    }
 
     // --- NOTIFICATIONS ---
     require_once "../system/mail_service.php";

@@ -36,8 +36,11 @@ try {
     // Y traer información de packs INDIVIDUALES con sesiones disponibles
     $sql = "
         SELECT 
+            u.id as id,
             u.id as jugador_id,
+            u.nombre as nombre,
             u.nombre as jugador_nombre,
+            u.usuario as usuario,
             u.foto_perfil as jugador_foto,
             p.id as pack_id,
             p.nombre as pack_nombre,
