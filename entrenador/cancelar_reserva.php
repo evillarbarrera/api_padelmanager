@@ -141,6 +141,10 @@ try {
             </div>";
             enviarCorreoSMTP($emailEntrenador, "Confirmación de Cancelación - $fechaFmt", $bodyCoach);
         }
+        
+        if ($celEntrenador) {
+            enviarWhatsApp($celEntrenador, 'reserva_cancelada', 'es_CL', [$fechaFmt, $horaFmt, 'Todos los alumnos', $nomEntrenador]);
+        }
 
     } else {
         http_response_code(500);

@@ -137,6 +137,29 @@ try {
                 throw new Exception("Lo sentimos, la clase grupal para este horario ya está completa ($maxCapacity alumnos).");
             }
 
+            // 2. Validar conflicto de horario DEL JUGADOR (con cualquier entrenador)
+            $stmtPlayerConflict = $conn->prepare("
+                SELECT r.id, r.hora_inicio, r.hora_fin, u.nombre as entrenador_nombre
+                FROM reservas r
+                JOIN reserva_jugadores rj ON rj.reserva_id = r.id
+                JOIN usuarios u ON u.id = r.entrenador_id
+                WHERE rj.jugador_id = ?
+                AND r.fecha = ?
+                AND r.hora_inicio < ?
+                AND r.hora_fin > ?
+                AND r.estado = 'reservado'
+            ");
+            $stmtPlayerConflict->bind_param("isss", $data['jugador_id'], $currentDate, $data['hora_fin'], $data['hora_inicio']);
+            $stmtPlayerConflict->execute();
+            $resPlayerConflict = $stmtPlayerConflict->get_result();
+
+            if ($resPlayerConflict->num_rows > 0) {
+                $conflicto = $resPlayerConflict->fetch_assoc();
+                $horaConflicto = substr($conflicto['hora_inicio'], 0, 5);
+                $coachConflicto = $conflicto['entrenador_nombre'];
+                throw new Exception("Ya tienes una clase reservada el $currentDate a las $horaConflicto con $coachConflicto. No puedes agendar dos clases en el mismo horario.");
+            }
+
             /* ========= INSERT RESERVA ========= */
             $stmtReserva = $conn->prepare("
                 INSERT INTO reservas
@@ -225,8 +248,10 @@ try {
             $fechaFmt = date("d/m/Y", strtotime($data['fecha']));
             $horaFmt = substr($data['hora_inicio'], 0, 5); // 00:00
 
-            // 1. WHATSAPP
-            $vars = [$fechaFmt, $horaFmt, $nomJugador, $nomEntrenador];
+            // SOLO ENVIAR SI NO ESTÁ BLOQUEADA (ES DECIR, SI NO ES TRANSBANK/MERCADOPAGO PENDIENTE)
+            if ($data['estado'] !== 'bloqueado') {
+                // 1. WHATSAPP
+                $vars = [$fechaFmt, $horaFmt, $nomJugador, $nomEntrenador];
             if ($celJugador) enviarWhatsApp($celJugador, 'reserva_confirmada', 'es_CL', $vars); 
             if ($celEntrenador) enviarWhatsApp($celEntrenador, 'reserva_confirmada', 'es_CL', $vars);
 
@@ -286,6 +311,7 @@ try {
             $stmtNotifJ->bind_param("iss", $data['jugador_id'], $tPushJ, $mPushJ);
             $stmtNotifJ->execute();
             $stmtNotifJ->close();
+            } // END IF NO BLOQUEADO
         }
     }
     // --- NOTIFICATIONS END ---

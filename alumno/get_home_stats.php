@@ -44,10 +44,14 @@ try {
                 SELECT
                     p.id AS id,
                     p.nombre AS nombre,
+                    p.entrenador_id,
+                    u_e.nombre AS entrenador_nombre,
+                    u_e.foto_perfil AS entrenador_foto,
                     (compras.cantidad_compras * p.sesiones_totales) AS sesiones_totales,
                     COALESCE(reservas.clases_reservadas, 0) AS clases_reservadas,
                     COALESCE(reservas.sesiones_gastadas, 0) AS sesiones_gastadas
                 FROM packs p
+                JOIN usuarios u_e ON u_e.id = p.entrenador_id
                 JOIN (
                     SELECT 
                         pj.pack_id,
@@ -90,13 +94,19 @@ try {
         $clasesReservadas += $reservadas;
         $clasesDisponibles += max(0, $disponibles);
         
-        $packs[] = [
-            'id' => $pack['id'],
-            'nombre' => $pack['nombre'],
-            'total' => $cantidad,
-            'reservadas' => $reservadas,
-            'disponibles' => max(0, $disponibles)
-        ];
+        // Solo incluir en el detalle si aún tiene clases disponibles
+        if ($disponibles > 0) {
+            $packs[] = [
+                'id' => $pack['id'],
+                'nombre' => $pack['nombre'],
+                'entrenador_id' => $pack['entrenador_id'],
+                'entrenador_nombre' => $pack['entrenador_nombre'],
+                'entrenador_foto' => $pack['entrenador_foto'],
+                'total' => $cantidad,
+                'reservadas' => $reservadas,
+                'disponibles' => $disponibles
+            ];
+        }
     }
 
     // 3. Clases Grupales (Inscripciones actuales y antiguas en packs recurrentes)

@@ -74,7 +74,14 @@ if ($pack['comision_activa'] == 1 && !$is_promo_period) {
     $marketplaceFee = $finalAmount * ($pack['comision_porcentaje'] / 100);
 }
 
-// 4. Initiate Mercado Pago Preference
+// 4. Validar que el Coach tenga cuenta de MercadoPago vinculada
+if (empty($pack['mp_collector_id'])) {
+    http_response_code(400);
+    echo json_encode(["error" => "El coach no tiene vinculada su cuenta de MercadoPago. Por favor, comuníqueselo para que la configure, o elija otro medio de pago."]);
+    exit;
+}
+
+// 5. Initiate Mercado Pago Preference
 $prefData = [
     "pack_id" => (int)$pack_id,
     "jugador_id" => (int)$jugador_id,

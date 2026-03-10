@@ -96,11 +96,14 @@ if ($tipo === 'grupal') {
 
         $conn->commit();
         
-         // E. WhatsApp Notification
+          // E. WhatsApp Notification
           require_once "../notifications/whatsapp_service.php";
-          // Fetch More Details for Message
+          require_once "../system/mail_service.php";
+
           $sqlMsg = "
-            SELECT u.telefono, u.nombre, p.nombre as pack_nombre, p.dia_semana, p.hora_inicio, e.nombre as entrenador_nombre
+            SELECT u.telefono as cel_jugador, u.nombre as nom_jugador, u.usuario as email_jugador,
+                   p.nombre as pack_nombre, p.dia_semana, p.hora_inicio, 
+                   e.nombre as nom_entrenador, e.telefono as cel_entrenador, e.usuario as email_entrenador
             FROM usuarios u 
             JOIN packs p ON p.id = ?
             JOIN usuarios e ON e.id = p.entrenador_id
@@ -111,12 +114,44 @@ if ($tipo === 'grupal') {
           $stmtMsg->execute();
           $resMsg = $stmtMsg->get_result()->fetch_assoc();
 
-          if ($resMsg && $resMsg['telefono']) {
+          if ($resMsg) {
              $dias = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
              $diaFmt = isset($resMsg['dia_semana']) ? $dias[$resMsg['dia_semana']] : "Día a confirmar";
              $horaFmt  = !empty($resMsg['hora_inicio']) ? substr($resMsg['hora_inicio'], 0, 5) : "--:--";
-             $vars = [$diaFmt, $horaFmt, $resMsg['nombre'], $resMsg['entrenador_nombre']];
-             enviarWhatsApp($resMsg['telefono'], 'reserva_confirmada', 'es_CL', $vars);
+             $nomJugador = $resMsg['nom_jugador'];
+             $nomEntrenador = $resMsg['nom_entrenador'];
+             
+             $vars = [$diaFmt, $horaFmt, $nomJugador, $nomEntrenador];
+             if ($resMsg['cel_jugador']) enviarWhatsApp($resMsg['cel_jugador'], 'reserva_confirmada', 'es_CL', $vars);
+             if (isset($resMsg['cel_entrenador']) && $resMsg['cel_entrenador']) enviarWhatsApp($resMsg['cel_entrenador'], 'reserva_confirmada', 'es_CL', $vars);
+             
+             // 2. Correo (SMTP)
+             $subjectGrp = "Inscripción Grupal Confirmada - " . $diaFmt . " " . $horaFmt;
+             
+             $bodyPlayerGrp = "
+             <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                 <h2 style='color: #111;'>¡Inscripción Confirmada!</h2>
+                 <p>Hola <strong>$nomJugador</strong>,</p>
+                 <p>Tu inscripción al entrenamiento grupal con <strong>$nomEntrenador</strong> ha sido pagada y confirmada.</p>
+                 <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;'>
+                     <p style='margin: 5px 0;'><strong>Día Base:</strong> $diaFmt</p>
+                     <p style='margin: 5px 0;'><strong>Hora:</strong> $horaFmt</p>
+                 </div>
+             </div>";
+
+             $bodyCoachGrp = "
+             <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                 <h2 style='color: #111;'>Nueva Inscripción Grupal (Pagada)</h2>
+                 <p>Hola <strong>$nomEntrenador</strong>,</p>
+                 <p>El jugador <strong>$nomJugador</strong> se ha sumado a tu sesión grupal tras confirmar su pago.</p>
+                 <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;'>
+                     <p style='margin: 5px 0;'><strong>Día Base:</strong> $diaFmt</p>
+                     <p style='margin: 5px 0;'><strong>Hora:</strong> $horaFmt</p>
+                 </div>
+             </div>";
+
+             if (!empty($resMsg['email_jugador'])) enviarCorreoSMTP($resMsg['email_jugador'], $subjectGrp, $bodyPlayerGrp);
+             if (!empty($resMsg['email_entrenador'])) enviarCorreoSMTP($resMsg['email_entrenador'], $subjectGrp, $bodyCoachGrp);
           }
 
         header("Location: " . $origin . "?status=success_group");
@@ -144,9 +179,12 @@ if ($tipo === 'grupal') {
 
             // Enviar notificaciones
             require_once "../notifications/whatsapp_service.php";
+            require_once "../system/mail_service.php";
             $sqlMsg = "
-                SELECT r.fecha, r.hora_inicio, u.telefono as cel_jugador, u.nombre as nom_jugador, 
-                       e.telefono as cel_entrenador, e.nombre as nom_entrenador
+                SELECT r.fecha, r.hora_inicio, 
+                       u.telefono as cel_jugador, u.nombre as nom_jugador, u.usuario as email_jugador,
+                       e.telefono as cel_entrenador, e.nombre as nom_entrenador, e.usuario as email_entrenador,
+                       r.entrenador_id
                 FROM reservas r
                 JOIN usuarios u ON u.id = ?
                 JOIN usuarios e ON e.id = r.entrenador_id
@@ -160,9 +198,55 @@ if ($tipo === 'grupal') {
             if ($resM) {
                 $fechaFmt = date("d/m/Y", strtotime($resM['fecha']));
                 $horaFmt = substr($resM['hora_inicio'], 0, 5);
-                $vars = [$fechaFmt, $horaFmt, $resM['nom_jugador'], $resM['nom_entrenador']];
+                $nomJugador = $resM['nom_jugador'];
+                $nomEntrenador = $resM['nom_entrenador'];
+                $entrenadorId = $resM['entrenador_id'];
+
+                $vars = [$fechaFmt, $horaFmt, $nomJugador, $nomEntrenador];
                 if ($resM['cel_jugador']) enviarWhatsApp($resM['cel_jugador'], 'reserva_confirmada', 'es_CL', $vars);
                 if ($resM['cel_entrenador']) enviarWhatsApp($resM['cel_entrenador'], 'reserva_confirmada', 'es_CL', $vars);
+
+                // 2. Correo (SMTP)
+                $subject = "Reserva Confirmada - " . $fechaFmt . " " . $horaFmt;
+                    
+                $bodyPlayer = "
+                <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                    <h2 style='color: #111;'>¡Tu entrenamiento está confirmado (Pago verificado)!</h2>
+                    <p>Hola <strong>$nomJugador</strong>,</p>
+                    <p>Tu reserva con el entrenador <strong>$nomEntrenador</strong> ha sido agendada con éxito.</p>
+                    <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;'>
+                        <p style='margin: 5px 0;'><strong>Fecha:</strong> $fechaFmt</p>
+                        <p style='margin: 5px 0;'><strong>Hora:</strong> $horaFmt</p>
+                    </div>
+                    <p>¡Nos vemos en la pista!</p>
+                </div>";
+
+                $bodyCoach = "
+                <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                    <h2 style='color: #111;'>Nueva Reserva Recibida (Pagada)</h2>
+                    <p>Hola <strong>$nomEntrenador</strong>,</p>
+                    <p>El jugador <strong>$nomJugador</strong> ha adquirido un pack pagado y reservado una clase contigo.</p>
+                    <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;'>
+                        <p style='margin: 5px 0;'><strong>Fecha:</strong> $fechaFmt</p>
+                        <p style='margin: 5px 0;'><strong>Hora:</strong> $horaFmt</p>
+                    </div>
+                </div>";
+
+                if (!empty($resM['email_jugador'])) enviarCorreoSMTP($resM['email_jugador'], $subject, $bodyPlayer);
+                if (!empty($resM['email_entrenador'])) enviarCorreoSMTP($resM['email_entrenador'], $subject, $bodyCoach);
+
+                // 3. Notificación Push Interna
+                $stmtNotifE = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'nueva_reserva', 0)");
+                $tPushE = "Nueva Clase Agendada";
+                $mPushE = $nomJugador . " ha reservado clase el " . $fechaFmt . " a las " . $horaFmt;
+                $stmtNotifE->bind_param("iss", $entrenadorId, $tPushE, $mPushE);
+                if($stmtNotifE) { $stmtNotifE->execute(); $stmtNotifE->close(); }
+
+                $stmtNotifJ = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'reserva_confirmada', 0)");
+                $tPushJ = "Clase Confirmada";
+                $mPushJ = "Tu clase con $nomEntrenador el día $fechaFmt a las $horaFmt está confirmada.";
+                $stmtNotifJ->bind_param("iss", $jugador_id, $tPushJ, $mPushJ);
+                if($stmtNotifJ) { $stmtNotifJ->execute(); $stmtNotifJ->close(); }
             }
         }
         header("Location: " . $origin . "?status=success" . ($reserva_id ? "&reserva=confirmed" : ""));
