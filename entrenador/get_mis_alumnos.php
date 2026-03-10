@@ -57,7 +57,6 @@ try {
         JOIN pack_jugadores pj ON u.id = pj.jugador_id
         JOIN packs p ON pj.pack_id = p.id
         WHERE p.entrenador_id = ? 
-          AND (p.tipo = 'individual' OR p.tipo IS NULL)
         ORDER BY u.nombre ASC
     ";
 
@@ -69,10 +68,8 @@ try {
     $alumnos = [];
     while ($row = $result->fetch_assoc()) {
         $restantes = (int)$row['sesiones_totales'] - (int)$row['sesiones_gastadas'];
-        if ($restantes > 0) {
-            $row['sesiones_restantes'] = $restantes;
-            $alumnos[] = $row;
-        }
+        $row['sesiones_restantes'] = $restantes;
+        $alumnos[] = $row;
     }
 
     echo json_encode($alumnos);

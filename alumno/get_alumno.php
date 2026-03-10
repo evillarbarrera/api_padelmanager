@@ -50,8 +50,8 @@ SELECT
     u.foto,
     u.foto_perfil,
     
-    /* TOTAL PAGADAS (Solo individuales/multi) */
-    COALESCE(SUM(CASE WHEN COALESCE(p.tipo, 'individual') NOT IN ('grupal', 'pack_grupal') THEN p.sesiones_totales ELSE 0 END), 0) AS sesiones_pagadas,
+    /* TOTAL PAGADAS (Todos los packs del entrenador) */
+    COALESCE(SUM(p.sesiones_totales), 0) AS sesiones_pagadas,
 
     /* TOTAL RESERVADAS (Solo individuales/multi) */
     (
@@ -61,7 +61,6 @@ SELECT
         WHERE rj.jugador_id = u.id
           AND r.entrenador_id = ?
           AND r.estado = 'reservado'
-          AND COALESCE(r.tipo, 'individual') NOT IN ('grupal', 'pack_grupal')
     ) AS sesiones_reservadas,
 
     /* TOTAL GRUPALES */
@@ -72,12 +71,10 @@ SELECT
         WHERE rj.jugador_id = u.id 
           AND r.entrenador_id = ? 
           AND r.estado = 'reservado'
-          AND COALESCE(r.tipo, 'individual') IN ('grupal', 'pack_grupal')
     ) AS sesiones_grupales,
 
-    /* RESTANTES / PENDIENTES (Saldo real de packs individuales) */
     (
-        COALESCE(SUM(CASE WHEN COALESCE(p.tipo, 'individual') NOT IN ('grupal', 'pack_grupal') THEN p.sesiones_totales ELSE 0 END), 0) - 
+        COALESCE(SUM(p.sesiones_totales), 0) - 
         (
             SELECT COUNT(DISTINCT r.id)
             FROM reservas r
@@ -85,7 +82,6 @@ SELECT
             WHERE rj.jugador_id = u.id
               AND r.entrenador_id = ?
               AND r.estado != 'cancelado'
-              AND COALESCE(r.tipo, 'individual') NOT IN ('grupal', 'pack_grupal')
         )
     ) AS sesiones_pendientes,
 
@@ -96,7 +92,7 @@ FROM usuarios u
 LEFT JOIN pack_jugadores cp ON u.id = cp.jugador_id
 LEFT JOIN packs p ON p.id = cp.pack_id AND p.entrenador_id = ?
 
-WHERE (p.id IS NOT NULL AND COALESCE(p.tipo, 'individual') NOT IN ('grupal', 'pack_grupal')) 
+WHERE (p.id IS NOT NULL) 
    OR (u.id IN (
        SELECT rj3.jugador_id 
        FROM reserva_jugadores rj3 

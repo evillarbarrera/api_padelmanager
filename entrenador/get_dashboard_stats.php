@@ -38,20 +38,20 @@ $data = [
     "clases_hoy" => 0
 ];
 
-// 1. Cantidad de alumnos total (únicos con packs activos o reservas activas)
+// 1. Cantidad de alumnos total (únicos con packs o reservas de este entrenador)
 $sql_alumnos = "
 SELECT COUNT(DISTINCT jugador_id) as total FROM (
     SELECT pj.jugador_id 
     FROM pack_jugadores pj
     JOIN packs p ON p.id = pj.pack_id
-    WHERE p.entrenador_id = ? AND p.activo = 1
+    WHERE p.entrenador_id = ?
     
     UNION
     
     SELECT rj.jugador_id
     FROM reserva_jugadores rj
     JOIN reservas r ON r.id = rj.reserva_id
-    WHERE r.entrenador_id = ? AND r.estado = 'reservado'
+    WHERE r.entrenador_id = ? AND r.estado != 'cancelado'
 ) as alumnos_unicos
 ";
 
