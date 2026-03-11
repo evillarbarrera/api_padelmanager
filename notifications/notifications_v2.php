@@ -9,6 +9,7 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 require_once '../db.php';
+require_once 'fcm_sender.php';
 
 // Log errors to file
 function logError($msg) {
@@ -126,6 +127,20 @@ function enviarNotificacion($data) {
     
     logError("Notificación insertada exitosamente");
     $stmt->close();
+
+    // Obtener token FCM del usuario para enviar push
+    $stmtToken = $mysqli->prepare("SELECT token FROM fcm_tokens WHERE user_id = ?");
+    if ($stmtToken) {
+        $stmtToken->bind_param('i', $userId);
+        $stmtToken->execute();
+        $resToken = $stmtToken->get_result()->fetch_assoc();
+        $stmtToken->close();
+
+        if ($resToken && !empty($resToken['token'])) {
+            logError("Enviando push FCM al token del usuario...");
+            send_fcm_push([$resToken['token']], $titulo, $mensaje);
+        }
+    }
 
     echo json_encode(['success' => true, 'message' => 'Notificación guardada']);
 }

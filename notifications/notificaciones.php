@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once '../db.php';
+require_once 'fcm_sender.php';
 
 $action = $_GET['action'] ?? null;
 
@@ -86,7 +87,20 @@ function enviarNotificacion($conn, $input) {
     $stmt->execute();
     $stmt->close();
 
-    echo json_encode(['success' => true, 'message' => 'Notificación guardada']);
+    // Enviar push notification (FCM) al usuario
+    $stmtToken = $conn->prepare("SELECT token FROM fcm_tokens WHERE user_id = ?");
+    if ($stmtToken) {
+        $stmtToken->bind_param('i', $userId);
+        $stmtToken->execute();
+        $resToken = $stmtToken->get_result()->fetch_assoc();
+        $stmtToken->close();
+
+        if ($resToken && !empty($resToken['token'])) {
+            send_fcm_push([$resToken['token']], $titulo, $mensaje);
+        }
+    }
+
+    echo json_encode(['success' => true, 'message' => 'Notificación guardada y FCM enviado']);
 }
 
 function programarRecordatorio($conn, $input) {

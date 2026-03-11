@@ -1,11 +1,8 @@
 <?php
 require_once "../db.php";
-require_once "gemini_analyze.php"; // Reuse your existing Gemini config if possible, or define key here
 
-// Definir la API KEY (puedes importarla de tu config o entorno)
-$GEMINI_API_KEY = getenv('GEMINI_API_KEY'); 
-// Si la tienes hardcodeada en gemini_analyze.php y no puedes accederla fácil, ponla aquí (temporalmente o en un .env)
-// Asumo que si la app ya hace video analysis, tienes la KEY en el servidor.
+// Definir la API KEY (importada temporalmente o definida hardcoded para que coincida con la lógica de video)
+$GEMINI_API_KEY = "AIzaSyDtZxXN0bb-bI2tvwb9I8R5_ppaA5OcqAE";
 
 // 1. Verificar el caché local (si ya generamos un tip HOY, lo devolvemos rápido para no gastar API)
 $hoy = date('Y-m-d');
