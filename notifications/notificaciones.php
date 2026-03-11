@@ -29,13 +29,13 @@ if (!$input) {
 
 try {
     if ($action === 'guardar_token') {
-        guardarToken($mysqli, $input);
+        guardarToken($conn, $input);
     } elseif ($action === 'enviar') {
-        enviarNotificacion($mysqli, $input);
+        enviarNotificacion($conn, $input);
     } elseif ($action === 'programar_recordatorio') {
-        programarRecordatorio($mysqli, $input);
+        programarRecordatorio($conn, $input);
     } elseif ($action === 'horarios_nuevos') {
-        notificarHorariosDisponibles($mysqli, $input);
+        notificarHorariosDisponibles($conn, $input);
     } else {
         http_response_code(400);
         echo json_encode(['error' => 'Acción no reconocida']);
@@ -45,7 +45,7 @@ try {
     echo json_encode(['error' => $e->getMessage()]);
 }
 
-function guardarToken($mysqli, $input) {
+function guardarToken($conn, $input) {
     $userId = intval($input['user_id'] ?? 0);
     $token = $input['token'] ?? '';
     
@@ -53,7 +53,7 @@ function guardarToken($mysqli, $input) {
         throw new Exception("user_id y token son requeridos");
     }
 
-    $stmt = $mysqli->prepare("
+    $stmt = $conn->prepare("
         INSERT INTO fcm_tokens (user_id, token, created_at)
         VALUES (?, ?, NOW())
         ON DUPLICATE KEY UPDATE token = VALUES(token)
@@ -66,7 +66,7 @@ function guardarToken($mysqli, $input) {
     echo json_encode(['success' => true, 'message' => 'Token guardado']);
 }
 
-function enviarNotificacion($mysqli, $input) {
+function enviarNotificacion($conn, $input) {
     $userId = intval($input['user_id'] ?? 0);
     $titulo = $input['titulo'] ?? 'Notificación';
     $mensaje = $input['mensaje'] ?? '';
@@ -77,7 +77,7 @@ function enviarNotificacion($mysqli, $input) {
         throw new Exception("user_id es requerido");
     }
 
-    $stmt = $mysqli->prepare("
+    $stmt = $conn->prepare("
         INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, fecha_referencia, leida)
         VALUES (?, ?, ?, ?, ?, 0)
     ");
@@ -89,7 +89,7 @@ function enviarNotificacion($mysqli, $input) {
     echo json_encode(['success' => true, 'message' => 'Notificación guardada']);
 }
 
-function programarRecordatorio($mysqli, $input) {
+function programarRecordatorio($conn, $input) {
     $userId = intval($input['user_id'] ?? 0);
     $packNombre = $input['pack_nombre'] ?? '';
     $fechaEnt = $input['fecha_entrenamiento'] ?? null;
@@ -107,7 +107,7 @@ function programarRecordatorio($mysqli, $input) {
     $mensaje = "Mañana tienes entrenamiento de $packNombre a las $horaInicio";
     $tipo = 'recordatorio_dia_anterior';
 
-    $stmt = $mysqli->prepare("
+    $stmt = $conn->prepare("
         INSERT INTO recordatorios_programados (user_id, titulo, mensaje, tipo, fecha_programada, enviado)
         VALUES (?, ?, ?, ?, ?, 0)
     ");
@@ -119,7 +119,7 @@ function programarRecordatorio($mysqli, $input) {
     echo json_encode(['success' => true, 'message' => 'Recordatorio programado']);
 }
 
-function notificarHorariosDisponibles($mysqli, $input) {
+function notificarHorariosDisponibles($conn, $input) {
     $entrenadorId = intval($input['entrenador_id'] ?? 0);
     $alumnoIds = $input['alumno_ids'] ?? [];
 
@@ -127,7 +127,7 @@ function notificarHorariosDisponibles($mysqli, $input) {
         throw new Exception("entrenador_id y alumno_ids son requeridos");
     }
 
-    $stmt = $mysqli->prepare("SELECT nombre FROM usuarios WHERE id = ?");
+    $stmt = $conn->prepare("SELECT nombre FROM usuarios WHERE id = ?");
     $stmt->bind_param('i', $entrenadorId);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -141,7 +141,7 @@ function notificarHorariosDisponibles($mysqli, $input) {
 
     foreach ($alumnoIds as $alumnoId) {
         $alumnoId = intval($alumnoId);
-        $stmt = $mysqli->prepare("
+        $stmt = $conn->prepare("
             INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida)
             VALUES (?, ?, ?, ?, 0)
         ");
