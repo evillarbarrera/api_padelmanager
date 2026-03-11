@@ -59,7 +59,7 @@ $sql = "INSERT INTO pack_jugadores
         VALUES (?, ?, 0, ?, ?, ?, ?)";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("iisssid", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $cupon_id, $precio_pagado);
+$stmt->bind_param("iissid", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $cupon_id, $precio_pagado);
 
 if ($stmt->execute()) {
     $pack_jugador_id = $conn->insert_id;

@@ -53,14 +53,15 @@ SELECT
     /* TOTAL PAGADAS (Todos los packs del entrenador) */
     COALESCE(SUM(p.sesiones_totales), 0) AS sesiones_pagadas,
 
-    /* TOTAL RESERVADAS (Solo individuales/multi) */
+    /* TOTAL RESERVADAS (Individuales) */
     (
         SELECT COUNT(DISTINCT r.id)
         FROM reservas r
         JOIN reserva_jugadores rj ON r.id = rj.reserva_id
         WHERE rj.jugador_id = u.id
           AND r.entrenador_id = ?
-          AND r.estado = 'reservado'
+          AND r.estado != 'cancelado'
+          AND (r.tipo = 'individual' OR r.tipo IS NULL OR r.tipo = '')
     ) AS sesiones_reservadas,
 
     /* TOTAL GRUPALES */
@@ -70,7 +71,8 @@ SELECT
         JOIN reserva_jugadores rj ON r.id = rj.reserva_id
         WHERE rj.jugador_id = u.id 
           AND r.entrenador_id = ? 
-          AND r.estado = 'reservado'
+          AND r.estado != 'cancelado'
+          AND (r.tipo = 'grupal' OR r.tipo = 'pack_grupal')
     ) AS sesiones_grupales,
 
     (
