@@ -60,7 +60,10 @@ function send_fcm_push($deviceTokens, $title, $body, $data = []) {
     if (empty($deviceTokens)) return 0;
     
     $accessToken = get_fcm_access_token();
-    if (!$accessToken) return false;
+    if (!$accessToken) {
+        error_log("FCM Sender Error: Could not get access token.");
+        return false;
+    }
 
     // Load project id from json
     $keyFile = __DIR__ . '/../academia-padel-firebase-adminsdk-fbsvc-e982fff4f3.json';
@@ -75,9 +78,16 @@ function send_fcm_push($deviceTokens, $title, $body, $data = []) {
     ];
 
     $successCount = 0;
+    $errors = [];
 
     foreach ($deviceTokens as $token) {
         if (empty($token)) continue;
+
+        // Ensure data counts are strings for FCM
+        $dataPayload = [];
+        foreach ($data as $k => $v) {
+            $dataPayload[$k] = (string)$v;
+        }
 
         $message = [
             'message' => [
@@ -86,8 +96,27 @@ function send_fcm_push($deviceTokens, $title, $body, $data = []) {
                     'title' => $title,
                     'body' => $body
                 ],
-                // For Ionic/Capacitor, sometimes data payload is captured in background
-                'data' => (object)$data
+                'data' => (object)$dataPayload,
+                'android' => [
+                    'priority' => 'high',
+                    'notification' => [
+                        'sound' => 'default',
+                        'click_action' => 'FCM_PLUGIN_ACTIVITY',
+                        'icon' => 'fcm_push_icon'
+                    ]
+                ],
+                'apns' => [
+                    'payload' => [
+                        'aps' => [
+                            'alert' => [
+                                'title' => $title,
+                                'body' => $body
+                            ],
+                            'sound' => 'default',
+                            'badge' => 1
+                        ]
+                    ]
+                ]
             ]
         ];
 
@@ -105,10 +134,12 @@ function send_fcm_push($deviceTokens, $title, $body, $data = []) {
         if ($httpCode == 200) {
             $successCount++;
         } else {
-            // log error
-            error_log("FCM Request Error ($httpCode): " . $response);
-            file_put_contents(__DIR__ . '/fcm_errors.log', date('Y-m-d H:i:s') . " - Error [$httpCode]: " . $response . PHP_EOL, FILE_APPEND);
+            $errors[] = "Token: $token - Code: $httpCode - Response: $response";
         }
+    }
+
+    if (!empty($errors)) {
+        file_put_contents(__DIR__ . '/fcm_errors.log', date('Y-m-d H:i:s') . " - Errors:" . PHP_EOL . implode(PHP_EOL, $errors) . PHP_EOL, FILE_APPEND);
     }
 
     return $successCount;

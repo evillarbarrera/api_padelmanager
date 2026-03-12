@@ -148,13 +148,11 @@ if ($stmt->execute()) {
             enviarCorreoSMTP($emailJugador, $subject, $body);
         }
 
-        // --- PUSH NOTIFICATION (Save to DB) ---
-        $stmtNotif = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'nueva_evaluacion', 0)");
+        // --- PUSH NOTIFICATION ---
+        require_once "../notifications/notificaciones_helper.php";
         $tituloPush = "📊 Nueva Evaluación Disponible";
         $mensajePush = "Tu entrenador $nomEntrenador ha subido tu evaluación técnica. ¡Revísala ahora!";
-        $stmtNotif->bind_param("iss", $jugador_id, $tituloPush, $mensajePush);
-        $stmtNotif->execute();
-        $stmtNotif->close();
+        notifyUser($conn, $jugador_id, $tituloPush, $mensajePush, 'nueva_evaluacion');
     }
 
     echo json_encode(["success" => true, "id" => $eval_id, "promedio" => $promedio]);

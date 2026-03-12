@@ -40,37 +40,19 @@ $sql = "SELECT u.id, f.token
 $res = $conn->query($sql);
 
 if ($res && $res->num_rows > 0) {
-    $stmtNotif = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida, created_at) VALUES (?, ?, ?, 'daily_tip', 0, NOW())");
-    
-    $countDB = 0;
-    $tokensToPush = [];
+    require_once "../notifications/notificaciones_helper.php";
 
+    $countDB = 0;
     while ($row = $res->fetch_assoc()) {
         $jugadorId = $row['id'];
-        
-        // Insert DB para que salga el Badge ROJO en la APP (campanita)
-        $stmtNotif->bind_param("iss", $jugadorId, $titulo, $mensaje);
-        if ($stmtNotif->execute()) {
+        if (notifyUser($conn, $jugadorId, $titulo, $mensaje, 'daily_tip')) {
             $countDB++;
         }
-        
-        // Acumular tokens para Push Notification
-        if (!empty($row['token'])) {
-            $tokensToPush[] = $row['token'];
-        }
-    }
-    
-    $stmtNotif->close();
-    
-    // 3. Enviar Push Notification (FCM HTTP v1) a todos los que tienen token guardado
-    $cuantosPush = 0;
-    if (count($tokensToPush) > 0) {
-        $cuantosPush = send_fcm_push($tokensToPush, $titulo, $mensaje);
     }
     
     echo json_encode([
         "status" => "success", 
-        "message" => "$countDB tips insertados en BD. $cuantosPush Notificaciones Push (FCM) enviadas.", 
+        "message" => "$countDB tips enviados correctamente a BD y Push (FCM).", 
         "tip_enviado" => $mensaje
     ]);
 } else {

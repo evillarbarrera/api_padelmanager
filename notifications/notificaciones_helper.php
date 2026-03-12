@@ -12,15 +12,30 @@ function notifyUser($conn, $userId, $titulo, $mensaje, $tipo = 'general', $fecha
     $stmt->close();
 
     // Send push notification (FCM)
+    // Fetch ALL tokens for this user
     $stmtToken = $conn->prepare("SELECT token FROM fcm_tokens WHERE user_id = ?");
     if ($stmtToken) {
         $stmtToken->bind_param('i', $userId);
         $stmtToken->execute();
-        $resToken = $stmtToken->get_result()->fetch_assoc();
+        $result = $stmtToken->get_result();
+        
+        $tokens = [];
+        while ($row = $result->fetch_assoc()) {
+            if (!empty($row['token'])) {
+                $tokens[] = $row['token'];
+            }
+        }
         $stmtToken->close();
 
-        if ($resToken && !empty($resToken['token'])) {
-            send_fcm_push([$resToken['token']], $titulo, $mensaje);
+        if (!empty($tokens)) {
+            $success = send_fcm_push($tokens, $titulo, $mensaje);
+            // Log for debugging
+            $logMsg = date('Y-m-d H:i:s') . " - NotifyUser: User $userId - Type: $tipo - Tokens: " . count($tokens) . " - Success: $success" . PHP_EOL;
+            file_put_contents(__DIR__ . '/notify_user.log', $logMsg, FILE_APPEND);
+        } else {
+            // Log that we have no tokens
+            $logMsg = date('Y-m-d H:i:s') . " - NotifyUser: User $userId - Type: $tipo - NO TOKENS FOUND" . PHP_EOL;
+            file_put_contents(__DIR__ . '/notify_user.log', $logMsg, FILE_APPEND);
         }
     }
     return true;

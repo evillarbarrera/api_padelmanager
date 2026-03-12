@@ -56,6 +56,7 @@ function fulfillPayment($conn, $data) {
             // === NOTIFICACIONES DE INSCRIPCION GRUPAL CONFIRMADA ===
             require_once "../notifications/whatsapp_service.php";
             require_once "../system/mail_service.php";
+            require_once "../notifications/notificaciones_helper.php";
 
             $sqlMsgGrp = "
                 SELECT u.telefono as cel_jugador, u.nombre as nom_jugador, u.usuario as email_jugador,
@@ -111,6 +112,15 @@ function fulfillPayment($conn, $data) {
 
                 if (!empty($resMsgGrp['email_jugador'])) enviarCorreoSMTP($resMsgGrp['email_jugador'], $subjectGrp, $bodyPlayerGrp);
                 if (!empty($resMsgGrp['email_entrenador'])) enviarCorreoSMTP($resMsgGrp['email_entrenador'], $subjectGrp, $bodyCoachGrp);
+
+                // 3. Push
+                $tPushGrp = "Inscripción Grupal Confirmada";
+                $mPushGrp = "Tu inscripción para los " . $diaFmt . " a las " . $horaFmt . " ha sido activada.";
+                notifyUser($conn, $jugador_id, $tPushGrp, $mPushGrp, 'inscripcion_grupal');
+
+                $tPushCoach = "Nuevo Alumno en Grupo";
+                $mPushCoach = "$nomJugador se ha inscrito en tu grupo de los $diaFmt a las $horaFmt";
+                notifyUser($conn, $resMsgGrp['entrenador_id'], $tPushCoach, $mPushCoach, 'nuevo_alumno_grupal');
             }
 
             return true;
@@ -136,6 +146,7 @@ function fulfillPayment($conn, $data) {
                 // === NOTIFICACIONES DE RESERVA CONFIRMADA ===
                 require_once "../notifications/whatsapp_service.php";
                 require_once "../system/mail_service.php";
+                require_once "../notifications/notificaciones_helper.php";
 
                 $sqlMsg = "
                     SELECT r.fecha, r.hora_inicio, 
@@ -197,17 +208,13 @@ function fulfillPayment($conn, $data) {
                     if (!empty($resM['email_entrenador'])) enviarCorreoSMTP($resM['email_entrenador'], $subject, $bodyCoach);
 
                     // 3. Notificación Push Interna
-                    $stmtNotifE = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'nueva_reserva', 0)");
                     $tPushE = "Nueva Clase Agendada";
                     $mPushE = $nomJugador . " ha reservado clase el " . $fechaFmt . " a las " . $horaFmt;
-                    $stmtNotifE->bind_param("iss", $entrenadorId, $tPushE, $mPushE);
-                    if($stmtNotifE) { $stmtNotifE->execute(); $stmtNotifE->close(); }
+                    notifyUser($conn, $entrenadorId, $tPushE, $mPushE, 'nueva_reserva');
 
-                    $stmtNotifJ = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'reserva_confirmada', 0)");
                     $tPushJ = "Clase Confirmada";
                     $mPushJ = "Tu clase con $nomEntrenador el día $fechaFmt a las $horaFmt está confirmada.";
-                    $stmtNotifJ->bind_param("iss", $jugador_id, $tPushJ, $mPushJ);
-                    if($stmtNotifJ) { $stmtNotifJ->execute(); $stmtNotifJ->close(); }
+                    notifyUser($conn, $jugador_id, $tPushJ, $mPushJ, 'reserva_confirmada');
                 }
             }
             return true;
