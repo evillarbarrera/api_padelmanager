@@ -1,10 +1,11 @@
 <?php
 require_once "../db.php";
 
-// Definir la API KEY (importada temporalmente o definida hardcoded para que coincida con la lógica de video)
+// Definir la API KEY
+// Generar una clave nueva si la anterior se filtró, pero por ahora caemos en fallback o usamos gemini-1.5-flash
 $GEMINI_API_KEY = "AIzaSyDtZxXN0bb-bI2tvwb9I8R5_ppaA5OcqAE";
 
-// 1. Verificar el caché local (si ya generamos un tip HOY, lo devolvemos rápido para no gastar API)
+// 1. Verificar el caché local
 $hoy = date('Y-m-d');
 $sqlCheck = "SELECT titulo, mensaje FROM tips_diarios_ia WHERE fecha = ? LIMIT 1";
 $stmtCheck = $conn->prepare($sqlCheck);
@@ -20,7 +21,7 @@ if ($resCheck) {
 // 2. Si no hay caché, pedir a GEMINI AI
 $prompt = "Actúa como un experto en Growth Hacking y Entrenador de Pádel Pro. Genera UN (solo uno) consejo técnico o táctico sobre pádel. Debe ser altamente accionable. Formato estricto: 'Titulo Corto (Gancho) | El texto del consejo'. El texto del consejo debe tener máximo 140 caracteres y hacer sentir al jugador 'FOMO' por aplicarlo hoy en la pista. No uses comillas, solo el Titulo Corto, una barra vertical '|', y luego el consejo.";
 
-$url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=" . $GEMINI_API_KEY;
+$url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" . $GEMINI_API_KEY;
 
 $data = [
     "contents" => [
@@ -55,20 +56,32 @@ if (isset($responseData['candidates'][0]['content']['parts'][0]['text'])) {
         $titulo = "🔥 Tip Pro IA";
         $mensaje = $aiText;
     }
-
-    // 3. Guardar en Base de Datos para todo el día de hoy
-    $stmtInsert = $conn->prepare("INSERT INTO tips_diarios_ia (fecha, titulo, mensaje) VALUES (?, ?, ?)");
-    if($stmtInsert) {
-        $stmtInsert->bind_param("sss", $hoy, $titulo, $mensaje);
-        $stmtInsert->execute();
-        $stmtInsert->close();
-    }
-
-    echo json_encode(["status" => "success", "source" => "gemini", "titulo" => $titulo, "mensaje" => $mensaje]);
+    $source = "gemini";
 } else {
-    // Fallback if AI fails
-    $titulo = "⚡ Acción Rápida";
-    $mensaje = "Flexiona más las rodillas en la volea. Esa simple acción evitará que la bola se levante y te pasen. ¡Pruébalo ahora!";
-    echo json_encode(["status" => "success", "source" => "fallback", "titulo" => $titulo, "mensaje" => $mensaje]);
+    // Fallback if AI fails (ej: Key invalida, filtrada, etc.)
+    $tips_fallback = [
+        ["⚡ Acción Diaria", "Flexiona más las rodillas en la volea. Evitarás que la bola se levante."],
+        ["🔥 Posición de Espera", "Mantén la pala alta y delante del cuerpo. Ahorrarás segundos valiosos al responder."],
+        ["💎 Tip Táctico", "Juega al medio para crear confusión entre tus rivales y evitar ángulos imposibles."],
+        ["🎾 Mejora tu Globo", "Arma abajo y acompaña el golpe hacia arriba para superar a los rivales."],
+        ["🏆 Servicio Inteligente", "Varía la velocidad y dirección de tu saque para no volverlo predecible."],
+        ["🛡️ Defensa Pro", "Cuando te arrinconen en el cristal, usa un globo alto y profundo para ganar tiempo."],
+        ["🏃‍♂️ Anticipación", "Mira siempre la pala del rival al golpear, te dará pistas de adónde irá la bola."]
+    ];
+    $random_tip = $tips_fallback[array_rand($tips_fallback)];
+    
+    $titulo = $random_tip[0];
+    $mensaje = $random_tip[1];
+    $source = "fallback";
 }
+
+// 3. Guardar en Base de Datos para TODO el día de hoy (sea de IA o Fallback) para que frontend lo lea bien
+$stmtInsert = $conn->prepare("INSERT INTO tips_diarios_ia (fecha, titulo, mensaje) VALUES (?, ?, ?)");
+if($stmtInsert) {
+    $stmtInsert->bind_param("sss", $hoy, $titulo, $mensaje);
+    $stmtInsert->execute();
+    $stmtInsert->close();
+}
+
+echo json_encode(["status" => "success", "source" => $source, "titulo" => $titulo, "mensaje" => $mensaje]);
 $conn->close();

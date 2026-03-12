@@ -235,18 +235,15 @@ if ($tipo === 'grupal') {
                 if (!empty($resM['email_jugador'])) enviarCorreoSMTP($resM['email_jugador'], $subject, $bodyPlayer);
                 if (!empty($resM['email_entrenador'])) enviarCorreoSMTP($resM['email_entrenador'], $subject, $bodyCoach);
 
-                // 3. Notificación Push Interna
-                $stmtNotifE = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'nueva_reserva', 0)");
+                // 3. Push Notifications
+                require_once "../notifications/notificaciones_helper.php";
                 $tPushE = "Nueva Clase Agendada";
                 $mPushE = $nomJugador . " ha reservado clase el " . $fechaFmt . " a las " . $horaFmt;
-                $stmtNotifE->bind_param("iss", $entrenadorId, $tPushE, $mPushE);
-                if($stmtNotifE) { $stmtNotifE->execute(); $stmtNotifE->close(); }
+                notifyUser($conn, $entrenadorId, $tPushE, $mPushE, 'nueva_reserva');
 
-                $stmtNotifJ = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'reserva_confirmada', 0)");
                 $tPushJ = "Clase Confirmada";
                 $mPushJ = "Tu clase con $nomEntrenador el día $fechaFmt a las $horaFmt está confirmada.";
-                $stmtNotifJ->bind_param("iss", $jugador_id, $tPushJ, $mPushJ);
-                if($stmtNotifJ) { $stmtNotifJ->execute(); $stmtNotifJ->close(); }
+                notifyUser($conn, $jugador_id, $tPushJ, $mPushJ, 'reserva_confirmada');
             }
         }
         header("Location: " . $origin . "?status=success" . ($reserva_id ? "&reserva=confirmed" : ""));

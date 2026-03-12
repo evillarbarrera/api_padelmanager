@@ -1,0 +1,28 @@
+<?php
+require_once __DIR__ . '/fcm_sender.php';
+
+function notifyUser($conn, $userId, $titulo, $mensaje, $tipo = 'general', $fecha_referencia = null) {
+    $userId = intval($userId);
+    if ($userId <= 0) return false;
+
+    // Save to database
+    $stmt = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, fecha_referencia, leida) VALUES (?, ?, ?, ?, ?, 0)");
+    $stmt->bind_param('issss', $userId, $titulo, $mensaje, $tipo, $fecha_referencia);
+    $stmt->execute();
+    $stmt->close();
+
+    // Send push notification (FCM)
+    $stmtToken = $conn->prepare("SELECT token FROM fcm_tokens WHERE user_id = ?");
+    if ($stmtToken) {
+        $stmtToken->bind_param('i', $userId);
+        $stmtToken->execute();
+        $resToken = $stmtToken->get_result()->fetch_assoc();
+        $stmtToken->close();
+
+        if ($resToken && !empty($resToken['token'])) {
+            send_fcm_push([$resToken['token']], $titulo, $mensaje);
+        }
+    }
+    return true;
+}
+?>

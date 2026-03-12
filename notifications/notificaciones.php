@@ -11,6 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once '../db.php';
 require_once 'fcm_sender.php';
+require_once 'notificaciones_helper.php';
 
 $action = $_GET['action'] ?? null;
 
@@ -78,29 +79,9 @@ function enviarNotificacion($conn, $input) {
         throw new Exception("user_id es requerido");
     }
 
-    $stmt = $conn->prepare("
-        INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, fecha_referencia, leida)
-        VALUES (?, ?, ?, ?, ?, 0)
-    ");
-    
-    $stmt->bind_param('issss', $userId, $titulo, $mensaje, $tipo, $fechaRef);
-    $stmt->execute();
-    $stmt->close();
+    notifyUser($conn, $userId, $titulo, $mensaje, $tipo, $fechaRef);
 
-    // Enviar push notification (FCM) al usuario
-    $stmtToken = $conn->prepare("SELECT token FROM fcm_tokens WHERE user_id = ?");
-    if ($stmtToken) {
-        $stmtToken->bind_param('i', $userId);
-        $stmtToken->execute();
-        $resToken = $stmtToken->get_result()->fetch_assoc();
-        $stmtToken->close();
-
-        if ($resToken && !empty($resToken['token'])) {
-            send_fcm_push([$resToken['token']], $titulo, $mensaje);
-        }
-    }
-
-    echo json_encode(['success' => true, 'message' => 'Notificación guardada y FCM enviado']);
+    echo json_encode(['success' => true, 'message' => 'Notificación enviada']);
 }
 
 function programarRecordatorio($conn, $input) {
@@ -154,17 +135,9 @@ function notificarHorariosDisponibles($conn, $input) {
     $tipo = 'horarios_nuevos';
 
     foreach ($alumnoIds as $alumnoId) {
-        $alumnoId = intval($alumnoId);
-        $stmt = $conn->prepare("
-            INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida)
-            VALUES (?, ?, ?, ?, 0)
-        ");
-
-        $stmt->bind_param('isss', $alumnoId, $titulo, $mensaje, $tipo);
-        $stmt->execute();
-        $stmt->close();
+        notifyUser($conn, $alumnoId, $titulo, $mensaje, $tipo);
     }
 
-    echo json_encode(['success' => true, 'message' => 'Notificaciones guardadas']);
+    echo json_encode(['success' => true, 'message' => 'Notificaciones guardadas y Push enviadas']);
 }
 ?>

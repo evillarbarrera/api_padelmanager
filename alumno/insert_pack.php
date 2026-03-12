@@ -135,26 +135,22 @@ if ($stmt->execute()) {
         if (!empty($emailJugador)) enviarCorreoSMTP($emailJugador, $subject, $bodyJugador);
         if (!empty($emailEntrenador)) enviarCorreoSMTP($emailEntrenador, $subject, $bodyEntrenador);
 
-        // --- PUSH NOTIFICATIONS (Save to DB) ---
+        // --- PUSH NOTIFICATIONS ---
+        require_once "../notifications/notificaciones_helper.php";
+        
         // Notificar al Entrenador
         $entrenador_id = intval($details['entrenador_id'] ?? 0);
         if ($entrenador_id > 0) {
             $tituloPush = "Nuevo Pack Vendido";
             $mensajePush = "$nomJugador ha adquirido el pack: $packNombre";
-            $stmtNotif = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'nuevo_pack', 0)");
-            $stmtNotif->bind_param("iss", $entrenador_id, $tituloPush, $mensajePush);
-            $stmtNotif->execute();
-            $stmtNotif->close();
+            notifyUser($conn, $entrenador_id, $tituloPush, $mensajePush, 'nuevo_pack');
         }
 
         // Notificar al Jugador
         if ($jugador_id > 0) {
             $tituloPush = "Pack Activo";
             $mensajePush = "Tu pack $packNombre ya está activo. ¡Puedes agendar tus clases!";
-            $stmtNotif = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'pack_activado', 0)");
-            $stmtNotif->bind_param("iss", $jugador_id, $tituloPush, $mensajePush);
-            $stmtNotif->execute();
-            $stmtNotif->close();
+            notifyUser($conn, $jugador_id, $tituloPush, $mensajePush, 'pack_activado');
         }
     }
 

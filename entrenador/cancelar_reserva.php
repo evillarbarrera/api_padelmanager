@@ -121,13 +121,11 @@ try {
             </div>";
             if (!empty($emailJugador)) enviarCorreoSMTP($emailJugador, $subject, $bodyPlayer);
 
-            // 3. Push (Save to DB)
-            $stmtNotif = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'clase_cancelada', 0)");
+            // 3. Push Notifications
+            require_once "../notifications/notificaciones_helper.php";
             $tituloPush = "🚫 Clase Cancelada";
             $mensajePush = "$nomEntrenador ha cancelado la clase del $fechaFmt a las $horaFmt";
-            $stmtNotif->bind_param("iss", $jugador_id, $tituloPush, $mensajePush);
-            $stmtNotif->execute();
-            $stmtNotif->close();
+            notifyUser($conn, $jugador_id, $tituloPush, $mensajePush, 'clase_cancelada');
         }
 
         // También notificar al entrenador por email/WhatsApp si se desea (opcional confirmación)
