@@ -196,28 +196,12 @@ try {
             $reservas_creadas[] = $new_reserva_id;
         }
 
-        $conn->commit();
-
-        // --- RESPUESTA INMEDIATA ---
-        echo json_encode([
-            "ok" => true,
-            "message" => ($recurrencia > 1) ? "Se han agendado $recurrencia clases correctamente." : "Reserva guardada correctamente",
-            "reserva_ids" => $reservas_creadas,
-            "serie_id" => $serie_id
-        ]);
-    } catch (Exception $serieError) {
-        $conn->rollback();
-        throw $serieError;
-    }
-
-    // Cerramos la conexión con el navegador para eliminar el lag
-    if (function_exists('fastcgi_finish_request')) {
-        fastcgi_finish_request();
-    }
+    $conn->commit();
 
     // --- NOTIFICATIONS START (Background) ---
     require_once "../notifications/whatsapp_service.php";
     require_once "../system/mail_service.php";
+    require_once "../notifications/notificaciones_helper.php";
 
     // Fetch phones, emails AND names (Player and Coach)
     $sqlData = "
@@ -252,64 +236,65 @@ try {
             if ($data['estado'] !== 'bloqueado') {
                 // 1. WHATSAPP
                 $vars = [$fechaFmt, $horaFmt, $nomJugador, $nomEntrenador];
-            if ($celJugador) enviarWhatsApp($celJugador, 'reserva_confirmada', 'es_CL', $vars); 
-            if ($celEntrenador) enviarWhatsApp($celEntrenador, 'reserva_confirmada', 'es_CL', $vars);
+                if ($celJugador) enviarWhatsApp($celJugador, 'reserva_confirmada', 'es_CL', $vars); 
+                if ($celEntrenador) enviarWhatsApp($celEntrenador, 'reserva_confirmada', 'es_CL', $vars);
 
-            // 2. EMAIL
-            $subject = "Reserva Confirmada - " . $fechaFmt . " " . $horaFmt;
-            
-            // Email content for Player
-            $recurringMsg = $recurrencia > 1 ? "<p style='color: #d32f2f;'><strong>Esta es una serie de $recurrencia semanas consecutivas en este mismo horario.</strong></p>" : "";
-            
-            $bodyPlayer = "
-            <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
-                <h2 style='color: #111;'>¡Tu entrenamiento está confirmado!</h2>
-                <p>Hola <strong>$nomJugador</strong>,</p>
-                <p>Tu reserva con el entrenador <strong>$nomEntrenador</strong> ha sido agendada con éxito.</p>
-                $recurringMsg
-                <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;'>
-                    <p style='margin: 5px 0;'><strong>Fecha Inicio:</strong> $fechaFmt</p>
-                    <p style='margin: 5px 0;'><strong>Hora:</strong> $horaFmt</p>
-                </div>
-                <p>¡Nos vemos en la pista!</p>
-                <hr style='border: 0; border-top: 1px solid #eee; margin: 20px 0;'>
-                <p style='font-size: 12px; color: #888;'>Padel Manager - Gestión Integral de Padel</p>
-            </div>";
+                // 2. EMAIL
+                $subject = "Reserva Confirmada - " . $fechaFmt . " " . $horaFmt;
+                
+                // Email content for Player
+                $recurringMsg = $recurrencia > 1 ? "<p style='color: #d32f2f;'><strong>Esta es una serie de $recurrencia semanas consecutivas en este mismo horario.</strong></p>" : "";
+                
+                $bodyPlayer = "
+                <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                    <h2 style='color: #111;'>¡Tu entrenamiento está confirmado!</h2>
+                    <p>Hola <strong>$nomJugador</strong>,</p>
+                    <p>Tu reserva con el entrenador <strong>$nomEntrenador</strong> ha sido agendada con éxito.</p>
+                    $recurringMsg
+                    <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;'>
+                        <p style='margin: 5px 0;'><strong>Fecha Inicio:</strong> $fechaFmt</p>
+                        <p style='margin: 5px 0;'><strong>Hora:</strong> $horaFmt</p>
+                    </div>
+                    <p>¡Nos vemos en la pista!</p>
+                    <hr style='border: 0; border-top: 1px solid #eee; margin: 20px 0;'>
+                    <p style='font-size: 12px; color: #888;'>Padel Manager - Gestión Integral de Padel</p>
+                </div>";
 
-            // Email content for Coach
-            $bodyCoach = "
-            <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
-                <h2 style='color: #111;'>Nueva Reserva Recibida</h2>
-                <p>Hola <strong>$nomEntrenador</strong>,</p>
-                <p>El jugador <strong>$nomJugador</strong> ha reservado una clase contigo.</p>
-                $recurringMsg
-                <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;'>
-                    <p style='margin: 5px 0;'><strong>Fecha Inicio:</strong> $fechaFmt</p>
-                    <p style='margin: 5px 0;'><strong>Hora:</strong> $horaFmt</p>
-                </div>
-                <p>Revisa tu agenda para más detalles.</p>
-                <hr style='border: 0; border-top: 1px solid #eee; margin: 20px 0;'>
-                <p style='font-size: 12px; color: #888;'>Padel Manager - Gestión Integral de Padel</p>
-            </div>";
+                // Email content for Coach
+                $bodyCoach = "
+                <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                    <h2 style='color: #111;'>Nueva Reserva Recibida</h2>
+                    <p>Hola <strong>$nomEntrenador</strong>,</p>
+                    <p>El jugador <strong>$nomJugador</strong> ha reservado una clase contigo.</p>
+                    $recurringMsg
+                    <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;'>
+                        <p style='margin: 5px 0;'><strong>Fecha Inicio:</strong> $fechaFmt</p>
+                        <p style='margin: 5px 0;'><strong>Hora:</strong> $horaFmt</p>
+                    </div>
+                    <p>Revisa tu agenda para más detalles.</p>
+                    <hr style='border: 0; border-top: 1px solid #eee; margin: 20px 0;'>
+                    <p style='font-size: 12px; color: #888;'>Padel Manager - Gestión Integral de Padel</p>
+                </div>";
 
-            if (!empty($emailJugador)) enviarCorreoSMTP($emailJugador, $subject, $bodyPlayer);
-            if (!empty($emailEntrenador)) enviarCorreoSMTP($emailEntrenador, $subject, $bodyCoach);
+                if (!empty($emailJugador)) enviarCorreoSMTP($emailJugador, $subject, $bodyPlayer);
+                if (!empty($emailEntrenador)) enviarCorreoSMTP($emailEntrenador, $subject, $bodyCoach);
 
-            // 3. Push Notifications
-            require_once "../notifications/notificaciones_helper.php";
-            
-            // Para el Entrenador
-            $tPushE = "Nueva Clase Agendada";
-            $mPushE = $nomJugador . " ha reservado clase el " . $fechaFmt . " a las " . $horaFmt;
-            notifyUser($conn, $data['entrenador_id'], $tPushE, $mPushE, 'nueva_reserva');
-
-            // Para el Jugador
-            $tPushJ = "Clase Confirmada";
-            $mPushJ = "Tu clase con $nomEntrenador el día $fechaFmt a las $horaFmt está confirmada.";
-            notifyUser($conn, $data['jugador_id'], $tPushJ, $mPushJ, 'reserva_confirmada');
+                // 3. Push Notifications
+                notifyUser($conn, $data['entrenador_id'], "Nueva Clase Agendada", $nomJugador . " ha reservado clase el " . $fechaFmt . " a las " . $horaFmt, 'nueva_reserva');
+                notifyUser($conn, $data['jugador_id'], "Clase Confirmada", "Tu clase con $nomEntrenador el día $fechaFmt a las $horaFmt está confirmada.", 'reserva_confirmada');
             } // END IF NO BLOQUEADO
         }
     }
+    // --- NOTIFICATIONS END ---
+
+    // --- RESPUESTA FINAL ---
+    echo json_encode([
+        "ok" => true,
+        "message" => ($recurrencia > 1) ? "Se han agendado $recurrencia clases correctamente." : "Reserva guardada correctamente",
+        "reserva_ids" => $reservas_creadas,
+        "serie_id" => $serie_id
+    ]);
+    exit;
     // --- NOTIFICATIONS END ---
 
 } catch (Exception $e) {

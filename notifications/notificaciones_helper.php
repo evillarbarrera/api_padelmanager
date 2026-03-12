@@ -28,7 +28,7 @@ function notifyUser($conn, $userId, $titulo, $mensaje, $tipo = 'general', $fecha
         $stmtToken->close();
 
         if (!empty($tokens)) {
-            $success = send_fcm_push($tokens, $titulo, $mensaje);
+            $success = send_fcm_push($tokens, $titulo, $mensaje, ['type' => $tipo]);
             // Log for debugging
             $logMsg = date('Y-m-d H:i:s') . " - NotifyUser: User $userId - Type: $tipo - Tokens: " . count($tokens) . " - Success: $success" . PHP_EOL;
             file_put_contents(__DIR__ . '/notify_user.log', $logMsg, FILE_APPEND);

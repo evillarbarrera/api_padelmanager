@@ -106,6 +106,9 @@ function send_fcm_push($deviceTokens, $title, $body, $data = []) {
                     ]
                 ],
                 'apns' => [
+                    'headers' => [
+                        'apns-priority' => '10'
+                    ],
                     'payload' => [
                         'aps' => [
                             'alert' => [
@@ -113,8 +116,11 @@ function send_fcm_push($deviceTokens, $title, $body, $data = []) {
                                 'body' => $body
                             ],
                             'sound' => 'default',
-                            'badge' => 1
-                        ]
+                            'badge' => 1,
+                            'mutable-content' => 1,
+                            'content-available' => 1
+                        ],
+                        'data' => (object)$dataPayload
                     ]
                 ]
             ]

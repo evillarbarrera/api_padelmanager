@@ -119,18 +119,6 @@ try {
         throw new Exception("Error execute cancel: " . $stmtCancel->error);
     }
 
-    // --- RESPUESTA INMEDIATA ---
-    echo json_encode([
-        "ok" => true,
-        "message" => "Reserva cancelada correctamente",
-        "reserva_id" => $reserva_id
-    ]);
-
-    // Cerramos la conexión con el navegador para eliminar el lag
-    if (function_exists('fastcgi_finish_request')) {
-        fastcgi_finish_request();
-    }
-
     // --- NOTIFICATIONS START (Background Processing) ---
     require_once "../notifications/whatsapp_service.php";
     require_once "../system/mail_service.php";
@@ -221,6 +209,12 @@ try {
         }
     }
     // --- NOTIFICATIONS END ---
+
+    echo json_encode([
+        "ok" => true,
+        "message" => "Reserva cancelada correctamente",
+        "reserva_id" => $reserva_id
+    ]);
 
 } catch (Exception $e) {
     http_response_code(500);
