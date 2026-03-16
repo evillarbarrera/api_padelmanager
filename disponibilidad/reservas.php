@@ -111,9 +111,10 @@ try {
                         WHERE rj2.jugador_id = ? 
                           AND r2.pack_id = ?
                           AND r2.estado != 'cancelado'
+                          AND r2.pack_id IN (SELECT pack_id FROM pack_jugadores WHERE jugador_id = ?)
                     ) as sesiones_usadas
             ");
-            $stmtCredits->bind_param("iiii", $data['jugador_id'], $data['pack_id'], $data['jugador_id'], $data['pack_id']);
+            $stmtCredits->bind_param("iiiii", $data['jugador_id'], $data['pack_id'], $data['jugador_id'], $data['pack_id'], $data['jugador_id']);
         } else {
             // Scope: Entrenador (Sum of all individual packs for THIS coach)
             $stmtCredits = $conn->prepare("
@@ -134,20 +135,23 @@ try {
                           AND r2.entrenador_id = ?
                           AND r2.estado != 'cancelado'
                           AND r2.tipo NOT IN ('grupal', 'pack_grupal')
+                          AND r2.pack_id IN (SELECT pack_id FROM pack_jugadores WHERE jugador_id = ?)
                     ) as sesiones_usadas
             ");
-            $stmtCredits->bind_param("iiii", $data['jugador_id'], $eId, $data['jugador_id'], $eId);
+            $stmtCredits->bind_param("iiiii", $data['jugador_id'], $eId, $data['jugador_id'], $eId, $data['jugador_id']);
         }
 
         $stmtCredits->execute();
         $resCredits = $stmtCredits->get_result()->fetch_assoc();
 
         if ($resCredits) {
-            $disponibles = (int)$resCredits['sesiones_totales'] - (int)$resCredits['sesiones_usadas'];
+            $total = (int)$resCredits['sesiones_totales'];
+            $used = (int)$resCredits['sesiones_usadas'];
+            $disponibles = $total - $used;
             if ($recurrencia > $disponibles) {
                 $showDisp = max(0, $disponibles);
                 $msgError = $isGroup ? "Créditos grupales insuficientes." : "Créditos insuficientes con este entrenador.";
-                throw new Exception("$msgError Tienes $showDisp sesiones disponibles.");
+                throw new Exception("$msgError Tienes $showDisp disponibles (Compradas: $total, Agendadas: $used).");
             }
         }
     }
@@ -293,7 +297,7 @@ try {
         }
     }
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
     if (isset($conn)) $conn->rollback();
     http_response_code(400);
     echo json_encode(["error" => $e->getMessage()]);
