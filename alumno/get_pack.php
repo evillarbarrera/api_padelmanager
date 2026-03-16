@@ -82,7 +82,7 @@ SELECT
 FROM pack_jugadores cp
 JOIN packs p ON p.id = cp.pack_id
 JOIN usuarios e ON e.id = p.entrenador_id
-WHERE cp.jugador_id = ? and p.tipo = 'individual'
+WHERE cp.jugador_id = ?
 GROUP BY 
     p.id,
     p.nombre,

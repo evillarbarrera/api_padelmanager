@@ -107,7 +107,49 @@ $res_hoy_res = $stmt->get_result()->fetch_assoc();
 $total_hoy = (int)$res_hoy_res['total'];
 $data["clases_hoy"] = $total_hoy;
 
-// 4. Promo Check (3 months free)
+// 4. Clases Pendientes (Créditos de alumnos sin agendar + Reservas futuras)
+// A. Créditos disponibles en packs (Sin agendar)
+$sql_creditos = "
+    SELECT SUM(t.creditos_sin_agendar) as total_creditos
+    FROM (
+        SELECT 
+            (p.sesiones_totales - (
+                SELECT COUNT(*) 
+                FROM reserva_jugadores rj2 
+                JOIN reservas r2 ON rj2.reserva_id = r2.id 
+                WHERE rj2.jugador_id = pj.jugador_id 
+                  AND r2.pack_id = p.id 
+                  AND r2.estado != 'cancelado'
+            )) as creditos_sin_agendar
+        FROM pack_jugadores pj
+        JOIN packs p ON p.id = pj.pack_id
+        WHERE p.entrenador_id = ?
+          AND p.tipo NOT IN ('grupal', 'pack_grupal')
+    ) t
+";
+$stmt = $conn->prepare($sql_creditos);
+$stmt->bind_param("i", $entrenador_id);
+$stmt->execute();
+$creditos_res = (int)$stmt->get_result()->fetch_assoc()['total_creditos'];
+
+// B. Reservas Futuras (Individuales y Grupales - Sesiones Únicas)
+$sql_futuras = "
+    SELECT COUNT(DISTINCT CASE WHEN r.tipo = 'grupal' THEN CONCAT(r.fecha, r.hora_inicio, r.pack_id) ELSE r.id END) as total_futuras
+    FROM reservas r
+    WHERE r.entrenador_id = ? 
+      AND r.estado != 'cancelado'
+      AND (r.fecha > CURDATE() OR (r.fecha = CURDATE() AND r.hora_fin > CURTIME()))
+";
+$stmt = $conn->prepare($sql_futuras);
+$stmt->bind_param("i", $entrenador_id);
+$stmt->execute();
+$futuras_res = (int)$stmt->get_result()->fetch_assoc()['total_futuras'];
+
+$data["clases_pendientes"] = max(0, $creditos_res) + $futuras_res;
+$data["clases_sin_agendar"] = max(0, $creditos_res);
+$data["reservas_futuras"] = $futuras_res;
+
+// 5. Promo Check (3 months free)
 $sql_promo = "SELECT created_at FROM usuarios WHERE id = ?";
 $stmt_promo = $conn->prepare($sql_promo);
 $stmt_promo->bind_param("i", $entrenador_id);

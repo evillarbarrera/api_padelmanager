@@ -26,7 +26,8 @@ class MercadoPagoService {
             "external_reference" => json_encode([
                 "pack_id" => $data['pack_id'],
                 "jugador_id" => $data['jugador_id'],
-                "reserva_id" => $data['reserva_id'] ?? null
+                "reserva_id" => $data['reserva_id'] ?? null,
+                "cupon_id" => $data['cupon_id'] ?? null
             ]),
             "notification_url" => "https://api.padelmanager.cl/pagos/mp_webhook.php",
             "statement_descriptor" => "PADEL MANAGER",

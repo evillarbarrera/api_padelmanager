@@ -43,7 +43,24 @@ $sql = "
         pk.cantidad_personas,
         pk.rango_horario_inicio,
         pk.rango_horario_fin,
-        COALESCE(ig.estado, 'activo') as estado_inscripcion
+        COALESCE(ig.estado, 'activo') as estado_inscripcion,
+        (
+            SELECT COUNT(*) 
+            FROM reserva_jugadores rj2 
+            JOIN reservas r2 ON rj2.reserva_id = r2.id 
+            WHERE rj2.jugador_id = pj.jugador_id 
+              AND r2.pack_id = pk.id 
+              AND r2.estado != 'cancelado'
+              AND (r2.fecha < CURDATE() OR (r2.fecha = CURDATE() AND r2.hora_fin <= CURTIME()))
+        ) as sesiones_pasadas,
+        (
+            SELECT COUNT(*) 
+            FROM reserva_jugadores rj2 
+            JOIN reservas r2 ON rj2.reserva_id = r2.id 
+            WHERE rj2.jugador_id = pj.jugador_id 
+              AND r2.pack_id = pk.id 
+              AND r2.estado != 'cancelado'
+        ) as sesiones_reservadas
     FROM pack_jugadores pj
     JOIN packs pk ON pj.pack_id = pk.id
     LEFT JOIN inscripciones_grupales ig ON ig.pack_id = pk.id AND ig.jugador_id = pj.jugador_id

@@ -119,6 +119,18 @@ try {
         throw new Exception("Error execute cancel: " . $stmtCancel->error);
     }
 
+    // --- SEND RESPONSE IMMEDIATELY ---
+    echo json_encode([
+        "ok" => true,
+        "message" => "Reserva cancelada correctamente",
+        "reserva_id" => $reserva_id
+    ]);
+
+    // Flush and close connection if possible
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    }
+
     // --- NOTIFICATIONS START (Background Processing) ---
     require_once "../notifications/whatsapp_service.php";
     require_once "../system/mail_service.php";
@@ -142,79 +154,34 @@ try {
         $resP = $stmtP->get_result()->fetch_assoc();
         
         if ($resP) {
-            $celJugador = $resP['cel_jugador'];
             $nomJugador = $resP['nom_jugador'];
-            $emailJugador = $resP['email_jugador'];
-
-            $celEntrenador = $resP['cel_entrenador'];
             $nomEntrenador = $resP['nom_entrenador'];
+            $emailJugador = $resP['email_jugador'];
             $emailEntrenador = $resP['email_entrenador'];
             
-            // Format Date and Time (from previously fetched $reserva)
             $fechaFmt = date("d/m/Y", strtotime($reserva['fecha']));
-            $horaFmt = substr($reserva['hora_inicio'], 0, 5); // 00:00
+            $horaFmt = substr($reserva['hora_inicio'], 0, 5);
 
             // 1. WHATSAPP
             $vars = [$fechaFmt, $horaFmt, $nomJugador, $nomEntrenador];
-            if ($celJugador) enviarWhatsApp($celJugador, 'reserva_cancelada', 'es_CL', $vars); 
-            if ($celEntrenador) enviarWhatsApp($celEntrenador, 'reserva_cancelada', 'es_CL', $vars);
+            if ($resP['cel_jugador']) enviarWhatsApp($resP['cel_jugador'], 'reserva_cancelada', 'es_CL', $vars); 
+            if ($resP['cel_entrenador']) enviarWhatsApp($resP['cel_entrenador'], 'reserva_cancelada', 'es_CL', $vars);
 
             // 2. EMAIL
             $subject = "🚫 Reserva Cancelada - " . $fechaFmt . " " . $horaFmt;
-
-            // Email content for Player
-            $bodyPlayer = "
-            <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
-                <h2 style='color: #d32f2f;'>🚫 Reserva Cancelada</h2>
-                <p>Hola <strong>$nomJugador</strong>,</p>
-                <p>Tu reserva para el entrenamiento con <strong>$nomEntrenador</strong> ha sido cancelada.</p>
-                <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;'>
-                    <p style='margin: 5px 0;'><strong>Fecha:</strong> $fechaFmt</p>
-                    <p style='margin: 5px 0;'><strong>Hora:</strong> $horaFmt</p>
-                </div>
-                <p>La clase ha sido devuelta a tu pack para que puedas reagendarla cuando gustes.</p>
-                <hr style='border: 0; border-top: 1px solid #eee; margin: 20px 0;'>
-                <p style='font-size: 12px; color: #888;'>Padel Manager - Gestión Integral de Padel</p>
-            </div>";
-
-            // Email content for Coach
-            $bodyCoach = "
-            <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
-                <h2 style='color: #d32f2f;'>🚫 Un entrenamiento ha sido cancelado</h2>
-                <p>Hola <strong>$nomEntrenador</strong>,</p>
-                <p>El jugador <strong>$nomJugador</strong> ha cancelado su asistencia para el siguiente horario:</p>
-                <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;'>
-                    <p style='margin: 5px 0;'><strong>Fecha:</strong> $fechaFmt</p>
-                    <p style='margin: 5px 0;'><strong>Hora:</strong> $horaFmt</p>
-                </div>
-                <p>Este horario ha vuelto a quedar disponible en tu agenda.</p>
-                <hr style='border: 0; border-top: 1px solid #eee; margin: 20px 0;'>
-                <p style='font-size: 12px; color: #888;'>Padel Manager - Gestión Integral de Padel</p>
-            </div>";
+            $bodyPlayer = "<div style='font-family: Arial, sans-serif;'><h2>🚫 Reserva Cancelada</h2><p>Hola <strong>$nomJugador</strong>, tu reserva para el entrenamiento con <strong>$nomEntrenador</strong> ha sido cancelada.</p></div>";
+            $bodyCoach = "<div style='font-family: Arial, sans-serif;'><h2>🚫 Entrenamiento cancelado</h2><p>Hola <strong>$nomEntrenador</strong>, el jugador <strong>$nomJugador</strong> ha cancelado su asistencia.</p></div>";
 
             if (!empty($emailJugador)) enviarCorreoSMTP($emailJugador, $subject, $bodyPlayer);
             if (!empty($emailEntrenador)) enviarCorreoSMTP($emailEntrenador, $subject, $bodyCoach);
 
-            // 3. PUSH (Save to DB & Send FCM)
-            // Notificar al Entrenador
+            // 3. PUSH
             $idEntrenador = $resP['entrenador_id'] ?? $reserva['entrenador_id'];
-            $tPushE = "🚫 Clase Cancelada por Alumno";
-            $mPushE = "$nomJugador ha cancelado la clase del $fechaFmt a las $horaFmt";
-            notifyUser($conn, $idEntrenador, $tPushE, $mPushE, 'clase_cancelada');
-
-            // Notificar al Jugador
-            $tPushJ = "🚫 Cancelación Confirmada";
-            $mPushJ = "Has cancelado tu clase del $fechaFmt a las $horaFmt.";
-            notifyUser($conn, $jugador_id, $tPushJ, $mPushJ, 'cancelacion_confirmada');
+            notifyUser($conn, $idEntrenador, "🚫 Clase Cancelada por Alumno", "$nomJugador ha cancelado la clase del $fechaFmt a las $horaFmt", 'clase_cancelada');
+            notifyUser($conn, $jugador_id, "🚫 Cancelación Confirmada", "Has cancelado tu clase del $fechaFmt a las $horaFmt.", 'cancelacion_confirmada');
         }
     }
     // --- NOTIFICATIONS END ---
-
-    echo json_encode([
-        "ok" => true,
-        "message" => "Reserva cancelada correctamente",
-        "reserva_id" => $reserva_id
-    ]);
 
 } catch (Exception $e) {
     http_response_code(500);

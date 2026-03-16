@@ -55,15 +55,15 @@ if ($pack_id) {
 ============================ */
 $sql = "
 SELECT 
+  d.id as slot_id,
   d.fecha_inicio,
   d.fecha_fin,
   d.club_id,
   c.nombre as club_nombre,
   c.direccion as club_direccion,
-  CASE 
-    WHEN r.id IS NULL THEN 0
-    ELSE 1
-  END AS ocupado
+  IFNULL(SUM(CASE WHEN r.tipo = 'individual' THEN 1 ELSE 0 END), 0) as count_individual,
+  IFNULL(COUNT(r.id), 0) as inscritos_count,
+  IFNULL(MAX(p.capacidad_maxima), 6) as cantidad_personas
 FROM disponibilidad_profesor d
 LEFT JOIN clubes c ON c.id = d.club_id
 LEFT JOIN reservas r
@@ -72,9 +72,11 @@ LEFT JOIN reservas r
  AND r.hora_inicio < TIME(d.fecha_fin)
  AND r.hora_fin > TIME(d.fecha_inicio)
  AND r.estado = 'reservado'
+LEFT JOIN packs p ON p.id = r.pack_id
 WHERE d.profesor_id = ?
   AND d.activo = 1
   AND DATE(d.fecha_inicio) >= CURDATE()
+GROUP BY d.id, d.fecha_inicio, d.fecha_fin, d.club_id, c.nombre, c.direccion
 ORDER BY d.fecha_inicio
 ";
 
@@ -104,15 +106,21 @@ $result = $stmt->get_result();
 
 $data = [];
 while ($row = $result->fetch_assoc()) {
+    // Determine if occupied based on capacity
+    $row['ocupado'] = 0;
+    if ($row['count_individual'] > 0) {
+        $row['ocupado'] = 1;
+    } else {
+        $capacity = (int)($row['cantidad_personas'] ?: 6);
+        if ($row['inscritos_count'] >= $capacity) {
+            $row['ocupado'] = 1;
+        }
+    }
+
     // Filter by Pack Time Range if applicable
     if ($rango_inicio && $rango_fin) {
         $slotTime = date('H:i:s', strtotime($row['fecha_inicio']));
-        // Check if slot starts within range
         if ($slotTime < $rango_inicio || $slotTime >= $rango_fin) {
-             // Mark as unavailable or remove?
-             // To be UX friendly, better to remove or mark as restricted.
-             // Blocking it (ocupado = 1) is easier for now to prevent booking.
-             // Or removing perfectly. Let's remove them to avoid clutter.
              continue; 
         }
     }

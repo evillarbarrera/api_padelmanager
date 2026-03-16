@@ -6,6 +6,8 @@ function fulfillPayment($conn, $data) {
     $pack_id = (int)$data['pack_id'];
     $jugador_id = (int)$data['jugador_id'];
     $reserva_id = $data['reserva_id'] ?? null;
+    $cupon_id   = $data['cupon_id'] ?? null;
+    $amount     = $data['amount'] ?? null;
 
     // 1. Get Pack Details
     $sqlPack = "SELECT tipo, capacidad_maxima, cupos_ocupados FROM packs WHERE id = ?";
@@ -24,10 +26,14 @@ function fulfillPayment($conn, $data) {
             $fecha_inicio = date('Y-m-d');
             $fecha_fin    = date('Y-m-d', strtotime('+6 months'));
             
-            $sqlBuy = "INSERT INTO pack_jugadores (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin) VALUES (?, ?, 0, ?, ?)";
+            $sqlBuy = "INSERT INTO pack_jugadores (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin, cupon_id, precio_pagado) VALUES (?, ?, 0, ?, ?, ?, ?)";
             $stmtBuy = $conn->prepare($sqlBuy);
-            $stmtBuy->bind_param("iiss", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin);
+            $stmtBuy->bind_param("iissid", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $cupon_id, $amount);
             $stmtBuy->execute();
+
+            if ($cupon_id) {
+                $conn->query("UPDATE cupones SET uso_actual = uso_actual + 1 WHERE id = $cupon_id");
+            }
             
             $sqlCheckInsc = "SELECT id FROM inscripciones_grupales WHERE pack_id = ? AND jugador_id = ?";
             $stmtCheckInsc = $conn->prepare($sqlCheckInsc);
@@ -133,11 +139,14 @@ function fulfillPayment($conn, $data) {
         $fecha_inicio = date('Y-m-d');
         $fecha_fin    = date('Y-m-d', strtotime('+6 months'));
 
-        $sql = "INSERT INTO pack_jugadores (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin, reserva_id) VALUES (?, ?, 0, ?, ?, ?)";
+        $sql = "INSERT INTO pack_jugadores (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin, reserva_id, cupon_id, precio_pagado) VALUES (?, ?, 0, ?, ?, ?, ?, ?)";
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("iisssi", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $reserva_id);
+        $stmt->bind_param("iisssiid", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $reserva_id, $cupon_id, $amount);
 
         if ($stmt->execute()) {
+            if ($cupon_id) {
+                $conn->query("UPDATE cupones SET uso_actual = uso_actual + 1 WHERE id = $cupon_id");
+            }
             if ($reserva_id) {
                 $stmtRes = $conn->prepare("UPDATE reservas SET estado = 'reservado', pack_id = ? WHERE id = ?");
                 $stmtRes->bind_param("ii", $pack_id, $reserva_id);

@@ -55,11 +55,21 @@ try {
                 WHERE rj2.jugador_id = u.id 
                   AND r2.pack_id = p.id 
                   AND r2.estado != 'cancelado'
-            ) as sesiones_gastadas
+            ) as sesiones_totales_reservadas,
+            (
+                SELECT COUNT(*) 
+                FROM reserva_jugadores rj2 
+                JOIN reservas r2 ON rj2.reserva_id = r2.id 
+                WHERE rj2.jugador_id = u.id 
+                  AND r2.pack_id = p.id 
+                  AND r2.estado != 'cancelado'
+                  AND (r2.fecha < CURDATE() OR (r2.fecha = CURDATE() AND r2.hora_fin <= CURTIME()))
+            ) as sesiones_pasadas
         FROM usuarios u
         JOIN pack_jugadores pj ON u.id = pj.jugador_id
         JOIN packs p ON pj.pack_id = p.id
         WHERE p.entrenador_id = ? 
+          AND p.tipo NOT IN ('grupal', 'pack_grupal')
         ORDER BY u.nombre ASC
     ";
 
@@ -70,8 +80,18 @@ try {
 
     $alumnos = [];
     while ($row = $result->fetch_assoc()) {
-        $restantes = (int)$row['sesiones_totales'] - (int)$row['sesiones_gastadas'];
-        $row['sesiones_restantes'] = $restantes;
+        $total = (int)$row['sesiones_totales'];
+        $pasadas = (int)$row['sesiones_pasadas'];
+        $reservadas = (int)$row['sesiones_totales_reservadas'];
+        
+        $pendientes = max(0, $total - $pasadas);
+        $disponibles = max(0, $total - $reservadas);
+        
+        $row['sesiones_restantes'] = $disponibles;
+        $row['sesiones_disponibles'] = $disponibles;
+        $row['sesiones_pendientes'] = $pendientes;
+        $row['sesiones_reservadas'] = $reservadas;
+        $row['pasadas'] = $pasadas;
         $alumnos[] = $row;
     }
 

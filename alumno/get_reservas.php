@@ -13,11 +13,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 $headers = getallheaders();
-$auth = $headers['Authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
+$auth = $headers['Authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
 
-if ($auth !== 'Bearer ' . base64_encode("1|padel_academy")) {
+if (trim($auth) !== 'Bearer ' . base64_encode("1|padel_academy")) {
     http_response_code(401);
-    echo json_encode(["error" => "Unauthorized"]);
+    echo json_encode(["error" => "Unauthorized", "received" => substr($auth, 0, 15) . "..."]);
     exit;
 }
 
@@ -48,7 +48,7 @@ SELECT
     r.pack_id,
     (SELECT MAX(pj2.id) 
      FROM pack_jugadores pj2 
-     WHERE pj2.pack_id = p.id 
+     WHERE pj2.pack_id = r.pack_id 
        AND (pj2.jugador_id = rj.jugador_id OR pj2.id IN (SELECT pack_jugadores_id FROM pack_jugadores_adicionales WHERE jugador_id = rj.jugador_id AND estado = 'aceptado'))
     ) AS pack_jugador_id,
     p.nombre AS pack_nombre,
@@ -73,15 +73,15 @@ LEFT JOIN (
         r2.entrenador_id, 
         r2.fecha, 
         r2.hora_inicio, 
-        COUNT(DISTINCT rj2.jugador_id) as ocupados 
+        COUNT(rj2.reserva_id) as ocupados 
     FROM reservas r2
     JOIN reserva_jugadores rj2 ON rj2.reserva_id = r2.id
-    WHERE r2.estado = 'reservado'
+    WHERE r2.estado = 'reservado' AND r2.fecha >= CURDATE()
     GROUP BY r2.entrenador_id, r2.fecha, r2.hora_inicio
 ) block_counts ON block_counts.entrenador_id = r.entrenador_id 
              AND block_counts.fecha = r.fecha 
              AND block_counts.hora_inicio = r.hora_inicio
-INNER JOIN usuarios u_e ON u_e.id = r.entrenador_id
+LEFT JOIN usuarios u_e ON u_e.id = r.entrenador_id
 WHERE rj.jugador_id = ?
   AND r.estado = 'reservado'
   AND (r.fecha > CURDATE() OR (r.fecha = CURDATE() AND r.hora_fin > CURTIME()))
@@ -96,23 +96,15 @@ $result = $stmt->get_result();
 while ($row = $result->fetch_assoc()) {
     if ($row['tipo'] === 'grupal') {
         $cap_min = (int)($row['capacidad_minima'] > 0 ? $row['capacidad_minima'] : 2);
-        $row['capacidad_minima'] = $cap_min; // Ensure it's passed
+        $row['capacidad_minima'] = $cap_min;
         if (!isset($row['capacidad_maxima']) || empty($row['capacidad_maxima'])) $row['capacidad_maxima'] = 6;
-        
-        // El estado_grupo depende de los inscritos reales vs el mínimo del pack
         $row['estado_grupo'] = ($row['cupos_ocupados'] >= $cap_min) ? 'activo' : 'pendiente';
     }
 
-    // Buscar invitados si es un pack duo/multi
     $row['invitados'] = [];
     if ($row['pack_jugador_id'] && ($row['cantidad_personas'] ?? 1) > 1) {
         $sqlInv = "
-            SELECT 
-                u.id, 
-                u.nombre, 
-                u.usuario, 
-                pja.estado,
-                pja.fecha_asignacion 
+            SELECT u.id, u.nombre, u.usuario, pja.estado, pja.fecha_asignacion 
             FROM pack_jugadores_adicionales pja
             JOIN usuarios u ON pja.jugador_id = u.id
             WHERE pja.pack_jugadores_id = ?
@@ -127,11 +119,10 @@ while ($row = $result->fetch_assoc()) {
             }
         }
     }
-
     $data["reservas_individuales"][] = $row;
 }
 
-// 2. Entrenamientos grupales inscritos (pendientes de fecha específica)
+// 2. Entrenamientos grupales inscritos
 $sql_grupales = "
 SELECT 
     ig.id AS inscripcion_id,
@@ -142,8 +133,9 @@ SELECT
     p.hora_inicio,
     p.capacidad_minima,
     p.capacidad_maxima,
-    (SELECT COUNT(*) FROM inscripciones_grupales ig2 WHERE ig2.pack_id = p.id AND ig2.estado = 'activo') as cupos_ocupados,
+    p.cupos_ocupados,
     p.estado_grupo as pack_estado_grupo,
+    p.duracion_sesion_min,
     u_e.nombre AS entrenador_nombre,
     u_e.foto_perfil AS entrenador_foto,
     ig.fecha_inscripcion,
@@ -151,15 +143,10 @@ SELECT
     'grupal' AS tipo,
     c.nombre as club_nombre,
     c.direccion as club_direccion,
-    c.google_maps_link as club_maps,
-    CASE 
-        WHEN p.duracion_sesion_min > 0 THEN p.duracion_sesion_min
-        WHEN (SELECT COUNT(*) FROM inscripciones_grupales ig3 WHERE ig3.pack_id = p.id AND ig3.estado = 'activo') >= 5 THEN 120
-        ELSE 60
-    END AS duracion_calculada
+    c.google_maps_link as club_maps
 FROM inscripciones_grupales ig
 INNER JOIN packs p ON p.id = ig.pack_id
-INNER JOIN usuarios u_e ON u_e.id = p.entrenador_id
+LEFT JOIN usuarios u_e ON u_e.id = p.entrenador_id
 LEFT JOIN clubes c ON c.id = p.club_id
 WHERE ig.jugador_id = ?
   AND ig.estado = 'activo'
@@ -174,7 +161,8 @@ $stmt->execute();
 $result = $stmt->get_result();
 
 while ($row = $result->fetch_assoc()) {
-    // Calcular la fecha próxima según dia_semana
+    $row['duracion_calculada'] = ($row['duracion_sesion_min'] > 0) ? $row['duracion_sesion_min'] : (($row['cupos_ocupados'] >= 5) ? 120 : 60);
+    
     $dia_semana_pack = (int)$row['dia_semana'];
     $hoy = new DateTime();
     $dia_actual = (int)$hoy->format('w');
@@ -184,45 +172,36 @@ while ($row = $result->fetch_assoc()) {
     if ($dias_diferencia > 0) {
         $fecha_calculada->modify("+$dias_diferencia days");
     } else if ($dias_diferencia === 0) {
-        // Si es hoy, verificar si la hora ya pasó
-        $hora_clase = $row['hora_inicio'];
-        $ahora_hora = $hoy->format('H:i:s');
-        if ($ahora_hora > $hora_clase) {
-            $fecha_calculada->modify("+7 days");
-        }
+        if ($hoy->format('H:i:s') > $row['hora_inicio']) $fecha_calculada->modify("+7 days");
     }
 
     $cap_min = (int)($row['capacidad_minima'] > 0 ? $row['capacidad_minima'] : 2);
-    $row['capacidad_minima'] = $cap_min;
     $row['estado_grupo'] = ($row['cupos_ocupados'] >= $cap_min) ? 'activo' : 'pendiente';
 
-    // Generar las próximas 4 ocurrencias (suficiente para cubrir un mes)
     for ($i = 0; $i < 4; $i++) {
         $fecha_occ = clone $fecha_calculada;
         if ($i > 0) $fecha_occ->modify("+$i weeks");
-        
         $fecha_occ_str = $fecha_occ->format('Y-m-d');
         
-        // Evitar duplicar proyectadas si ya bajamos la reserva física en la primera query
         $is_duplicate = false;
-        foreach ($data["reservas_individuales"] as $ri) {
-            if ($ri['pack_id'] == $row['pack_id'] && $ri['fecha'] === $fecha_occ_str) {
-                $is_duplicate = true;
-                break;
+        if (isset($data['reservas_individuales'])) {
+            foreach ($data['reservas_individuales'] as $ri) {
+                if (isset($ri['pack_id']) && $ri['pack_id'] == $row['pack_id'] && $ri['fecha'] === $fecha_occ_str) {
+                    $is_duplicate = true;
+                    break;
+                }
             }
         }
         
         if (!$is_duplicate) {
             $row_occ = $row;
             $row_occ['fecha'] = $fecha_occ_str;
-            // ID virtual para evitar colisiones en la UI
             $row_occ['id_virtual'] = $row['inscripcion_id'] . '_' . $row_occ['fecha'];
-            
-            $data["entrenamientos_grupales"][] = $row_occ;
+            $data['entrenamientos_grupales'][] = $row_occ;
         }
     }
 }
 
 echo json_encode($data);
 $conn->close();
- ?>
+?>

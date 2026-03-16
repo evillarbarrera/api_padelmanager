@@ -34,22 +34,22 @@ $entrenador_id = isset($_GET['entrenador_id']) ? intval($_GET['entrenador_id']) 
 $region = isset($_GET['region']) ? $_GET['region'] : null;
 $comuna = isset($_GET['comuna']) ? $_GET['comuna'] : null;
 
-// Base SQL
+// Base SQL with Optimized Joins for counts
 $sql = "
   SELECT p.*, 
          e.nombre as entrenador_nombre,
          e.foto_perfil as entrenador_foto,
          e.transbank_activo,
-         (SELECT descripcion FROM usuarios WHERE id = e.id) as entrenador_descripcion,
-         (SELECT COUNT(*) FROM inscripciones_grupales ig2 WHERE ig2.pack_id = p.id AND ig2.estado = 'activo') as cupos_ocupados,
-         (p.capacidad_maxima - (SELECT COUNT(*) FROM inscripciones_grupales ig3 WHERE ig3.pack_id = p.id AND ig3.estado = 'activo')) as cupos_disponibles,
+         e.descripcion as entrenador_descripcion,
+         COALESCE(ig_counts.cupos_ocupados, 0) as cupos_ocupados,
+         (p.capacidad_maxima - COALESCE(ig_counts.cupos_ocupados, 0)) as cupos_disponibles,
          d.latitud as trainer_lat,
          d.longitud as trainer_lng,
          d.comuna as trainer_comuna,
          d.region as trainer_region
 ";
 
-// Haversine calculation only if coordinates provided
+// ... [Haversine logic stays the same] ...
 if ($myLat && $myLng) {
     $sql .= ", ( 6371 * acos( cos( radians($myLat) ) * cos( radians( d.latitud ) ) * cos( radians( d.longitud ) - radians($myLng) ) + sin( radians($myLat) ) * sin( radians( d.latitud ) ) ) ) AS distancia ";
 } else {
@@ -60,6 +60,12 @@ $sql .= "
   FROM packs p
   INNER JOIN usuarios e ON e.id = p.entrenador_id
   LEFT JOIN direcciones d ON d.usuario_id = e.id
+  LEFT JOIN (
+      SELECT pack_id, COUNT(*) as cupos_ocupados 
+      FROM inscripciones_grupales 
+      WHERE estado = 'activo' 
+      GROUP BY pack_id
+  ) ig_counts ON ig_counts.pack_id = p.id
   WHERE p.activo = 1 AND e.rol = 'entrenador'
 ";
 

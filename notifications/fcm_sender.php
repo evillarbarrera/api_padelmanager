@@ -119,19 +119,21 @@ function send_fcm_push($deviceTokens, $title, $body, $data = []) {
                             'badge' => 1,
                             'mutable-content' => 1,
                             'content-available' => 1
-                        ],
-                        'data' => (object)$dataPayload
+                        ]
                     ]
                 ]
             ]
         ];
+
+        $jsonPayload = json_encode($message);
+        error_log("FCM SENDING: " . $jsonPayload);
 
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($message));
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
         
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);

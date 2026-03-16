@@ -1,6 +1,6 @@
 <?php
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
+// error_reporting(0);
+// ini_set('display_errors', 0);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, OPTIONS");
@@ -39,7 +39,7 @@ try {
     $resUser = $stmtUser->get_result()->fetch_assoc();
     $nombre = $resUser['nombre'] ?? 'Jugador';
 
-    // 2. Información de Packs (clases pagadas, reservadas, disponibles)
+    // 2. Información de Packs (clases pagadas, reservadas, disponibles, pendientes)
     $stmtPacks = $conn->prepare("
                 SELECT
                     p.id AS id,
@@ -47,75 +47,100 @@ try {
                     p.entrenador_id,
                     u_e.nombre AS entrenador_nombre,
                     u_e.foto_perfil AS entrenador_foto,
-                    (compras.cantidad_compras * p.sesiones_totales) AS sesiones_totales,
-                    COALESCE(reservas.clases_reservadas, 0) AS clases_reservadas,
-                    COALESCE(reservas.sesiones_gastadas, 0) AS sesiones_gastadas
+                    COALESCE((
+                        SELECT SUM(p_sub.sesiones_totales)
+                        FROM pack_jugadores pj_sub
+                        JOIN packs p_sub ON p_sub.id = pj_sub.pack_id
+                        WHERE pj_sub.jugador_id = ? AND pj_sub.pack_id = p.id
+                    ), p.sesiones_totales) AS sesiones_totales,
+                    (
+                        SELECT COUNT(DISTINCT r.id)
+                        FROM reservas r
+                        JOIN reserva_jugadores rj ON rj.reserva_id = r.id
+                        WHERE rj.jugador_id = ?
+                          AND r.pack_id = p.id
+                          AND r.estado != 'cancelado'
+                          AND r.tipo NOT IN ('grupal', 'pack_grupal')
+                    ) AS clases_reservadas_total,
+                    (
+                        SELECT COUNT(DISTINCT r.id)
+                        FROM reservas r
+                        JOIN reserva_jugadores rj ON rj.reserva_id = r.id
+                        WHERE rj.jugador_id = ?
+                          AND r.pack_id = p.id
+                          AND r.estado != 'cancelado'
+                          AND r.tipo NOT IN ('grupal', 'pack_grupal')
+                          AND (r.fecha < CURDATE() OR (r.fecha = CURDATE() AND r.hora_fin <= CURTIME()))
+                    ) AS sesiones_pasadas,
+                    (
+                        SELECT COUNT(DISTINCT r.id)
+                        FROM reservas r
+                        JOIN reserva_jugadores rj ON rj.reserva_id = r.id
+                        WHERE rj.jugador_id = ?
+                          AND r.pack_id = p.id
+                          AND r.estado != 'cancelado'
+                          AND r.tipo NOT IN ('grupal', 'pack_grupal')
+                          AND (r.fecha > CURDATE() OR (r.fecha = CURDATE() AND r.hora_fin > CURTIME()))
+                    ) AS clases_reservadas_futuro
                 FROM packs p
                 JOIN usuarios u_e ON u_e.id = p.entrenador_id
-                JOIN (
-                    SELECT 
-                        pj.pack_id,
-                        COUNT(*) AS cantidad_compras
-                    FROM pack_jugadores pj
-                    WHERE pj.jugador_id = ?
-                    GROUP BY pj.pack_id
-                ) compras ON compras.pack_id = p.id
-                LEFT JOIN (
-                    SELECT
-                        r.pack_id,
-                        COUNT(DISTINCT CASE WHEN r.estado = 'reservado' THEN r.id END) AS clases_reservadas,
-                        COUNT(DISTINCT r.id) AS sesiones_gastadas
-                    FROM reservas r
-                    JOIN reserva_jugadores rj 
-                    ON rj.reserva_id = r.id
-                    WHERE rj.jugador_id = ?
-                    AND r.estado != 'cancelado'
-                    AND (r.tipo != 'grupal' OR r.tipo IS NULL)
-                    GROUP BY r.pack_id
-                ) reservas ON reservas.pack_id = p.id
-                WHERE (p.tipo != 'grupal' OR p.tipo IS NULL)
+                JOIN pack_jugadores pj ON pj.pack_id = p.id
+                WHERE pj.jugador_id = ?
+                  AND p.tipo NOT IN ('grupal', 'pack_grupal')
+                GROUP BY p.id
     ");
-    $stmtPacks->bind_param("ii", $jugador_id, $jugador_id);
+    $stmtPacks->bind_param("iiiii", $jugador_id, $jugador_id, $jugador_id, $jugador_id, $jugador_id);
     $stmtPacks->execute();
     $resultPacks = $stmtPacks->get_result();
     
     $packs = [];
     $clasesPagadas = 0;
     $clasesReservadas = 0;
-    $clasesDisponibles = 0;
+    $clasesDisponibles = 0; // Créditos sin agendar
+    $clasesPendientes = 0;  // Sin agendar + Futuras
     
     while ($pack = $resultPacks->fetch_assoc()) {
-        $cantidad = (int)$pack['sesiones_totales'];
-        $reservadas = (int)$pack['clases_reservadas'];
-        $gastadas = (int)($pack['sesiones_gastadas'] ?? 0);
-        $disponibles = $cantidad - $gastadas;
+        $total = (int)$pack['sesiones_totales'];
+        $pasadas = (int)$pack['sesiones_pasadas'];
+        $reservadas_totales = (int)$pack['clases_reservadas_total'];
+        $futuras = (int)$pack['clases_reservadas_futuro'];
         
-        $clasesPagadas += $cantidad;
-        $clasesReservadas += $reservadas;
-        $clasesDisponibles += max(0, $disponibles);
+        // Pendientes = Total Compradas - Clases ya Pasadas
+        $pendientes = max(0, $total - $pasadas);
         
-        // Solo incluir en el detalle si aún tiene clases disponibles
-        if ($disponibles > 0) {
+        // Sin agendar = Total - Todas las agendadas (no canceladas)
+        $sin_agendar = max(0, $total - $reservadas_totales);
+        
+        $clasesPagadas += $total;
+        $clasesReservadas += $reservadas_totales; // Res: Todas no canceladas
+        $clasesDisponibles += $sin_agendar;
+        $clasesPendientes += $pendientes;
+        
+        if ($pendientes > 0 || $total > 0) {
             $packs[] = [
                 'id' => $pack['id'],
                 'nombre' => $pack['nombre'],
                 'entrenador_id' => $pack['entrenador_id'],
                 'entrenador_nombre' => $pack['entrenador_nombre'],
                 'entrenador_foto' => $pack['entrenador_foto'],
-                'total' => $cantidad,
-                'reservadas' => $reservadas,
-                'disponibles' => $disponibles
+                'total' => $total,
+                'reservadas' => $reservadas_totales,
+                'futuras' => $futuras,
+                'pasadas' => $pasadas,
+                'disponibles' => $sin_agendar,
+                'pendientes' => $pendientes
             ];
         }
     }
 
-    // 3. Clases Grupales (Inscripciones actuales y antiguas en packs recurrentes)
+    // 3. Clases Grupales (All-time non-cancelled group sessions)
     $stmtGrupales = $conn->prepare("
-        SELECT COUNT(*) as total
-        FROM inscripciones_grupales ig 
-        JOIN packs pg ON pg.id = ig.pack_id 
-        WHERE ig.jugador_id = ? 
-          AND ig.estado != 'cancelado'
+        SELECT COUNT(DISTINCT r.id) as total
+        FROM reservas r
+        JOIN reserva_jugadores rj ON rj.reserva_id = r.id
+        WHERE rj.jugador_id = ? 
+          AND r.estado != 'cancelado'
+          AND (r.tipo = 'grupal' OR r.tipo = 'pack_grupal')
     ");
     $stmtGrupales->bind_param("i", $jugador_id);
     $stmtGrupales->execute();
@@ -151,6 +176,7 @@ try {
                 "pagadas" => $clasesPagadas,
                 "reservadas" => $clasesReservadas,
                 "disponibles" => $clasesDisponibles,
+                "pendientes" => $clasesPendientes,
                 "grupales" => $clasesGrupales,
                 "detalle" => $packs
             ]

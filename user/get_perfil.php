@@ -47,24 +47,6 @@ if (trim($auth) !== trim($expectedToken)) {
 
 require_once "../db.php";
 
-// SILENT SCHEMA FIX - Ensure columns exist
-function ensureColumnUsers($conn, $column, $definition) {
-    $check = $conn->query("SHOW COLUMNS FROM usuarios LIKE '$column'");
-    if ($check && $check->num_rows == 0) {
-        $conn->query("ALTER TABLE usuarios ADD `$column` $definition");
-    }
-}
-ensureColumnUsers($conn, 'instagram', "VARCHAR(255) NULL");
-ensureColumnUsers($conn, 'facebook', "VARCHAR(255) NULL");
-ensureColumnUsers($conn, 'telefono', "VARCHAR(50) NULL");
-ensureColumnUsers($conn, 'categoria', "VARCHAR(50) DEFAULT 'Cuarta'");
-ensureColumnUsers($conn, 'google_id', "VARCHAR(255) NULL");
-ensureColumnUsers($conn, 'proveedor', "VARCHAR(50) DEFAULT 'App'");
-ensureColumnUsers($conn, 'foto', "VARCHAR(255) NULL");
-ensureColumnUsers($conn, 'foto_perfil', "VARCHAR(255) NULL");
-ensureColumnUsers($conn, 'mp_collector_id', "VARCHAR(100) NULL");
-
-
 $user_id = $_GET['user_id'] ?? 0;
 
 if (!$user_id) {

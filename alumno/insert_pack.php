@@ -109,7 +109,7 @@ if ($stmt->execute()) {
             <div style='background: #f4f4f4; padding: 15px; border-radius: 8px; margin: 20px 0;'>
                 <p style='margin: 5px 0;'><strong>Pack:</strong> $packNombre</p>
                 <p style='margin: 5px 0;'><strong>Sesiones:</strong> $sesiones clases</p>
-                <p style='margin: 5px 0;'><strong>Vigencia:</strong> 6 meses</p>
+                <p style='margin: 5px 0;'><strong>Vigencia:</strong> Aproximadamente 30 días (según acuerdo con tu entrenador)</p>
             </div>
             <p>Ya puedes comenzar a agendar tus clases desde la aplicación.</p>
             <hr style='border: 0; border-top: 1px solid #eee; margin: 20px 0;'>

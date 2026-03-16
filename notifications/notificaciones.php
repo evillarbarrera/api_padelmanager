@@ -51,6 +51,10 @@ function guardarToken($conn, $input) {
     $userId = intval($input['user_id'] ?? 0);
     $token = $input['token'] ?? '';
     
+    // Log the attempt
+    $logMsg = date('Y-m-d H:i:s') . " - GuardarToken Attempt: User $userId - Token: $token" . PHP_EOL;
+    file_put_contents(__DIR__ . '/token_requests.log', $logMsg, FILE_APPEND);
+
     if ($userId <= 0 || empty($token)) {
         throw new Exception("user_id y token son requeridos");
     }
