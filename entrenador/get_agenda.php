@@ -53,11 +53,14 @@ SELECT
     COALESCE(p.capacidad_maxima, 6) as capacidad_maxima,
     MAX(p.duracion_sesion_min) as duracion_original,
     COALESCE(r.tipo, p.tipo, 'individual') as tipo_real,
-    MIN(r.estado) as reserva_estado
+    MIN(r.estado) as reserva_estado,
+    COALESCE(MIN(c.nombre), MIN(p_c.nombre), '') as club_nombre
 FROM reservas r
 LEFT JOIN reserva_jugadores rj ON rj.reserva_id = r.id
 LEFT JOIN usuarios u_j ON u_j.id = rj.jugador_id
 LEFT JOIN packs p ON p.id = r.pack_id
+LEFT JOIN clubes c ON c.id = r.club_id
+LEFT JOIN clubes p_c ON p_c.id = p.club_id
 WHERE r.entrenador_id = ?
   AND r.fecha >= CURDATE()
   AND r.fecha <= DATE_ADD(CURDATE(), INTERVAL 10 DAY)
@@ -123,7 +126,8 @@ while ($row = $result->fetch_assoc()) {
         "capacidad_maxima" => $cap_max,
         "duracion_calculada" => $duracion,
         "tipo" => ($row['tipo_real'] === 'grupal' ? 'pack_grupal' : 'reserva_individual'),
-        "jugador_nombre" => implode(', ', array_column($inscritos_final, 'nombre'))
+        "jugador_nombre" => implode(', ', array_column($inscritos_final, 'nombre')),
+        "club_nombre" => $row['club_nombre']
     ];
 }
 
@@ -137,8 +141,10 @@ SELECT
     p.capacidad_minima,
     p.capacidad_maxima,
     p.categoria,
-    p.duracion_sesion_min as duracion_original
+    p.duracion_sesion_min as duracion_original,
+    COALESCE(c.nombre, '') as club_nombre
 FROM packs p
+LEFT JOIN clubes c ON c.id = p.club_id
 WHERE p.entrenador_id = ?
   AND p.tipo = 'grupal'
   AND p.activo = 1
@@ -174,7 +180,8 @@ while ($row = $result->fetch_assoc()) {
         "duracion_calculada" => $duracion,
         "tipo" => "grupal_template",
         "inscritos" => [],
-        "jugador_nombre" => ""
+        "jugador_nombre" => "",
+        "club_nombre" => $row['club_nombre']
     ];
 }
 

@@ -9,6 +9,7 @@ header("Content-Type: application/json");
 require_once "../db.php";
 
 $jugador_id = $_GET['jugador_id'] ?? 0;
+$entrenador_id = $_GET['entrenador_id'] ?? 0;
 
 if (!$jugador_id) {
     http_response_code(400);
@@ -19,11 +20,20 @@ if (!$jugador_id) {
 $sql = "SELECT e.id, e.fecha, e.promedio_general, e.comentarios, e.scores, e.entrenador_id, u.nombre as entrenador, u.usuario as email_entrenador
         FROM evaluaciones e
         LEFT JOIN usuarios u ON e.entrenador_id = u.id
-        WHERE e.jugador_id = ? 
-        ORDER BY e.fecha DESC";
+        WHERE e.jugador_id = ?";
+
+if ($entrenador_id) {
+    $sql .= " AND e.entrenador_id = ?";
+}
+
+$sql .= " ORDER BY e.fecha DESC";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $jugador_id);
+if ($entrenador_id) {
+    $stmt->bind_param("ii", $jugador_id, $entrenador_id);
+} else {
+    $stmt->bind_param("i", $jugador_id);
+}
 $stmt->execute();
 $result = $stmt->get_result();
 

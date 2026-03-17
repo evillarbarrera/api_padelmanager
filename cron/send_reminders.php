@@ -11,7 +11,7 @@ echo "--- Iniciando envío de recordatorios pendientes ---\n";
 $query = "SELECT id, user_id, titulo, mensaje, tipo 
           FROM recordatorios_programados 
           WHERE enviado = 0 
-          AND fecha_programada <= CURDATE()";
+          AND fecha_programada <= NOW()";
 
 $res = $conn->query($query);
 

@@ -36,6 +36,7 @@ if ($auth !== 'Bearer ' . base64_encode("1|padel_academy")) {
 }
 
 $jugador_id = $_GET['jugador_id'] ?? null;
+$entrenador_id = $_GET['entrenador_id'] ?? null;
 
 if (!$jugador_id) {
     http_response_code(400);
@@ -46,8 +47,14 @@ if (!$jugador_id) {
 $sql = "SELECT ev.*, IFNULL(u.nombre, 'Mío') as entrenador_nombre 
         FROM entrenamiento_videos ev
         LEFT JOIN usuarios u ON ev.entrenador_id = u.id
-        WHERE ev.jugador_id = ? 
-        ORDER BY ev.fecha DESC";
+        WHERE ev.jugador_id = ?";
+
+if ($entrenador_id) {
+    // Si se especifica entrenador, mostramos los de ese entrenador O los personales del alumno
+    $sql .= " AND (ev.entrenador_id = ? OR ev.tipo = 'personal')";
+}
+
+$sql .= " ORDER BY ev.fecha DESC";
 
 $stmt = $conn->prepare($sql);
 if (!$stmt) {
@@ -55,7 +62,12 @@ if (!$stmt) {
     echo json_encode(["error" => "Error al preparar consulta: " . $conn->error]);
     exit;
 }
-$stmt->bind_param("i", $jugador_id);
+
+if ($entrenador_id) {
+    $stmt->bind_param("ii", $jugador_id, $entrenador_id);
+} else {
+    $stmt->bind_param("i", $jugador_id);
+}
 $stmt->execute();
 $result = $stmt->get_result();
 

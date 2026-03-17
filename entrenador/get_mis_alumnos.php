@@ -44,22 +44,22 @@ try {
             u.foto_perfil as jugador_foto,
             p.id as pack_id,
             p.nombre as pack_nombre,
-            p.sesiones_totales,
-            pj.id as pack_jugador_id,
+            SUM(p.sesiones_totales) as sesiones_totales,
+            MAX(pj.id) as pack_jugador_id,
             p.rango_horario_inicio,
             p.rango_horario_fin,
             (
                 SELECT COUNT(*) 
-                FROM reserva_jugadores rj2 
-                JOIN reservas r2 ON rj2.reserva_id = r2.id 
+                FROM reservas r2 
+                JOIN reserva_jugadores rj2 ON r2.id = rj2.reserva_id
                 WHERE rj2.jugador_id = u.id 
                   AND r2.pack_id = p.id 
                   AND r2.estado != 'cancelado'
             ) as sesiones_totales_reservadas,
             (
                 SELECT COUNT(*) 
-                FROM reserva_jugadores rj2 
-                JOIN reservas r2 ON rj2.reserva_id = r2.id 
+                FROM reservas r2 
+                JOIN reserva_jugadores rj2 ON r2.id = rj2.reserva_id
                 WHERE rj2.jugador_id = u.id 
                   AND r2.pack_id = p.id 
                   AND r2.estado != 'cancelado'
@@ -70,6 +70,7 @@ try {
         JOIN packs p ON pj.pack_id = p.id
         WHERE p.entrenador_id = ? 
           AND p.tipo NOT IN ('grupal', 'pack_grupal')
+        GROUP BY u.id, p.id
         ORDER BY u.nombre ASC
     ";
 

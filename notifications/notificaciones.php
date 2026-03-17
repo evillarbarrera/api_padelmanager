@@ -98,24 +98,46 @@ function programarRecordatorio($conn, $input) {
         throw new Exception("user_id y fecha_entrenamiento son requeridos");
     }
 
-    $fecha = new DateTime($fechaEnt);
-    $fecha->modify('-1 day');
-    $fechaRec = $fecha->format('Y-m-d');
-    
-    $titulo = "🎾 Recordatorio: Entrenamiento mañana";
-    $mensaje = "Mañana tienes entrenamiento de $packNombre a las $horaInicio";
-    $tipo = 'recordatorio_dia_anterior';
-
     $stmt = $conn->prepare("
         INSERT INTO recordatorios_programados (user_id, titulo, mensaje, tipo, fecha_programada, enviado)
         VALUES (?, ?, ?, ?, ?, 0)
     ");
 
-    $stmt->bind_param('issss', $userId, $titulo, $mensaje, $tipo, $fechaRec);
+    if (!$stmt) {
+        throw new Exception("Error preparando statement: " . $conn->error);
+    }
+
+    // 1. Recordatorio 1 día antes (si el entrenamiento no es hoy o mañana muy temprano)
+    // Lo programamos para el día anterior a las 09:00 AM
+    $fecha1 = new DateTime($fechaEnt);
+    $fecha1->modify('-1 day');
+    $fechaRec1 = $fecha1->format('Y-m-d') . ' 09:00:00';
+    
+    $titulo1 = "🎾 Mañana: Clase de Pádel";
+    $mensaje1 = "Recuerda tu entrenamiento de $packNombre mañana a las $horaInicio. ¡Prepárate!";
+    $tipo1 = 'recordatorio_24h';
+
+    // 2. Recordatorio 1 hora antes
+    // Combinamos fecha y hora
+    $fecha2 = new DateTime($fechaEnt . ' ' . $horaInicio);
+    $fecha2->modify('-1 hour');
+    $fechaRec2 = $fecha2->format('Y-m-d H:i:s');
+    
+    $titulo2 = "⚡ ¡En 1 hora!";
+    $mensaje2 = "Tu clase de $packNombre comienza a las $horaInicio. ¡Te esperamos!";
+    $tipo2 = 'recordatorio_1h';
+
+    // Insertar el de 24h
+    $stmt->bind_param('issss', $userId, $titulo1, $mensaje1, $tipo1, $fechaRec1);
     $stmt->execute();
+    
+    // Insertar el de 1h
+    $stmt->bind_param('issss', $userId, $titulo2, $mensaje2, $tipo2, $fechaRec2);
+    $stmt->execute();
+    
     $stmt->close();
 
-    echo json_encode(['success' => true, 'message' => 'Recordatorio programado']);
+    echo json_encode(['success' => true, 'message' => 'Recordatorios programados (24h y 1h)']);
 }
 
 function notificarHorariosDisponibles($conn, $input) {
