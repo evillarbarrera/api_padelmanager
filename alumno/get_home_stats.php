@@ -98,6 +98,7 @@ try {
     $clasesReservadas = 0;
     $clasesDisponibles = 0; // Créditos sin agendar
     $clasesPendientes = 0;  // Sin agendar + Futuras
+    $totalFuturas = 0;
     
     while ($pack = $resultPacks->fetch_assoc()) {
         $total = (int)$pack['sesiones_totales'];
@@ -115,6 +116,7 @@ try {
         $clasesReservadas += $reservadas_totales; // Res: Todas no canceladas
         $clasesDisponibles += $sin_agendar;
         $clasesPendientes += $pendientes;
+        $totalFuturas += $futuras;
         
         if ($pendientes > 0 || $total > 0) {
             $packs[] = [
@@ -177,6 +179,7 @@ try {
                 "reservadas" => $clasesReservadas,
                 "disponibles" => $clasesDisponibles,
                 "pendientes" => $clasesPendientes,
+                "futuras" => $totalFuturas,
                 "grupales" => $clasesGrupales,
                 "detalle" => $packs
             ]
