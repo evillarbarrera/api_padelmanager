@@ -2,26 +2,40 @@
 require_once "../db.php";
 require_once "../notifications/fcm_sender.php";
 
-// 1. Obtener los Tips de IA de hoy
-// Forzamos la URL para asegurar que se generen si no existen
-$url_ia = "https://api.padelmanager.cl/ia/get_daily_tip.php";
-$ch = curl_init();
-curl_setopt($ch, CURLOPT_URL, $url_ia);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-$response_ia = curl_exec($ch);
-curl_close($ch);
+// 1. Obtener o generar los Tips de IA de hoy directamente (Evitamos loopback cURL)
+function getTipsDirectly($conn) {
+    $hoy = date('Y-m-d');
+    
+    // Primero buscar en caché
+    $sql = "SELECT titulo, mensaje, posicion FROM tips_diarios_ia WHERE fecha = '$hoy' ORDER BY posicion ASC";
+    $res = $conn->query($sql);
+    if ($res && $res->num_rows >= 1) {
+        $tips = [];
+        while($row = $res->fetch_assoc()) { $tips[] = $row; }
+        return $tips;
+    }
 
-$ia_data = json_decode($response_ia, true);
-$tips_disponibles = [];
+    // Si no hay hoy, generar Fallbacks de emergencia para que el sistema nunca falle
+    $fallbacks = [
+        ["titulo" => "⚡ Volea Pro", "mensaje" => "Flexiona ligeramente las rodillas al impactar la bola para ganar control.", "posicion" => 1],
+        ["titulo" => "🎾 Saque Estratégico", "mensaje" => "Varía la dirección y profundidad de tu saque para mantener al rival incómodo.", "posicion" => 2]
+    ];
 
-if ($ia_data && isset($ia_data['tips']) && is_array($ia_data['tips'])) {
-    $tips_disponibles = $ia_data['tips'];
+    // Intentar guardarlos para hoy
+    foreach($fallbacks as $t) {
+        $tit = $conn->real_escape_string($t['titulo']);
+        $men = $conn->real_escape_string($t['mensaje']);
+        $pos = (int)$t['posicion'];
+        $conn->query("INSERT IGNORE INTO tips_diarios_ia (fecha, titulo, mensaje, posicion) VALUES ('$hoy', '$tit', '$men', $pos)");
+    }
+    
+    return $fallbacks;
 }
 
+$tips_disponibles = getTipsDirectly($conn);
+
 if (empty($tips_disponibles)) {
-    die(json_encode(["status" => "error", "message" => "No se pudieron obtener o generar tips para hoy."]));
+    die(json_encode(["status" => "error", "message" => "Fallo crítico: No se pudieron obtener ni generar tips."]));
 }
 
 // 2. Determinar qué tip enviar basado en el parámetro 'pos'
@@ -35,16 +49,15 @@ foreach ($tips_disponibles as $t) {
     }
 }
 
-// Si no encuentra la posición pedida, mandamos el primero por defecto
 if (!$tip_seleccionado) {
     $tip_seleccionado = $tips_disponibles[0];
 }
 
-$titulo = $tip_seleccionado['titulo'];
-$mensaje = $tip_seleccionado['mensaje'];
+$titulo_base = $tip_seleccionado['titulo'];
+$cuerpo_ia = $tip_seleccionado['mensaje'];
 
-// 3. Obtener todos los alumnos activos
-$sql = "SELECT u.id FROM usuarios u WHERE u.rol = 'jugador'";
+// 3. Obtener todos los alumnos activos (Incluimos nombre para personalizar)
+$sql = "SELECT u.id, u.nombre FROM usuarios u WHERE u.rol = 'jugador'";
 $res = $conn->query($sql);
 
 if ($res && $res->num_rows > 0) {
@@ -53,8 +66,28 @@ if ($res && $res->num_rows > 0) {
 
     while ($row = $res->fetch_assoc()) {
         $jugadorId = $row['id'];
-        // notifyUser ya gestiona si se debe enviar Push y guardar en DB
-        if (notifyUser($conn, $jugadorId, $titulo, $mensaje, 'daily_tip')) {
+        $primerNombre = explode(' ', trim($row['nombre']))[0];
+
+        // Personalización Dinámica
+        if ($posicion_a_enviar == 1) {
+            $saludos = [
+                "¡Hola $primerNombre! Buen día. Tu Coach IA reportándose. 🎾",
+                "¡Buen día $primerNombre! Aquí tienes tu primer tip de hoy para mejorar en la cancha:",
+                "Hola $primerNombre, ¿listo para entrenar? Mira este consejo que tengo para ti:"
+            ];
+            $saludo = $saludos[array_rand($saludos)];
+            $mensaje = "$saludo $cuerpo_ia";
+        } else {
+            $saludos = [
+                "¡Hola de nuevo $primerNombre! Si vas a jugar hoy, no olvides esto:",
+                "¿Cómo va el día $primerNombre? Aquí te dejo otro consejo clave:",
+                "¡Hola $primerNombre! Te traigo un último tip para pulir tu técnica hoy:"
+            ];
+            $saludo = $saludos[array_rand($saludos)];
+            $mensaje = "$saludo $cuerpo_ia";
+        }
+
+        if (notifyUser($conn, $jugadorId, "Consejo PadelManager: $titulo_base", $mensaje, 'daily_tip')) {
             $count_notificaciones++;
         }
     }

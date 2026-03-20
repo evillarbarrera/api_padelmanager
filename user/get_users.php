@@ -13,23 +13,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 $headers = getallheaders();
-$auth = $headers['Authorization'] ?? $headers['authorization'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
-
-if (empty($auth)) {
-    http_response_code(401);
-    echo json_encode(["error" => "No Authorization header"]);
-    exit;
-}
-
-// Support both Bearer with and without base64 or different formats for dev
-$token_content = str_replace('Bearer ', '', $auth);
-$expectedTokenPart = base64_encode("1|padel_academy");
-
-if ($token_content !== $expectedTokenPart && $token_content !== "1|padel_academy") {
-    // Logging for debug if needed, but let's be slightly more permissive for now
-    // http_response_code(401);
-    // echo json_encode(["error" => "Unauthorized token"]);
-    // exit;
+require_once "../auth/auth_helper.php";
+if (!validateToken()) {
+    sendUnauthorized();
 }
 
 require_once "../db.php";

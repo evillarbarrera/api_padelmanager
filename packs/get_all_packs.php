@@ -14,13 +14,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 // Obtener header Authorization
 $headers = getallheaders();
-$auth = $headers['Authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
-
-// Validar token
-if ($auth !== 'Bearer ' . base64_encode("1|padel_academy")) {
-    http_response_code(401);
-    echo json_encode(["error" => "Unauthorized"]);
-    exit;
+require_once "../auth/auth_helper.php";
+if (!validateToken()) {
+    sendUnauthorized();
 }
 
 

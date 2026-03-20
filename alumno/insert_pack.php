@@ -14,12 +14,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 // TOKEN
 $headers = getallheaders();
-$auth = $headers['Authorization'] ?? '';
-
-if ($auth !== 'Bearer ' . base64_encode("1|padel_academy")) {
-    http_response_code(401);
-    echo json_encode(["error" => "Unauthorized"]);
-    exit;
+require_once "../auth/auth_helper.php";
+if (!validateToken()) {
+    sendUnauthorized();
 }
 require_once "../db.php";
 
@@ -29,6 +26,7 @@ file_put_contents("debug_insert_pack.log", date('Y-m-d H:i:s') . " - Input: " . 
 
 $data = json_decode($input, true);
 
+// 1. Obtener datos básicos
 $pack_id    = isset($data['pack_id']) ? (int)$data['pack_id'] : 0;
 $jugador_id = isset($data['jugador_id']) ? (int)$data['jugador_id'] : 0;
 $cupon_id   = isset($data['cupon_id']) ? (int)$data['cupon_id'] : null;
@@ -40,14 +38,25 @@ if ($pack_id === 0 || $jugador_id === 0) {
     exit;
 }
 
-// Validar que el pack esté activo
-$checkPack = $conn->prepare("SELECT id FROM packs WHERE id = ? AND activo = 1");
-$checkPack->bind_param("i", $pack_id);
-$checkPack->execute();
-if ($checkPack->get_result()->num_rows === 0) {
+// 2. Validar que el pack exista y obtener precio oficial del servidor (Seguridad QA)
+$stmtPackInfo = $conn->prepare("SELECT id, precio, sesiones_totales FROM packs WHERE id = ? AND activo = 1");
+$stmtPackInfo->bind_param("i", $pack_id);
+$stmtPackInfo->execute();
+$resPack = $stmtPackInfo->get_result()->fetch_assoc();
+
+if (!$resPack) {
     http_response_code(400);
-    echo json_encode(["error" => "El pack seleccionado ya no está disponible o no existe"]);
+    echo json_encode(["error" => "El pack seleccionado no existe o no está activo."]);
     exit;
+}
+
+// Usamos el precio del servidor como fuente de verdad
+$precio_oficial = $resPack['precio'];
+$precio_a_guardar = ($precio_pagado !== null) ? $precio_pagado : $precio_oficial; 
+
+// Alerta de seguridad si hay discrepancia sospechosa
+if ($precio_pagado !== null && abs($precio_pagado - $precio_oficial) > 1.00) {
+    error_log("[SECURITY] POSIBLE INYECCION PRECIO: Usuario $jugador_id envió $precio_pagado (Pack #$pack_id, Oficial: $precio_oficial)");
 }
 
 // fechas calculadas SOLO AQUÍ
@@ -59,7 +68,7 @@ $sql = "INSERT INTO pack_jugadores
         VALUES (?, ?, 0, ?, ?, ?, ?)";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("iissid", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $cupon_id, $precio_pagado);
+$stmt->bind_param("iissid", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $cupon_id, $precio_a_guardar);
 
 if ($stmt->execute()) {
     $pack_jugador_id = $conn->insert_id;

@@ -38,12 +38,10 @@ try {
 
     // Auth
     $headers = getallheaders();
-    $auth = $headers['Authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
-    if ($auth !== 'Bearer ' . base64_encode("1|padel_academy")) {
-        http_response_code(401);
-        echo json_encode(["error" => "Unauthorized"]);
-        exit;
-    }
+require_once "../auth/auth_helper.php";
+if (!validateToken()) {
+    sendUnauthorized();
+}
 
     // 1. Detect if POST was exceeded (usually when file is too big)
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST) && empty($_FILES) && $_SERVER['CONTENT_LENGTH'] > 0) {

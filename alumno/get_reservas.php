@@ -12,13 +12,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-$headers = getallheaders();
-$auth = $headers['Authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
-
-if (trim($auth) !== 'Bearer ' . base64_encode("1|padel_academy")) {
-    http_response_code(401);
-    echo json_encode(["error" => "Unauthorized", "received" => substr($auth, 0, 15) . "..."]);
-    exit;
+require_once __DIR__ . "/../auth/auth_helper.php";
+$userIdFromToken = validateToken();
+if (!$userIdFromToken) {
+    sendUnauthorized();
 }
 
 require_once "../db.php";

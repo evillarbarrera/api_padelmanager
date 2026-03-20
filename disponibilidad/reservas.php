@@ -14,12 +14,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 // Authorization
 $headers = getallheaders();
-$auth = $headers['Authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
-
-if ($auth !== 'Bearer ' . base64_encode("1|padel_academy")) {
-    http_response_code(401);
-    echo json_encode(["error" => "Unauthorized"]);
-    exit;
+require_once "../auth/auth_helper.php";
+if (!validateToken()) {
+    sendUnauthorized();
 }
 require_once "../db.php";
 
@@ -158,6 +155,11 @@ try {
 
     for ($i = 0; $i < $recurrencia; $i++) {
         $currentDate = date('Y-m-d', strtotime($data['fecha'] . " +$i weeks"));
+        
+        // --- QA VALIDATION: No permitir fechas pasadas ---
+        if ($currentDate < date('Y-m-d')) {
+            throw new Exception("No puedes agendar una clase en una fecha pasada ($currentDate).");
+        }
         
         // 0. Pack Info
         $stmtPack->bind_param("i", $data['pack_id']);

@@ -28,11 +28,9 @@ require_once "../db.php";
 
 // Auth
 $headers = getallheaders();
-$auth = $headers['Authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
-if ($auth !== 'Bearer ' . base64_encode("1|padel_academy")) {
-    http_response_code(401);
-    echo json_encode(["error" => "Unauthorized"]);
-    exit;
+require_once "../auth/auth_helper.php";
+if (!validateToken()) {
+    sendUnauthorized();
 }
 
 $jugador_id = $_GET['jugador_id'] ?? null;

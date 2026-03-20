@@ -19,14 +19,9 @@ $conn->query("ALTER TABLE usuarios MODIFY COLUMN rol VARCHAR(50)");
 
 // Robust way to get the Authorization header
 $headers = getallheaders();
-$auth = $headers['Authorization'] ?? $headers['authorization'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
-
-$expectedToken = 'Bearer ' . base64_encode("1|padel_academy");
-
-if (empty($auth) || $auth !== $expectedToken) {
-    http_response_code(401);
-    echo json_encode(["error" => "Unauthorized", "details" => "Token mismatch or missing"]);
-    exit;
+require_once "auth_helper.php";
+if (!validateToken()) {
+    sendUnauthorized();
 }
 
 $data = json_decode(file_get_contents("php://input"), true);

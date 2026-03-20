@@ -15,13 +15,9 @@ if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'];
 } elseif (function_exists('getallheaders')) {
     $headers = getallheaders();
-    $authHeader = $headers['Authorization'] ?? ($headers['authorization'] ?? '');
-}
-
-if ($authHeader !== 'Bearer ' . base64_encode("1|padel_academy")) {
-    http_response_code(401);
-    echo json_encode(["error" => "Unauthorized"]);
-    exit;
+require_once "../auth/auth_helper.php";
+if (!validateToken()) {
+    sendUnauthorized();
 }
 
 require_once "../db.php";

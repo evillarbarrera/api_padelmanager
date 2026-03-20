@@ -21,12 +21,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 $headers = getallheaders();
-$auth = $headers['Authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
-
-if ($auth !== 'Bearer ' . base64_encode("1|padel_academy")) {
-    http_response_code(401);
-    echo json_encode(["error" => "Unauthorized"]);
-    exit;
+require_once "../auth/auth_helper.php";
+if (!validateToken()) {
+    sendUnauthorized();
 }
 
 require_once "../db.php";
@@ -36,10 +33,30 @@ $inscripcion_id = $data['inscripcion_id'] ?? 0;
 $jugador_id = $data['jugador_id'] ?? 0;
 
 if (!$inscripcion_id || !$jugador_id) {
+    // --- AUDIT LOG START (FAIL) ---
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    $ua = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
+    $logMsg = "[CANCELLATION_AUDIT] FAILED | IP: $ip | USER_ID: $jugador_id | INSCR_ID: $inscripcion_id | UA: $ua";
+    error_log($logMsg);
+    // --- AUDIT LOG END ---
     http_response_code(400);
     echo json_encode(["error" => "Faltan datos (inscripcion_id, jugador_id)"]);
     exit;
 }
+
+// --- AUDIT LOG START (SUCCESS DATA) ---
+$ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+$ua = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
+$logEntry = "[CANCELLATION_AUDIT] SUCCESS | IP: $ip | USER_ID: $jugador_id | INSCR_ID: $inscripcion_id | UA: $ua";
+
+if ($jugador_id == 3) {
+    // Capturamos el rastro completo para el ID 3
+    $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+    $logEntry .= " | BACKTRACE: " . json_encode($backtrace);
+}
+
+error_log($logEntry);
+// --- AUDIT LOG END ---
 
 $conn->begin_transaction();
 
