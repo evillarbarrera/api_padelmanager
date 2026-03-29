@@ -14,12 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once "../db.php";
 
-// Robust way to get the Authorization header
-$headers = getallheaders();
-require_once "auth_helper.php";
-if (!validateToken()) {
-    sendUnauthorized();
-}
+
 
 $data = json_decode(file_get_contents("php://input"), true);
 

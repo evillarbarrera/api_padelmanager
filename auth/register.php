@@ -17,12 +17,7 @@ require_once "../db.php";
 // Auto-fix for column length if 'administrador_club' is being truncated
 $conn->query("ALTER TABLE usuarios MODIFY COLUMN rol VARCHAR(50)");
 
-// Robust way to get the Authorization header
-$headers = getallheaders();
-require_once "auth_helper.php";
-if (!validateToken()) {
-    sendUnauthorized();
-}
+
 
 $data = json_decode(file_get_contents("php://input"), true);
 
