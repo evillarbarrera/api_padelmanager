@@ -5,8 +5,28 @@
  */
 
 function validateToken() {
-    $headers = getallheaders();
-    $auth = $headers['Authorization'] ?? $headers['authorization'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+    // 1. Get headers via getallheaders (Apache) if available
+    $headers = function_exists('getallheaders') ? getallheaders() : [];
+    
+    // 2. Fallback to standard Server variables for Authorization and CUSTOM X-Authorization
+    $auth = '';
+    
+    // Check various sources for the standard token
+    if (isset($headers['Authorization'])) {
+        $auth = $headers['Authorization'];
+    } elseif (isset($headers['authorization'])) {
+        $auth = $headers['authorization'];
+    } elseif (isset($headers['X-Authorization'])) {
+        $auth = $headers['X-Authorization'];
+    } elseif (isset($headers['x-authorization'])) {
+        $auth = $headers['x-authorization'];
+    } elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
+        $auth = $_SERVER['HTTP_AUTHORIZATION'];
+    } elseif (isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
+        $auth = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
+    } elseif (isset($_SERVER['HTTP_X_AUTHORIZATION'])) {
+        $auth = $_SERVER['HTTP_X_AUTHORIZATION'];
+    }
 
     if (empty($auth)) {
         return false;
