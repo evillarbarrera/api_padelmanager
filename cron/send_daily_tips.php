@@ -15,21 +15,66 @@ function getTipsDirectly($conn) {
         return $tips;
     }
 
-    // Si no hay hoy, generar Fallbacks de emergencia para que el sistema nunca falle
-    $fallbacks = [
-        ["titulo" => "⚡ Volea Pro", "mensaje" => "Flexiona ligeramente las rodillas al impactar la bola para ganar control.", "posicion" => 1],
-        ["titulo" => "🎾 Saque Estratégico", "mensaje" => "Varía la dirección y profundidad de tu saque para mantener al rival incómodo.", "posicion" => 2]
-    ];
+    // SI NO HAY TIPS, GENERARLOS (Lógica idéntica a get_tip_frontend.php)
+    $GEMINI_API_KEY = "AIzaSyDtZxXN0bb-bI2tvwb9I8R5_ppaA5OcqAE";
+    $seed = rand(1, 1000);
+    $dayOfWeek = date('l'); $dayNum = date('j'); $month = date('F');
+    $prompt = "Actúa como un experto entrenador de Pádel profesional (WPT style). Hoy es $dayOfWeek $dayNum de $month.
+Genera exactamente 2 consejos técnicos de pádel TOTALMENTE ÚNICOS, INNOVADORES y PRÁCTICOS para hoy. 
+Semilla de aleatoriedad: $seed.
+Formato estricto (una línea por consejo):
+Emoji Titulo Corto | Consejo técnico de 1-2 frases máximo.
+Solo devuelve las 2 líneas.";
 
-    // Intentar guardarlos para hoy
-    foreach($fallbacks as $t) {
+    $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" . $GEMINI_API_KEY;
+    $data = ["contents" => [["parts" => [["text" => $prompt]]]]];
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $tips = [];
+    $resAI = json_decode($response, true);
+    if ($httpCode === 200 && isset($resAI['candidates'][0]['content']['parts'][0]['text'])) {
+        $lines = explode("\n", trim($resAI['candidates'][0]['content']['parts'][0]['text']));
+        $p = 1;
+        foreach($lines as $l) {
+            $l = trim($l); if (empty($l)) continue;
+            $l = preg_replace('/^[\*\-\d\.]+\s*/', '', $l);
+            if(strpos($l, '|') !== false) {
+                $parts = explode("|", $l, 2);
+                $tips[] = ["titulo" => trim($parts[0]), "mensaje" => trim($parts[1]), "posicion" => $p];
+                $p++; if($p > 2) break;
+            }
+        }
+    }
+
+    // Fallback Emergency pool
+    if (count($tips) < 1) {
+        $pool = [
+            ["titulo" => "⚡ Volea de Bloqueo", "mensaje" => "No hagas backswing en la red. Deja que la potencia del rival rebote en tu pala firme."],
+            ["titulo" => "🎾 Chiquita a los pies", "mensaje" => "Usa la chiquita cuando el rival esté pegado a la red para obligarlos a jugar bajo."],
+            ["titulo" => "📐 Bandeja a la reja", "mensaje" => "Busca la reja lateral en tu bandeja para generar rebotes impredecibles."],
+            ["titulo" => "🛡️ El Globo de Rescate", "mensaje" => "Un globo alto y profundo es tu mejor herramienta para recuperar la red."]
+        ];
+        shuffle($pool);
+        $tips = [array_merge($pool[0], ["posicion" => 1]), array_merge($pool[1], ["posicion" => 2])];
+    }
+
+    // Guardar para hoy
+    foreach($tips as $t) {
         $tit = $conn->real_escape_string($t['titulo']);
         $men = $conn->real_escape_string($t['mensaje']);
         $pos = (int)$t['posicion'];
         $conn->query("INSERT IGNORE INTO tips_diarios_ia (fecha, titulo, mensaje, posicion) VALUES ('$hoy', '$tit', '$men', $pos)");
     }
     
-    return $fallbacks;
+    return $tips;
 }
 
 $tips_disponibles = getTipsDirectly($conn);
