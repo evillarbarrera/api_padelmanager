@@ -4,7 +4,7 @@ ini_set('display_errors', 1);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -49,7 +49,8 @@ $stmtInsert = $conn->prepare($sqlInsert);
 $stmtInsert->bind_param("ssss", $email, $passwordHash, $rol, $nombre);
 
 if ($stmtInsert->execute()) {
-    $token = base64_encode("1|padel_academy");
+    $newId = $stmtInsert->insert_id;
+    $token = base64_encode($newId . "|padel_academy");
 
     echo json_encode([
         "success" => true,

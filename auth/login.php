@@ -4,7 +4,7 @@ ini_set('display_errors', 1);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -16,14 +16,17 @@ require_once "../db.php";
 
 $data = json_decode(file_get_contents("php://input"), true);
 
-$usuario = $data['usuario'] ?? '';
-$password = $data['password'] ?? '';
+$usuario = trim($data['usuario'] ?? '');
+$password = trim($data['password'] ?? '');
 
-$sql = "SELECT id, usuario, password, rol, nombre FROM usuarios WHERE usuario = ?";
+// Búsqueda insensible a mayúsculas/minúsculas para el email
+$sql = "SELECT id, usuario, password, rol, nombre FROM usuarios WHERE LOWER(usuario) = LOWER(?)";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("s", $usuario);
 $stmt->execute();
 $result = $stmt->get_result();
+
+$debug_error = "Credenciales incorrectas";
 
 if ($user = $result->fetch_assoc()) {
   $passwordStored = $user['password'];
@@ -42,6 +45,8 @@ if ($user = $result->fetch_assoc()) {
   elseif ($password === $passwordStored) {
       $loginSuccess = true;
       $needsRehash = true; // Convertir a hash
+  } else {
+      $debug_error = "La contraseña no coincide con el registro";
   }
 
   if ($loginSuccess) {
@@ -95,7 +100,13 @@ if ($user = $result->fetch_assoc()) {
     ]);
     exit;
   }
+} else {
+    $debug_error = "El usuario '$usuario' no existe en la base de datos";
 }
 
 http_response_code(401);
-echo json_encode(["success" => false, "error" => "Credenciales incorrectas"]);
+echo json_encode([
+    "success" => false, 
+    "error" => "Credenciales incorrectas",
+    "error_details" => $debug_error
+]);

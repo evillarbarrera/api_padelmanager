@@ -1,15 +1,12 @@
 RewriteEngine On
 
-# Forzar el paso de la cabecera Authorization a PHP
-CGIPassAuth On
-
 RewriteCond %{HTTP:Authorization} ^(.*)
 RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
 
 <IfModule mod_headers.c>
   Header always set Access-Control-Allow-Origin "*"
   Header always set Access-Control-Allow-Methods "GET, POST, OPTIONS"
-  Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-API-KEY"
+  Header always set Access-Control-Allow-Headers "Content-Type, Authorization, x-authorization, X-Authorization, X-API-KEY"
 </IfModule>
 
 # Responder preflight con status 200 sin redirigir

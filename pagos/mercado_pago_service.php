@@ -120,5 +120,56 @@ class MercadoPagoService {
             return null;
         }
     }
+
+    /**
+     * Creates a recurring subscription (Pre-approval)
+     */
+    public static function createPreApproval($data) {
+        $url = MP_API_URL . "/preapproval";
+        
+        $preapproval = [
+            "payer_email" => $data['payer_email'],
+            "back_url" => $data['origin'] . "?status=success_sub",
+            "reason" => "Membresía Padel Manager - " . $data['plan_name'],
+            "auto_recurring" => [
+                "frequency" => 1,
+                "frequency_type" => "months",
+                "transaction_amount" => (float)$data['amount'],
+                "currency_id" => "CLP"
+            ],
+            "external_reference" => json_encode([
+                "coach_id" => $data['coach_id'],
+                "plan_id" => $data['plan_id']
+            ]),
+            "status" => "pending"
+        ];
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "Authorization: Bearer " . MP_ACCESS_TOKEN,
+            "Content-Type: application/json"
+        ]);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($preapproval));
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $decoded = json_decode($response, true);
+
+        if ($httpCode >= 200 && $httpCode < 300) {
+            return $decoded;
+        } else {
+            error_log("Mercado Pago Pre-approval Error: " . $response);
+            return [
+                "error" => true,
+                "status" => $httpCode,
+                "message" => $decoded['message'] ?? "Error desconocido de Mercado Pago (Code: $httpCode)",
+                "raw" => $response
+            ];
+        }
+    }
 }
 

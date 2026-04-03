@@ -8,24 +8,34 @@ function validateToken() {
     // 1. Get headers via getallheaders (Apache) if available
     $headers = function_exists('getallheaders') ? getallheaders() : [];
     
-    // 2. Fallback to standard Server variables for Authorization and CUSTOM X-Authorization
-    $auth = '';
-    
-    // Check various sources for the standard token
-    if (isset($headers['Authorization'])) {
-        $auth = $headers['Authorization'];
-    } elseif (isset($headers['authorization'])) {
-        $auth = $headers['authorization'];
-    } elseif (isset($headers['X-Authorization'])) {
-        $auth = $headers['X-Authorization'];
-    } elseif (isset($headers['x-authorization'])) {
-        $auth = $headers['x-authorization'];
-    } elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
-        $auth = $_SERVER['HTTP_AUTHORIZATION'];
-    } elseif (isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
-        $auth = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
-    } elseif (isset($_SERVER['HTTP_X_AUTHORIZATION'])) {
-        $auth = $_SERVER['HTTP_X_AUTHORIZATION'];
+    // Check headers case-insensitively
+    foreach ($headers as $key => $value) {
+        $keyLower = strtolower($key);
+        if ($keyLower === 'authorization' || $keyLower === 'x-authorization') {
+            $auth = $value;
+            break;
+        }
+    }
+
+    // Fallbacks to standard Server variables
+    if (empty($auth)) {
+        $possible_keys = [
+            'HTTP_AUTHORIZATION', 
+            'REDIRECT_HTTP_AUTHORIZATION', 
+            'HTTP_X_AUTHORIZATION', 
+            'REDIRECT_HTTP_X_AUTHORIZATION'
+        ];
+        foreach ($possible_keys as $key) {
+            if (!empty($_SERVER[$key])) {
+                $auth = $_SERVER[$key];
+                break;
+            }
+        }
+    }
+
+    // 🏆 ULTIMATE FALLBACK: Query Parameter (for Safari/Mobile bypass)
+    if (empty($auth) && !empty($_GET['token'])) {
+        $auth = 'Bearer ' . $_GET['token'];
     }
 
     if (empty($auth)) {

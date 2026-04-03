@@ -4,7 +4,7 @@ ini_set('display_errors', 1);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -110,13 +110,15 @@ WHERE u.id IN (
 ) OR u.id IN (
     SELECT rj_sub.jugador_id FROM reserva_jugadores rj_sub 
     JOIN reservas r_sub ON r_sub.id = rj_sub.reserva_id WHERE r_sub.entrenador_id = ? AND r_sub.estado != 'cancelado'
+) OR u.id IN (
+    SELECT ea_sub.alumno_id FROM entrenador_alumno ea_sub WHERE ea_sub.entrenador_id = ?
 )
 GROUP BY u.id
 ORDER BY u.nombre ASC
 ";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("iiiiiii", $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id);
+$stmt->bind_param("iiiiiiii", $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id);
 $stmt->execute();
 
 $result = $stmt->get_result();

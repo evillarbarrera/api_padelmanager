@@ -4,7 +4,7 @@ ini_set('display_errors', 1);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -155,7 +155,11 @@ if ($stmt->execute()) {
         notifyUser($conn, $jugador_id, $tituloPush, $mensajePush, 'nueva_evaluacion');
     }
 
-    echo json_encode(["success" => true, "id" => $eval_id, "promedio" => $promedio]);
+    // --- ACHIEVEMENTS CHECK ---
+    require_once __DIR__ . "/../logros/check_achievements.php";
+    $nuevosLogros = checkAchievements($conn, $jugador_id);
+
+    echo json_encode(["success" => true, "id" => $eval_id, "promedio" => $promedio, "nuevos_logros" => $nuevosLogros]);
 } else {
     http_response_code(500);
     echo json_encode(["error" => $stmt->error]);

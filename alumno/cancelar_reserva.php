@@ -4,7 +4,7 @@ ini_set('display_errors', 0);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Access-Control-Max-Age: 86400");
 header("Content-Type: application/json");
 

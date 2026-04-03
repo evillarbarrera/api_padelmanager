@@ -8,6 +8,10 @@ function fulfillPayment($conn, $data) {
     $reserva_id = $data['reserva_id'] ?? null;
     $cupon_id   = $data['cupon_id'] ?? null;
     $amount     = $data['amount'] ?? null;
+    $moneda     = $data['moneda'] ?? 'CLP';
+    $metodo     = $data['metodo_pago'] ?? 'MercadoPago';
+    $order_id   = $data['paypal_order_id'] ?? null;
+    $comision   = $data['comision_plataforma'] ?? 0;
 
     // 1. Get Pack Details
     $sqlPack = "SELECT tipo, capacidad_maxima, cupos_ocupados FROM packs WHERE id = ?";
@@ -26,10 +30,11 @@ function fulfillPayment($conn, $data) {
             $fecha_inicio = date('Y-m-d');
             $fecha_fin    = date('Y-m-d', strtotime('+6 months'));
             
-            $sqlBuy = "INSERT INTO pack_jugadores (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin, cupon_id, precio_pagado) VALUES (?, ?, 0, ?, ?, ?, ?)";
+            $sqlBuy = "INSERT INTO pack_jugadores (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin, cupon_id, precio_pagado, moneda, metodo_pago, paypal_order_id, comision_plataforma) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmtBuy = $conn->prepare($sqlBuy);
-            $stmtBuy->bind_param("iissid", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $cupon_id, $amount);
+            $stmtBuy->bind_param("iissidsssd", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $cupon_id, $amount, $moneda, $metodo, $order_id, $comision);
             $stmtBuy->execute();
+            // ... rest of code same ...
 
             if ($cupon_id) {
                 $conn->query("UPDATE cupones SET uso_actual = uso_actual + 1 WHERE id = $cupon_id");
@@ -139,9 +144,9 @@ function fulfillPayment($conn, $data) {
         $fecha_inicio = date('Y-m-d');
         $fecha_fin    = date('Y-m-d', strtotime('+6 months'));
 
-        $sql = "INSERT INTO pack_jugadores (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin, reserva_id, cupon_id, precio_pagado) VALUES (?, ?, 0, ?, ?, ?, ?, ?)";
+        $sql = "INSERT INTO pack_jugadores (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin, reserva_id, cupon_id, precio_pagado, moneda, metodo_pago, paypal_order_id, comision_plataforma) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("iisssiid", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $reserva_id, $cupon_id, $amount);
+        $stmt->bind_param("iisssiidsssd", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $reserva_id, $cupon_id, $amount, $moneda, $metodo, $order_id, $comision);
 
         if ($stmt->execute()) {
             if ($cupon_id) {

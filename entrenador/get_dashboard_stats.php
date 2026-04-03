@@ -4,7 +4,7 @@ ini_set('display_errors', 1);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -35,9 +35,10 @@ $data = [
     "clases_hoy" => 0
 ];
 
-// 1. Cantidad de alumnos total (únicos con packs o reservas de este entrenador)
+// 1. Cantidad de alumnos total (Packs + Reservas + Vinculados + Creados)
 $sql_alumnos = "
 SELECT COUNT(DISTINCT jugador_id) as total FROM (
+    /* 1. Alumnos con packs de este entrenador */
     SELECT pj.jugador_id 
     FROM pack_jugadores pj
     JOIN packs p ON p.id = pj.pack_id
@@ -45,15 +46,30 @@ SELECT COUNT(DISTINCT jugador_id) as total FROM (
     
     UNION
     
+    /* 2. Alumnos con reservas agendadas */
     SELECT rj.jugador_id
     FROM reserva_jugadores rj
     JOIN reservas r ON r.id = rj.reserva_id
     WHERE r.entrenador_id = ? AND r.estado != 'cancelado'
+
+    UNION
+
+    /* 3. Alumnos vinculados manualmente */
+    SELECT alumno_id as jugador_id
+    FROM entrenador_alumno
+    WHERE entrenador_id = ?
+
+    UNION
+
+    /* 4. Alumnos creados por este entrenador */
+    SELECT id as jugador_id
+    FROM usuarios
+    WHERE entrenador_creador_id = ? AND rol = 'alumno'
 ) as alumnos_unicos
 ";
 
 $stmt = $conn->prepare($sql_alumnos);
-$stmt->bind_param("ii", $entrenador_id, $entrenador_id);
+$stmt->bind_param("iiii", $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id);
 $stmt->execute();
 $data["total_alumnos"] = (int)$stmt->get_result()->fetch_assoc()['total'];
 

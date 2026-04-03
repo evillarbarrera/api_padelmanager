@@ -4,7 +4,7 @@ ini_set('display_errors', 1);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -99,6 +99,33 @@ if ($stmtInsert->execute()) {
             "nivel" => null,
             "club_nombre" => "Perfil Global"
         ];
+    }
+
+    // 6. Notificar al Super Admin si es un nuevo Entrenador
+    if ($rol === 'entrenador' || $rol === 'coach' || $rol === 'administrador_club') {
+        require_once "../system/mail_service.php";
+        $adminEmail = "ejvillarb@padelmanager.cl";
+        $subject = "🆕 Nuevo Registro en Plataforma: $nombre ($rol)";
+        $body = "
+        <div style='font-family: Arial, sans-serif; line-height: 1.6;'>
+            <h2 style='color: #1a73e8;'>¡Nuevo usuario registrado!</h2>
+            <p>Se ha registrado un nuevo usuario con perfil administrativo:</p>
+            <ul>
+                <li><strong>Nombre:</strong> $nombre</li>
+                <li><strong>Email:</strong> $email</li>
+                <li><strong>Rol:</strong> $rol</li>
+                <li><strong>ID:</strong> $newUserId</li>
+            </ul>
+            <p>Puedes revisar sus detalles en el Panel de Super Administrador.</p>
+            <hr>
+            <p style='font-size: 12px; color: #777;'>Padel Manager - Notificaciones automáticas</p>
+        </div>";
+        
+        try {
+            enviarCorreoSMTP($adminEmail, $subject, $body);
+        } catch (Exception $e) {
+            error_log("Error enviando notificación de registro a admin: " . $e->getMessage());
+        }
     }
 
     echo json_encode([

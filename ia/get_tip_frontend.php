@@ -4,7 +4,7 @@ header("Access-Control-Allow-Origin: *");
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     header("Access-Control-Allow-Origin: *");
     header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-    header("Access-Control-Allow-Headers: Authorization, X-Authorization, Content-Type");
+    header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
     http_response_code(200);
     exit;
 }
@@ -16,7 +16,7 @@ if (!$tokenUserId) {
 }
 
 header("Access-Control-Allow-Methods: GET, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, x-authorization, X-Authorization");
 header("Content-Type: application/json");
 
 require_once "../db.php";
@@ -155,5 +155,3 @@ echo json_encode([
     "tips" => $tips
 ]);
 $conn->close();
-?>
-?>

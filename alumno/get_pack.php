@@ -4,7 +4,7 @@ ini_set('display_errors', 1);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -21,16 +21,34 @@ if (!validateToken()) {
 
 require_once "../db.php";
 
-// jugador_id
+// jugador_id o entrenador_id
 $jugador_id = $_GET['jugador_id'] ?? null;
+$entrenador_id = $_GET['entrenador_id'] ?? null;
 
-if (!$jugador_id) {
+if (!$jugador_id && !$entrenador_id) {
     http_response_code(400);
-    echo json_encode(["error" => "jugador_id es obligatorio"]);
+    echo json_encode(["error" => "ID requerido (jugador o entrenador)"]);
     exit;
 }
 
-// Query
+// SI ES ENTRENADOR: Devolver catálogo de packs
+if ($entrenador_id) {
+    $sql = "SELECT id, nombre, sesiones_totales, precio, tipo, cantidad_personas, activo 
+            FROM packs 
+            WHERE entrenador_id = ? AND (activo = 1 OR activo IS NULL)";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $entrenador_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $data = [];
+    while ($row = $result->fetch_assoc()) {
+        $data[] = $row;
+    }
+    echo json_encode($data);
+    exit;
+}
+
+// SI ES JUGADOR: Query compleja existente
 $sql = "
 SELECT 
     p.id AS pack_id,

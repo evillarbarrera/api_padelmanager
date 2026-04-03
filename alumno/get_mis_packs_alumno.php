@@ -4,7 +4,7 @@ ini_set('display_errors', 1);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -19,6 +19,8 @@ if (!validateToken()) {
 }
 
 $jugador_id = $_GET['jugador_id'] ?? null;
+$entrenador_id = $_GET['entrenador_id'] ?? null;
+
 if (!$jugador_id) {
     http_response_code(400);
     echo json_encode(["error" => "jugador_id requerido"]);
@@ -27,10 +29,11 @@ if (!$jugador_id) {
 
 require_once "../db.php";
 
+// 1. Obtener la lista base de los packs comprados (sin subconsultas de conteo que causen agregación masiva)
 $sql = "
     SELECT 
         pj.id as pack_jugador_id,
-        pj.sesiones_usadas,
+        pj.sesiones_usadas as sesiones_usadas_manual,
         pj.fecha_inicio,
         pj.fecha_fin,
         pk.id as pack_id,
@@ -40,31 +43,19 @@ $sql = "
         pk.cantidad_personas,
         pk.rango_horario_inicio,
         pk.rango_horario_fin,
-        COALESCE(ig.estado, 'activo') as estado_inscripcion,
-        (
-            SELECT COUNT(*) 
-            FROM reserva_jugadores rj2 
-            JOIN reservas r2 ON rj2.reserva_id = r2.id 
-            WHERE rj2.jugador_id = pj.jugador_id 
-              AND r2.pack_id = pk.id 
-              AND r2.estado != 'cancelado'
-              AND (r2.fecha < CURDATE() OR (r2.fecha = CURDATE() AND r2.hora_fin <= CURTIME()))
-        ) as sesiones_pasadas,
-        (
-            SELECT COUNT(*) 
-            FROM reserva_jugadores rj2 
-            JOIN reservas r2 ON rj2.reserva_id = r2.id 
-            WHERE rj2.jugador_id = pj.jugador_id 
-              AND r2.pack_id = pk.id 
-              AND r2.estado != 'cancelado'
-        ) as sesiones_reservadas
+        COALESCE(ig.estado, 'activo') as estado_inscripcion
     FROM pack_jugadores pj
     JOIN packs pk ON pj.pack_id = pk.id
     LEFT JOIN inscripciones_grupales ig ON ig.pack_id = pk.id AND ig.jugador_id = pj.jugador_id
     WHERE (pj.jugador_id = ? OR pj.id IN (SELECT pack_jugadores_id FROM pack_jugadores_adicionales WHERE jugador_id = ? AND estado = 'aceptado'))
       AND pk.tipo != 'grupal'
-    ORDER BY pj.fecha_inicio DESC
 ";
+
+if ($entrenador_id) {
+    $sql .= " AND pk.entrenador_id = ?";
+}
+
+$sql .= " ORDER BY pj.fecha_inicio ASC";
 
 $stmt = $conn->prepare($sql);
 if (!$stmt) {
@@ -72,27 +63,95 @@ if (!$stmt) {
     exit;
 }
 
-$stmt->bind_param("ii", $jugador_id, $jugador_id);
-if (!$stmt->execute()) {
-    echo json_encode(["error" => "Execute failed: " . $stmt->error]);
-    exit;
+if ($entrenador_id) {
+    $stmt->bind_param("iii", $jugador_id, $jugador_id, $entrenador_id);
+} else {
+    $stmt->bind_param("ii", $jugador_id, $jugador_id);
 }
 
+$stmt->execute();
 $res = $stmt->get_result();
 
-$packs = [];
-
+$all_packs = [];
 while ($row = $res->fetch_assoc()) {
-    // Buscar invitados para este pack específico
+    $all_packs[] = $row;
+}
+
+// 2. Obtener el total REAL de sesiones reservadas por el jugador para cada TIPO DE NOMBRE (bag global por nombre-tipo)
+// Solo contamos reservas asociadas a los packs del entrenador si se especificó entrenador_id
+$sqlTotal = "
+    SELECT 
+        p.nombre, 
+        COUNT(*) as total_reservas,
+        SUM(CASE WHEN (r.fecha < CURDATE() OR (r.fecha = CURDATE() AND r.hora_fin <= CURTIME())) THEN 1 ELSE 0 END) as total_pasadas
+    FROM reserva_jugadores rj
+    JOIN reservas r ON rj.reserva_id = r.id
+    JOIN packs p ON r.pack_id = p.id
+    WHERE rj.jugador_id = ? 
+      AND r.estado != 'cancelado'
+";
+
+if ($entrenador_id) {
+    $sqlTotal .= " AND p.entrenador_id = ?";
+}
+
+$sqlTotal .= " GROUP BY p.nombre";
+
+$stmtT = $conn->prepare($sqlTotal);
+if ($entrenador_id) {
+    $stmtT->bind_param("ii", $jugador_id, $entrenador_id);
+} else {
+    $stmtT->bind_param("i", $jugador_id);
+}
+$stmtT->execute();
+$resT = $stmtT->get_result();
+
+$totals_map = [];
+$past_map = [];
+while($t = $resT->fetch_assoc()){
+    $totals_map[$t['nombre']] = (int)$t['total_reservas'];
+    $past_map[$t['nombre']] = (int)$t['total_pasadas'];
+}
+
+// 3. Distribución FIFO (First In, First Out)
+// Vamos recorriendo los packs (del más viejo al más nuevo) y gastando las reservas globales.
+$results = [];
+foreach($all_packs as $pack) {
+    $pName = trim($pack['pack_nombre']); // Usar el nombre como bolsa global
+    $maxCapacity = (int)($pack['sesiones_totales'] ?? 0);
+    
+    // Obtener lo que queda en la bolsa para este nombre de pack
+    $globalRemaining = isset($totals_map[$pName]) ? $totals_map[$pName] : 0;
+    $globalPastRemaining = isset($past_map[$pName]) ? $past_map[$pName] : 0;
+    
+    $assigned_reservadas = min($maxCapacity, $globalRemaining);
+    $assigned_pasadas = min($assigned_reservadas, $globalPastRemaining);
+    
+    $pack['sesiones_reservadas'] = $assigned_reservadas;
+    $pack['sesiones_pasadas'] = $assigned_pasadas;
+    
+    // IMPORTANTE: Restar de la bolsa global PARA EL SIGUIENTE PACK
+    if (isset($totals_map[$pName])) {
+        $totals_map[$pName] = $totals_map[$pName] - $assigned_reservadas;
+    }
+    if (isset($past_map[$pName])) {
+        $past_map[$pName] = $past_map[$pName] - $assigned_pasadas;
+    }
+    
+    $results[] = $pack;
+}
+
+// 4. Volver a ordenar por fecha DESC para la vista final si se prefiere así
+usort($results, function($a, $b) {
+    return strtotime($b['fecha_inicio']) - strtotime($a['fecha_inicio']);
+});
+
+// Agregar invitados (lógica original)
+foreach($results as &$row) {
     $invitados = [];
     if (($row['cantidad_personas'] ?? 1) > 1) {
         $sqlInv = "
-            SELECT 
-                u.id, 
-                u.nombre, 
-                u.usuario, 
-                pja.estado,
-                pja.fecha_asignacion 
+            SELECT u.id, u.nombre, u.usuario, pja.estado, pja.fecha_asignacion 
             FROM pack_jugadores_adicionales pja
             JOIN usuarios u ON pja.jugador_id = u.id
             WHERE pja.pack_jugadores_id = ?
@@ -107,10 +166,8 @@ while ($row = $res->fetch_assoc()) {
             }
         }
     }
-    
     $row['invitados'] = $invitados;
-    $packs[] = $row;
 }
 
-echo json_encode(["success" => true, "data" => $packs]);
+echo json_encode(["success" => true, "data" => $results]);
 ?>

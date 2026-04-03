@@ -4,7 +4,7 @@ ini_set('display_errors', 1);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -12,37 +12,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
   exit;
 }
 
-// Diagnostic Log
-$headers = getallheaders();
-$auth = $headers['Authorization'] ?? $headers['authorization'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+require_once "../auth/auth_helper.php";
 
-// Intentar capturar de PHP_AUTH_USER si es Basic (a veces apache lo mapea así)
-if (empty($auth) && isset($_SERVER['PHP_AUTH_USER'])) {
-    $auth = 'Bearer ' . $_SERVER['PHP_AUTH_USER'];
-}
-
-$expectedToken = 'Bearer ' . base64_encode("1|padel_academy");
-
-// Debug log to a file on the server (if permissions allow)
-// file_put_contents('auth_debug.log', date('Y-m-d H:i:s') . " - Received: " . $auth . "\n", FILE_APPEND);
-
-if (trim($auth) !== trim($expectedToken)) {
-    http_response_code(401);
-    
-    $received_info = [
-        "auth_present" => !empty($auth),
-        "received" => (string)substr($auth, 0, 15) . "...",
-        "expected" => (string)substr($expectedToken, 0, 15) . "...",
-        "method" => $_SERVER['REQUEST_METHOD'],
-        "all_headers_keys" => array_keys($headers)
-    ];
-
-    echo json_encode([
-        "error" => "Unauthorized",
-        "details" => "Token mismatch or missing",
-        "debug" => $received_info
-    ]);
-    exit;
+$userId = validateToken();
+if (!$userId) {
+    sendUnauthorized();
 }
 
 require_once "../db.php";

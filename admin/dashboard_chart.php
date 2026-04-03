@@ -4,7 +4,7 @@ ini_set('display_errors', 1);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -23,6 +23,7 @@ $labels = [];
 $dataUsuarios = array_fill(0, $numDays, 0);
 $dataPacks = array_fill(0, $numDays, 0);
 $dataIngresos = array_fill(0, $numDays, 0);
+$dataTrafico = array_fill(0, $numDays, 0);
 
 for($i = 1; $i <= $numDays; $i++){
     $labels[] = str_pad($i, 2, '0', STR_PAD_LEFT) . '/' . str_pad($month, 2, '0', STR_PAD_LEFT);
@@ -60,13 +61,27 @@ try {
     }
 } catch (Exception $e) {}
 
+// Tráfico por día
+try {
+    $sqlT = "SELECT DAY(created_at) as d, COUNT(*) as c FROM web_analytics WHERE YEAR(created_at) = ? AND MONTH(created_at) = ? GROUP BY d";
+    $stmtT = $conn->prepare($sqlT);
+    $stmtT->bind_param("ii", $year, $month);
+    $stmtT->execute();
+    $resT = $stmtT->get_result();
+    while ($row = $resT->fetch_assoc()) {
+        $idx = (int)$row['d'] - 1;
+        if(isset($dataTrafico[$idx])) $dataTrafico[$idx] = (int)$row['c'];
+    }
+} catch (Exception $e) {}
+
 echo json_encode([
     "success"=>true, 
     "labels"=>$labels, 
     "datasets"=>[
         "usuarios"=>$dataUsuarios,
         "packs"=>$dataPacks,
-        "ingresos"=>$dataIngresos
+        "ingresos"=>$dataIngresos,
+        "trafico"=>$dataTrafico
     ]
 ]);
 ?>

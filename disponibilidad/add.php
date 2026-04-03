@@ -4,7 +4,7 @@ ini_set('display_errors', 1);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -12,17 +12,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
   exit;
 }
 
-require_once "../db.php";
-
-// TOKEN
-$headers = getallheaders();
-$auth = $headers['Authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? ($headers['authorization'] ?? ''));
-
-if (!preg_match('/^Bearer\s+(.*)$/', $auth, $matches) || base64_decode($matches[1]) !== "1|padel_academy") {
-    http_response_code(401);
-    echo json_encode(["error" => "Unauthorized"]);
-    exit;
+require_once "../auth/auth_helper.php";
+$userId = validateToken();
+if (!$userId) {
+    sendUnauthorized();
 }
+
+require_once "../db.php";
 
 /* ========= BODY ========= */
 $input = fopen('php://input', 'r');

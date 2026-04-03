@@ -24,7 +24,7 @@ logger("Log file location: $log_file");
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, x-authorization, X-Authorization, X-Requested-With");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     header("HTTP/1.1 200 OK");
@@ -245,7 +245,16 @@ try {
 
     if (file_exists($temp_video)) @unlink($temp_video);
     logger("SUCCESS. Analysis sent.");
-    echo json_encode(["success" => true, "analysis" => $parsed_json]);
+
+    // --- ACHIEVEMENTS CHECK (if we know the player) ---
+    $owner_id = $_POST['jugador_id'] ?? null;
+    if ($owner_id) {
+        require_once __DIR__ . "/../logros/check_achievements.php";
+        $nuevosLogros = checkAchievements($conn, intval($owner_id));
+        echo json_encode(["success" => true, "analysis" => $parsed_json, "nuevos_logros" => $nuevosLogros]);
+    } else {
+        echo json_encode(["success" => true, "analysis" => $parsed_json]);
+    }
 
 } catch (Exception $e) {
     if (isset($temp_video) && file_exists($temp_video)) @unlink($temp_video);

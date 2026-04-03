@@ -4,7 +4,7 @@ ini_set('display_errors', 1);
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, Content-Type");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -39,26 +39,28 @@ try {
             u.nombre as jugador_nombre,
             u.usuario as usuario,
             u.foto_perfil as jugador_foto,
-            p.id as pack_id,
+            MAX(p.id) as pack_id,
             p.nombre as pack_nombre,
             SUM(p.sesiones_totales) as sesiones_totales,
             MAX(pj.id) as pack_jugador_id,
-            p.rango_horario_inicio,
-            p.rango_horario_fin,
+            MAX(p.rango_horario_inicio) as rango_horario_inicio,
+            MAX(p.rango_horario_fin) as rango_horario_fin,
             (
                 SELECT COUNT(*) 
                 FROM reservas r2 
                 JOIN reserva_jugadores rj2 ON r2.id = rj2.reserva_id
+                JOIN packs pk2 ON r2.pack_id = pk2.id
                 WHERE rj2.jugador_id = u.id 
-                  AND r2.pack_id = p.id 
+                  AND pk2.nombre = p.nombre
                   AND r2.estado != 'cancelado'
             ) as sesiones_totales_reservadas,
             (
                 SELECT COUNT(*) 
                 FROM reservas r2 
                 JOIN reserva_jugadores rj2 ON r2.id = rj2.reserva_id
+                JOIN packs pk2 ON r2.pack_id = pk2.id
                 WHERE rj2.jugador_id = u.id 
-                  AND r2.pack_id = p.id 
+                  AND pk2.nombre = p.nombre
                   AND r2.estado != 'cancelado'
                   AND (r2.fecha < CURDATE() OR (r2.fecha = CURDATE() AND r2.hora_fin <= CURTIME()))
             ) as sesiones_pasadas
@@ -67,7 +69,7 @@ try {
         JOIN packs p ON pj.pack_id = p.id
         WHERE p.entrenador_id = ? 
           AND p.tipo NOT IN ('grupal', 'pack_grupal')
-        GROUP BY u.id, p.id
+        GROUP BY u.id, p.nombre
         ORDER BY u.nombre ASC
     ";
 
