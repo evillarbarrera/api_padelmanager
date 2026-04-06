@@ -30,7 +30,7 @@ function fulfillPayment($conn, $data) {
             $fecha_inicio = date('Y-m-d');
             $fecha_fin    = date('Y-m-d', strtotime('+6 months'));
             
-            $sqlBuy = "INSERT INTO pack_jugadores (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin, cupon_id, precio_pagado, moneda, metodo_pago, paypal_order_id, comision_plataforma) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $sqlBuy = "INSERT INTO pack_jugadores (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin, cupon_id, precio_pagado, moneda, metodo_pago, paypal_order_id, comision_plataforma, created_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
             $stmtBuy = $conn->prepare($sqlBuy);
             $stmtBuy->bind_param("iissidsssd", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $cupon_id, $amount, $moneda, $metodo, $order_id, $comision);
             $stmtBuy->execute();
@@ -144,7 +144,7 @@ function fulfillPayment($conn, $data) {
         $fecha_inicio = date('Y-m-d');
         $fecha_fin    = date('Y-m-d', strtotime('+6 months'));
 
-        $sql = "INSERT INTO pack_jugadores (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin, reserva_id, cupon_id, precio_pagado, moneda, metodo_pago, paypal_order_id, comision_plataforma) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $sql = "INSERT INTO pack_jugadores (pack_id, jugador_id, sesiones_usadas, fecha_inicio, fecha_fin, reserva_id, cupon_id, precio_pagado, moneda, metodo_pago, paypal_order_id, comision_plataforma, created_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("iisssiidsssd", $pack_id, $jugador_id, $fecha_inicio, $fecha_fin, $reserva_id, $cupon_id, $amount, $moneda, $metodo, $order_id, $comision);
 

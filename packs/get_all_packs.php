@@ -55,7 +55,7 @@ if ($myLat && $myLng) {
 $sql .= "
   FROM packs p
   INNER JOIN usuarios e ON e.id = p.entrenador_id
-  LEFT JOIN direcciones d ON d.usuario_id = e.id
+  LEFT JOIN direcciones d ON d.club_id = p.club_id
   LEFT JOIN (
       SELECT pack_id, COUNT(*) as cupos_ocupados 
       FROM inscripciones_grupales 

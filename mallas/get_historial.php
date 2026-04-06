@@ -23,8 +23,9 @@ ini_set('display_errors', 0);
 
 require_once '../db.php';
 
-$jugador_id = $_GET['jugador_id'] ?? null;
-$entrenador_id = $_GET['entrenador_id'] ?? null;
+$jugador_id = intval($_GET['jugador_id'] ?? 0);
+$entrenador_id = intval($_GET['entrenador_id'] ?? 0);
+$pack_id = intval($_GET['pack_id'] ?? 0); // NEW: Filter by specific pack
 
 if (!$jugador_id) {
     echo json_encode([]);
@@ -32,18 +33,37 @@ if (!$jugador_id) {
 }
 
 try {
-    if (!$pdo) {
-        throw new Exception("PDO not initialized");
+    // 1. Find Mesh in follow-up table (alumno_malla_seguimiento) for THIS trainer AND PACK
+    $sqlMalla = "SELECT malla_id FROM alumno_malla_seguimiento WHERE jugador_id = ? AND estado = 'activo'";
+    $params = [$jugador_id];
+    $types = "i";
+
+    if ($pack_id) {
+        $sqlMalla .= " AND (pack_id = ? OR pack_id = 0)";
+        $params[] = $pack_id;
+        $types .= "i";
+    } else if ($entrenador_id) {
+        $sqlMalla .= " AND entrenador_id = ?";
+        $params[] = $entrenador_id;
+        $types .= "i";
+    }
+    $sqlMalla .= " LIMIT 1";
+
+    $stmtM = $conn->prepare($sqlMalla);
+    $stmtM->bind_param($types, ...$params);
+    $stmtM->execute();
+    $resM = $stmtM->get_result();
+    $malla = 0;
+    if ($rowM = $resM->fetch_assoc()) {
+        $malla = $rowM['malla_id'];
     }
 
-    // 1. Find Mesh
-    $stmt = $pdo->prepare("SELECT malla_id FROM alumno_malla WHERE jugador_id = ? AND estado = 'activo' LIMIT 1");
-    $stmt->execute([$jugador_id]);
-    $malla = $stmt->fetch(PDO::FETCH_COLUMN);
-
     if (!$malla) {
-        $stmt = $pdo->query("SELECT id FROM mallas ORDER BY id DESC LIMIT 1");
-        $malla = $stmt->fetch(PDO::FETCH_COLUMN);
+        // Fallback to latest global mesh if none active
+        $resFB = $conn->query("SELECT id FROM mallas ORDER BY id DESC LIMIT 1");
+        if ($rowFB = $resFB->fetch_assoc()) {
+            $malla = $rowFB['id'];
+        }
     }
 
     if (!$malla) {
@@ -51,12 +71,17 @@ try {
         exit;
     }
 
-    // 2. Fetch Sessions
+    // 2. Fetch Sessions for EXACT mesh AND PACK
     $query = "SELECT 
                 cm.id as clase_malla_id, 
                 cm.titulo, 
                 cm.objetivo, 
                 cm.orden,
+                cm.calentamiento,
+                cm.parte_tecnica,
+                cm.drills,
+                cm.juego,
+                cm.recursos,
                 r.id as reserva_id,
                 r.fecha as reserva_fecha,
                 r.hora_inicio as reserva_hora,
@@ -66,24 +91,36 @@ try {
                   SELECT rx.id, rx.fecha, rx.hora_inicio, rx.clase_id
                   FROM reservas rx
                   JOIN reserva_jugadores rjx ON rx.id = rjx.reserva_id
-                  WHERE rjx.jugador_id = ?
+                  WHERE rjx.jugador_id = ? 
+                    AND (rx.pack_id = ? OR rx.pack_id = 0 OR rx.pack_id IS NULL)
+                    AND rx.estado != 'cancelado' 
+                    AND rx.clase_id > 0
               ) r ON cm.id = r.clase_id
               LEFT JOIN alumno_asistencia aa ON r.id = aa.reserva_id AND aa.jugador_id = ?
               WHERE cm.malla_id = ?
               ORDER BY cm.orden ASC
-              LIMIT 4";
+              LIMIT 15";
     
-    $stmt = $pdo->prepare($query);
-    $stmt->execute([$jugador_id, $jugador_id, $malla]);
-    $clases = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("iiii", $jugador_id, $pack_id, $jugador_id, $malla);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
     $historial = [];
-    foreach ($clases as $row) {
+    while ($row = $result->fetch_assoc()) {
         $estado = "pendiente";
+        $now = new DateTime();
+        
         if (!empty($row['estado_asistencia'])) {
             $estado = $row['estado_asistencia'];
         } else if (!empty($row['reserva_fecha'])) {
-            $estado = "proxima";
+            // Check if reservation is in the past
+            $reserva_dt = new DateTime($row['reserva_fecha'] . ' ' . ($row['reserva_hora'] ?: '00:00:00'));
+            if ($reserva_dt < $now) {
+                $estado = "completada"; // Past without explicit attendance = assumed completed
+            } else {
+                $estado = "proxima";
+            }
         }
 
         $historial[] = [
@@ -95,13 +132,18 @@ try {
             "hora" => $row['reserva_hora'] ?: null,
             "estado_asistencia" => $estado,
             "reserva_id" => $row['reserva_id'] ?: null,
-            "clase_malla_id" => $row['clase_malla_id']
+            "clase_malla_id" => $row['clase_malla_id'],
+            "calentamiento" => $row['calentamiento'] ?: "",
+            "parte_tecnica" => $row['parte_tecnica'] ?: "",
+            "drills" => $row['drills'] ?: "",
+            "juego" => $row['juego'] ?: "",
+            "recursos" => $row['recursos'] ?: ""
         ];
     }
 
     echo json_encode($historial);
 
 } catch (Throwable $e) {
-    // Return empty array instead of 500
-    echo json_encode([]);
+    http_response_code(500);
+    echo json_encode(["error" => $e->getMessage()]);
 }

@@ -49,76 +49,114 @@ SELECT
     u.foto,
     u.foto_perfil,
     
-    /* SESIONES PAGADAS (Solo packs individuales) */
+    /* NOMBRES DE SUS PACKS UNICOS */
+    (
+        SELECT GROUP_CONCAT(DISTINCT p1.nombre SEPARATOR ' || ')
+        FROM pack_jugadores pj1
+        JOIN packs p1 ON pj1.pack_id = p1.id
+        LEFT JOIN pack_jugadores_adicionales pja1 ON pj1.id = pja1.pack_jugadores_id AND pja1.jugador_id = u.id
+        WHERE p1.entrenador_id = ?
+          AND (pj1.jugador_id = u.id OR pja1.estado = 'aceptado')
+    ) AS pack_nombres,
+    
+    /* SESIONES PAGADAS TOTALES (Basado en compras reales) */
     (
         SELECT COALESCE(SUM(p2.sesiones_totales), 0)
         FROM pack_jugadores pj2
-        JOIN packs p2 ON p2.id = pj2.pack_id
-        WHERE pj2.jugador_id = u.id 
-          AND p2.entrenador_id = ?
+        JOIN packs p2 ON pj2.pack_id = p2.id
+        WHERE p2.entrenador_id = ?
           AND p2.tipo NOT IN ('grupal', 'pack_grupal')
+          AND (
+            pj2.jugador_id = u.id 
+            OR pj2.id IN (SELECT pack_jugadores_id FROM pack_jugadores_adicionales WHERE jugador_id = u.id AND estado = 'aceptado')
+            OR (
+                pj2.pack_id IN (SELECT r_sub.pack_id FROM reserva_jugadores rj_sub JOIN reservas r_sub ON r_sub.id = rj_sub.reserva_id WHERE rj_sub.jugador_id = u.id AND r_sub.pack_id > 0 AND r_sub.estado != 'cancelado')
+                AND pj2.id = (SELECT MIN(id) FROM pack_jugadores WHERE pack_id = p2.id)
+                AND p2.id NOT IN (
+                    SELECT pj_own.pack_id FROM pack_jugadores pj_own 
+                    WHERE pj_own.jugador_id = u.id 
+                    OR pj_own.id IN (SELECT pack_jugadores_id FROM pack_jugadores_adicionales WHERE jugador_id = u.id AND estado = 'aceptado')
+                )
+            )
+          )
     ) AS sesiones_pagadas,
 
-    /* SESIONES RESERVADAS (Solo individuales, Pasadas + Futuras) */
+    /* SESIONES RESERVADAS FUTURAS (Unicas) de packs individuales */
     (
         SELECT COUNT(DISTINCT r.id)
         FROM reservas r
         JOIN reserva_jugadores rj ON r.id = rj.reserva_id
+        LEFT JOIN packs ptr ON r.pack_id = ptr.id
         WHERE rj.jugador_id = u.id
           AND r.entrenador_id = ?
           AND r.estado != 'cancelado'
-          AND r.tipo NOT IN ('grupal', 'pack_grupal')
+          AND r.pack_id > 0
+          AND (ptr.id IS NULL OR ptr.tipo NOT IN ('grupal', 'pack_grupal'))
+          AND (r.fecha > CURDATE() OR (r.fecha = CURDATE() AND r.hora_fin > CURTIME()))
     ) AS sesiones_reservadas,
 
-    /* TOTAL GRUPALES (All-time group sessions) */
+    /* TOTAL GRUPALES */
     (
-        SELECT COUNT(DISTINCT r.id) 
-        FROM reservas r
-        JOIN reserva_jugadores rj ON r.id = rj.reserva_id
-        WHERE rj.jugador_id = u.id 
-          AND r.entrenador_id = ? 
-          AND r.estado != 'cancelado'
-          AND (r.tipo = 'grupal' OR r.tipo = 'pack_grupal')
+        SELECT COUNT(DISTINCT r3.id) 
+        FROM reservas r3
+        JOIN reserva_jugadores rj3 ON r3.id = rj3.reserva_id
+        WHERE rj3.jugador_id = u.id 
+          AND r3.entrenador_id = ? 
+          AND r3.estado != 'cancelado'
+          AND (r3.tipo = 'grupal' OR r3.tipo = 'pack_grupal')
     ) AS sesiones_grupales,
 
-    /* CLASES PENDIENTES (Total Individuales - Pasadas Individuales) */
+    /* CLASES PENDIENTES (Suma Pagadas - Pasadas, solo sobre individuales) */
     (
+        COALESCE((
+            SELECT SUM(p4.sesiones_totales)
+            FROM pack_jugadores pj4
+            JOIN packs p4 ON pj4.pack_id = p4.id
+            WHERE p4.entrenador_id = ?
+              AND p4.tipo NOT IN ('grupal', 'pack_grupal')
+              AND (
+                pj4.jugador_id = u.id 
+                OR pj4.id IN (SELECT pack_jugadores_id FROM pack_jugadores_adicionales WHERE jugador_id = u.id AND estado = 'aceptado')
+                OR (
+                    pj4.pack_id IN (SELECT r_sub.pack_id FROM reserva_jugadores rj_sub JOIN reservas r_sub ON r_sub.id = rj_sub.reserva_id WHERE rj_sub.jugador_id = u.id AND r_sub.pack_id > 0 AND r_sub.estado != 'cancelado')
+                    AND pj4.id = (SELECT MIN(id) FROM pack_jugadores WHERE pack_id = p4.id)
+                    AND p4.id NOT IN (
+                        SELECT pj_own.pack_id FROM pack_jugadores pj_own 
+                        WHERE pj_own.jugador_id = u.id 
+                        OR pj_own.id IN (SELECT pack_jugadores_id FROM pack_jugadores_adicionales WHERE jugador_id = u.id AND estado = 'aceptado')
+                    )
+                )
+              )
+        ), 0) - 
         (
-            SELECT COALESCE(SUM(p3.sesiones_totales), 0)
-            FROM pack_jugadores pj3
-            JOIN packs p3 ON p3.id = pj3.pack_id
-            WHERE pj3.jugador_id = u.id 
-              AND p3.entrenador_id = ?
-              AND p3.tipo NOT IN ('grupal', 'pack_grupal')
-        ) - 
-        (
-            SELECT COUNT(DISTINCT r4.id)
-            FROM reservas r4
-            JOIN reserva_jugadores rj4 ON r4.id = rj4.reserva_id
-            WHERE rj4.jugador_id = u.id
-              AND r4.entrenador_id = ?
-              AND r4.estado != 'cancelado'
-              AND r4.tipo NOT IN ('grupal', 'pack_grupal')
-              AND (r4.fecha < CURDATE() OR (r4.fecha = CURDATE() AND r4.hora_fin <= CURTIME()))
+            SELECT COUNT(DISTINCT r5.id)
+            FROM reservas r5
+            JOIN reserva_jugadores rj5 ON r5.id = rj5.reserva_id
+            LEFT JOIN packs ptr5 ON r5.pack_id = ptr5.id
+            WHERE rj5.jugador_id = u.id
+              AND r5.entrenador_id = ?
+              AND r5.estado != 'cancelado'
+              AND r5.pack_id > 0
+              AND (ptr5.id IS NULL OR ptr5.tipo NOT IN ('grupal', 'pack_grupal'))
         )
     ) AS sesiones_pendientes
 
 FROM usuarios u
 WHERE u.id IN (
-    SELECT pj_sub.jugador_id FROM pack_jugadores pj_sub 
+    SELECT DISTINCT pj_sub.jugador_id FROM pack_jugadores pj_sub 
     JOIN packs p_sub ON p_sub.id = pj_sub.pack_id WHERE p_sub.entrenador_id = ?
 ) OR u.id IN (
-    SELECT rj_sub.jugador_id FROM reserva_jugadores rj_sub 
+    SELECT DISTINCT rj_sub.jugador_id FROM reserva_jugadores rj_sub 
     JOIN reservas r_sub ON r_sub.id = rj_sub.reserva_id WHERE r_sub.entrenador_id = ? AND r_sub.estado != 'cancelado'
 ) OR u.id IN (
-    SELECT ea_sub.alumno_id FROM entrenador_alumno ea_sub WHERE ea_sub.entrenador_id = ?
+    SELECT DISTINCT ea_sub.alumno_id FROM entrenador_alumno ea_sub WHERE ea_sub.entrenador_id = ?
 )
 GROUP BY u.id
 ORDER BY u.nombre ASC
 ";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("iiiiiiii", $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id);
+$stmt->bind_param("iiiiiiiii", $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id, $entrenador_id);
 $stmt->execute();
 
 $result = $stmt->get_result();
@@ -133,6 +171,8 @@ while ($row = $result->fetch_assoc()) {
     
     // For internal frontend compatibility
     $row['sesiones_restantes'] = $row['sesiones_pendientes'];
+    $row['creditos_reales'] = $row['sesiones_pendientes'];
+    $row['pack_nombre'] = $row['pack_nombres'] ?: 'Sin Pack';
     
     $data[] = $row;
 }

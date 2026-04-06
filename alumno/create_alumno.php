@@ -25,6 +25,13 @@ $data = json_decode($inputJSON, true) ?? [];
 
 $nombre = $data['nombre'] ?? $_POST['nombre'] ?? '';
 $email = $data['email'] ?? $_POST['email'] ?? '';
+
+// 🧠 AUTOCORRECCIÓN: Si el nombre contiene una @ y el email no tiene @ (o está vacío), los intercambiamos.
+if (strpos($nombre, '@') !== false && strpos($email, '@') === false) {
+    $temp = $nombre;
+    $nombre = $email;
+    $email = $temp;
+}
 $entrenador_id = $data['entrenador_id'] ?? $_POST['entrenador_id'] ?? 0;
 
 // Validar campos obligatorios con Debug
@@ -166,6 +173,7 @@ if ($stmtInsert->execute()) {
         "success" => true,
         "message" => "Alumno creado con éxito",
         "mail_sent" => $mailResult['success'],
+        "mail_error" => $mailResult['success'] ? null : ($mailResult['error'] ?? 'Error desconocido'),
         "user_id" => $newUserId
     ]);
 } else {

@@ -37,8 +37,13 @@ try {
     $required = ['entrenador_id', 'pack_id', 'fecha', 'hora_inicio', 'hora_fin', 'jugador_id', 'estado'];
     foreach ($required as $field) {
         if (!isset($data[$field])) {
-            throw new Exception("Falta el campo: $field");
+            throw new Exception("Falta el campo requerido: $field");
         }
+    }
+
+    // VALIDACIÓN ESTRICTA: NUNCA PERMITIR RESERVAS CERO O NULAS
+    if (empty($data['pack_id']) || $data['pack_id'] <= 0) {
+        throw new Exception("Bloqueo de Seguridad: Toda reserva debe tener obligatoriamente un Pack asignado. No se permite pack nulo o cero.");
     }
 
     $recurrencia = isset($data['recurrencia']) ? max(1, intval($data['recurrencia'])) : 1;
@@ -72,8 +77,8 @@ try {
     ");
     $stmtReserva = $conn->prepare("
         INSERT INTO reservas
-        (entrenador_id, pack_id, fecha, hora_inicio, hora_fin, estado, serie_id, tipo, cantidad_personas, club_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (entrenador_id, pack_id, fecha, hora_inicio, hora_fin, estado, serie_id, tipo, cantidad_personas, club_id, malla_id, clase_id, clase_titulo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $stmtJugador = $conn->prepare("
         INSERT INTO reserva_jugadores (reserva_id, jugador_id)
@@ -87,7 +92,7 @@ try {
         $stmtPT->bind_param("i", $data['pack_id']);
         $stmtPT->execute();
         $pTypeInfo = $stmtPT->get_result()->fetch_assoc();
-        
+
         $isGroup = ($pTypeInfo && ($pTypeInfo['tipo'] === 'grupal' || $pTypeInfo['tipo'] === 'pack_grupal'));
         $eId = $pTypeInfo['entrenador_id'] ?? $data['entrenador_id'];
 
@@ -155,20 +160,22 @@ try {
 
     for ($i = 0; $i < $recurrencia; $i++) {
         $currentDate = date('Y-m-d', strtotime($data['fecha'] . " +$i weeks"));
-        
+
         // --- QA VALIDATION: No permitir fechas pasadas ---
         if ($currentDate < date('Y-m-d')) {
             throw new Exception("No puedes agendar una clase en una fecha pasada ($currentDate).");
         }
-        
+
         // 0. Pack Info
         $stmtPack->bind_param("i", $data['pack_id']);
         $stmtPack->execute();
         $packInfo = $stmtPack->get_result()->fetch_assoc();
-        
+
         $tipoNuevoRaw = $packInfo['tipo'] ?? ($data['tipo'] ?? 'individual');
-        $tipoNuevo = ($tipoNuevoRaw === 'grupal' || $tipoNuevoRaw === 'clase grupal' || $tipoNuevoRaw === 'multiplayer') ? 'grupal' : 'individual';
-        
+        // Solo 'grupal' o 'clase grupal' se marcan como grupal. 
+        // El 'multiplayer' (Dúos) ahora será 'individual' para mantener la etiqueta en el calendario como pidió el usuario.
+        $tipoNuevo = ($tipoNuevoRaw === 'grupal' || $tipoNuevoRaw === 'clase grupal') ? 'grupal' : 'individual';
+
         $defaultCap = ($tipoNuevo === 'grupal') ? 6 : 1;
         $maxCapacity = (int)($packInfo['capacidad_maxima'] ?? $defaultCap);
 
@@ -180,7 +187,7 @@ try {
         $countGrupal = 0;
         while ($rowOcc = $resOccupied->fetch_assoc()) {
             $tipoExistente = $rowOcc['tipo'] ?? ($rowOcc['pack_tipo'] ?? 'individual');
-            
+
             if ($tipoExistente === 'individual' || $tipoNuevo === 'individual') {
                 $horaConflicto = substr($data['hora_inicio'], 0, 5);
                 throw new Exception("El entrenador ya tiene una clase ($tipoExistente) el $currentDate a las $horaConflicto.");
@@ -208,17 +215,71 @@ try {
         // 3. Insert
         $cant = $data['cantidad_personas'] ?? 1;
         $clubId = $data['club_id'] ?? null;
+        $insertPackId = $data['pack_id']; // Ya validado estrictamente arriba
+        $mallaId = $data['malla_id'] ?? 0;
+        $claseId = $data['clase_id'] ?? 0;
+        $claseTitulo = $data['clase_titulo'] ?? '';
+
         $stmtReserva->bind_param(
-            "iissssssii",
-            $data['entrenador_id'], $data['pack_id'], $currentDate,
-            $data['hora_inicio'], $data['hora_fin'], $data['estado'],
-            $serie_id, $tipoNuevo, $cant, $clubId
+            "iissssssiiiis",
+            $data['entrenador_id'],
+            $insertPackId,
+            $currentDate,
+            $data['hora_inicio'],
+            $data['hora_fin'],
+            $data['estado'],
+            $serie_id,
+            $tipoNuevo,
+            $cant,
+            $clubId,
+            $mallaId,
+            $claseId,
+            $claseTitulo
         );
         $stmtReserva->execute();
         $new_reserva_id = $conn->insert_id;
 
-        $stmtJugador->bind_param("ii", $new_reserva_id, $data['jugador_id']);
-        $stmtJugador->execute();
+        // 3.5 AUTO-ACTIVATE RoadMap (New Improvement!)
+        // If the reservation includes a mesh and there's no active follow-up for that pack, create it.
+        if ($mallaId > 0 && $insertPackId > 0) {
+            $checkMalla = $conn->prepare("SELECT id FROM alumno_malla_seguimiento 
+                                          WHERE jugador_id = ? AND entrenador_id = ? AND pack_id = ? AND estado = 'activo' LIMIT 1");
+            $checkMalla->bind_param("iii", $data['jugador_id'], $data['entrenador_id'], $insertPackId);
+            $checkMalla->execute();
+            $resCM = $checkMalla->get_result();
+
+            if ($resCM->num_rows === 0) {
+                // If it doesn't exist, we auto-assign it
+                $insMalla = $conn->prepare("INSERT INTO alumno_malla_seguimiento (jugador_id, entrenador_id, pack_id, malla_id, estado, fecha_inicio) VALUES (?, ?, ?, ?, 'activo', NOW())");
+                $insMalla->bind_param("iiii", $data['jugador_id'], $data['entrenador_id'], $insertPackId, $mallaId);
+                $insMalla->execute();
+            }
+        }
+
+        // --- SOPORTE MULTIJUGADOR / GRUPAL / AUTO-DÚO ---
+        // 1. Prioridad Absoluta: Si el frontend envía una lista, la usamos sin importar el tipo.
+        $jugadoresAInsertar = [];
+        if (isset($data['jugador_ids']) && is_array($data['jugador_ids']) && count($data['jugador_ids']) > 0) {
+            $jugadoresAInsertar = $data['jugador_ids'];
+        } else {
+            $jugadoresAInsertar[] = $data['jugador_id'];
+        }
+
+        // 2. We skip any AUTO-DÚO backend overrides because the frontend explicitly 
+        // controls and sends exactly who participates via `jugador_ids`.
+
+
+        // 3. Inserción Masiva
+        foreach ($jugadoresAInsertar as $idJugador) {
+            if (!empty($idJugador)) {
+                $stmtJugador->bind_param("ii", $new_reserva_id, $idJugador);
+                $stmtJugador->execute();
+            }
+        }
+
+        // 4. Actualizamos el 'cantidad_personas' real de la reserva por si el frontend envió otro
+        $realCount = count($jugadoresAInsertar);
+        $conn->query("UPDATE reservas SET cantidad_personas = $realCount WHERE id = $new_reserva_id");
 
         $reservas_creadas[] = $new_reserva_id;
     }
@@ -235,7 +296,7 @@ try {
     if (function_exists('fastcgi_finish_request')) {
         fastcgi_finish_request();
     }
-    
+
     // Notificaciones...
     require_once "../notifications/whatsapp_service.php";
     require_once "../system/mail_service.php";
@@ -243,65 +304,70 @@ try {
 
     $sqlData = "SELECT nombre, usuario, telefono FROM usuarios WHERE id = ?";
     $stmtU = $conn->prepare($sqlData);
-    
-    // Alumno
-    $stmtU->bind_param("i", $data['jugador_id']);
-    $stmtU->execute();
-    $uAlum = $stmtU->get_result()->fetch_assoc();
-    
+
     // Entrenador
     $stmtU->bind_param("i", $data['entrenador_id']);
     $stmtU->execute();
     $uEntr = $stmtU->get_result()->fetch_assoc();
 
-    if ($uAlum && $uEntr) {
+    if ($uEntr) {
         $fechaFmt = date("d/m/Y", strtotime($data['fecha']));
         $horaFmt = substr($data['hora_inicio'], 0, 5);
-        $nomJugador = $uAlum['nombre'];
         $nomEntrenador = $uEntr['nombre'];
-        $emailJugador = $uAlum['usuario']; // usuario is email
-        
-        $msg = "Tu clase con $nomEntrenador el $fechaFmt a las $horaFmt ha sido confirmada.";
-        notifyUser($conn, $data['jugador_id'], "🎾 Clase Agendada", $msg, 'clase_agendada');
-        
-        $msgEntr = "Nueva clase agendada: $nomJugador el $fechaFmt a las $horaFmt.";
+
+        // --- BUCLE DE NOTIFICACIONES PARA TODOS LOS ALUMNOS ---
+        foreach ($jugadoresAInsertar as $idActual) {
+            if (empty($idActual)) continue;
+
+            $stmtU->bind_param("i", $idActual);
+            $stmtU->execute();
+            $uAlum = $stmtU->get_result()->fetch_assoc();
+
+            if ($uAlum) {
+                $nomJugador = $uAlum['nombre'];
+                $emailJugador = $uAlum['usuario']; // usuario is email
+
+                // 1. Notificación App (Push/Internal)
+                $msg = "Tu clase con $nomEntrenador el $fechaFmt a las $horaFmt ha sido confirmada.";
+                notifyUser($conn, $idActual, "🎾 Clase Agendada", $msg, 'clase_agendada');
+
+                // 2. WhatsApp Alumno
+                if (!empty($uAlum['telefono'])) {
+                    enviarWhatsApp($uAlum['telefono'], 'reserva_confirmada', 'es_CL', [$fechaFmt, $horaFmt, $nomEntrenador]);
+                }
+
+                // 3. Email Alumno
+                if (!empty($emailJugador)) {
+                    $subject = "🎾 Reserva Confirmada - $fechaFmt $horaFmt";
+                    $body = "
+                    <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                        <h2 style='color: #1a73e8;'>¡Reserva Confirmada!</h2>
+                        <p>Hola <strong>$nomJugador</strong>,</p>
+                        <p>Tu clase de pádel ha sido agendada con éxito:</p>
+                        <ul>
+                            <li><strong>Entrenador:</strong> $nomEntrenador</li>
+                            <li><strong>Fecha:</strong> $fechaFmt</li>
+                            <li><strong>Hora:</strong> $horaFmt</li>
+                        </ul>
+                        <p>¡Nos vemos en la pista!</p>
+                        <hr style='border: 0; border-top: 1px solid #eee;'>
+                        <p style='font-size: 12px; color: #777;'>Padel Manager - Academia</p>
+                    </div>";
+                    enviarCorreoSMTP($emailJugador, $subject, $body);
+                }
+            }
+        }
+
+        // 4. Notificar al Entrenador (Solo una vez)
+        $msgEntr = "Nueva reserva de " . (count($jugadoresAInsertar) > 1 ? count($jugadoresAInsertar) . " personas " : "1 persona ") . "el $fechaFmt a las $horaFmt.";
         notifyUser($conn, $data['entrenador_id'], "🎾 Nueva Reserva", $msgEntr, 'nueva_reserva');
-
-        // --- NEW: WHATSAPP ---
-        require_once "../notifications/whatsapp_service.php";
-        $vars = [$fechaFmt, $horaFmt, $nomJugador, $nomEntrenador];
-        if (!empty($uAlum['telefono'])) {
-            enviarWhatsApp($uAlum['telefono'], 'reserva_confirmada', 'es_CL', [$fechaFmt, $horaFmt, $nomEntrenador]);
-        }
         if (!empty($uEntr['telefono'])) {
-            enviarWhatsApp($uEntr['telefono'], 'nueva_reserva', 'es_CL', [$nomJugador, $fechaFmt, $horaFmt]);
-        }
-
-        // --- NEW: EMAIL ---
-        $subject = "🎾 Reserva Confirmada - $fechaFmt $horaFmt";
-        $body = "
-        <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
-            <h2 style='color: #1a73e8;'>¡Reserva Confirmada!</h2>
-            <p>Hola <strong>$nomJugador</strong>,</p>
-            <p>Tu clase de pádel ha sido agendada con éxito:</p>
-            <ul>
-                <li><strong>Entrenador:</strong> $nomEntrenador</li>
-                <li><strong>Fecha:</strong> $fechaFmt</li>
-                <li><strong>Hora:</strong> $horaFmt</li>
-            </ul>
-            <p>¡Nos vemos en la pista!</p>
-            <hr style='border: 0; border-top: 1px solid #eee;'>
-            <p style='font-size: 12px; color: #777;'>Padel Manager - Academia</p>
-        </div>";
-        
-        if (!empty($emailJugador)) {
-            enviarCorreoSMTP($emailJugador, $subject, $body);
+            $nombreGrupo = count($jugadoresAInsertar) > 1 ? "Clase Grupal" : $uAlum['nombre'];
+            enviarWhatsApp($uEntr['telefono'], 'nueva_reserva', 'es_CL', [$nombreGrupo, $fechaFmt, $horaFmt]);
         }
     }
-
 } catch (Throwable $e) {
     if (isset($conn)) $conn->rollback();
     http_response_code(400);
     echo json_encode(["error" => $e->getMessage()]);
 }
-?>

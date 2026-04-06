@@ -158,15 +158,23 @@ function checkAchievements($conn, $jugadorId) {
                     while ($row = $r->fetch_assoc()) {
                         $scores = json_decode($row['scores'], true);
                         if (is_array($scores)) {
-                            foreach ($scores as $golpe => $metrics) {
-                                if (is_array($metrics)) {
-                                    foreach ($metrics as $key => $val) {
-                                        if (is_numeric($val) && $val >= 9) {
-                                            $achieved = true;
-                                            break 3;
-                                        }
+                            // Función anidada para buscar el puntaje >= 9 en cualquier nivel
+                            $findHigh = false;
+                            $checkRecursive = function($data) use (&$checkRecursive, &$findHigh) {
+                                if (!is_array($data) || $findHigh) return;
+                                foreach ($data as $v) {
+                                    if (is_numeric($v) && floatval($v) >= 9) {
+                                        $findHigh = true;
+                                        return;
+                                    } else if (is_array($v)) {
+                                        $checkRecursive($v);
                                     }
                                 }
+                            };
+                            $checkRecursive($scores);
+                            if ($findHigh) {
+                                $achieved = true;
+                                break;
                             }
                         }
                     }

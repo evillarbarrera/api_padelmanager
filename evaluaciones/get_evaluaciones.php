@@ -26,7 +26,7 @@ if ($entrenador_id) {
     $sql .= " AND e.entrenador_id = ?";
 }
 
-$sql .= " ORDER BY e.fecha DESC";
+$sql .= " ORDER BY e.fecha DESC, e.id DESC";
 
 $stmt = $conn->prepare($sql);
 if ($entrenador_id) {

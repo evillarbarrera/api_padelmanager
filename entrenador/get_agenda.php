@@ -51,16 +51,27 @@ SELECT
     MAX(p.duracion_sesion_min) as duracion_original,
     COALESCE(r.tipo, p.tipo, 'individual') as tipo_real,
     MIN(r.estado) as reserva_estado,
-    COALESCE(MIN(c.nombre), MIN(p_c.nombre), '') as club_nombre
+    COALESCE(MIN(c.nombre), MIN(p_c.nombre), '') as club_nombre,
+    MIN(r.malla_id) as malla_id,
+    MIN(r.clase_id) as clase_id,
+    MIN(r.clase_titulo) as clase_titulo,
+    MIN(m.nombre) as malla_nombre,
+    MIN(cm.objetivo) as clase_objetivo,
+    MIN(cm.calentamiento) as clase_calentamiento,
+    MIN(cm.drills) as clase_drills,
+    MIN(cm.juego) as clase_juego,
+    MIN(cm.recursos) as clase_recursos
 FROM reservas r
 LEFT JOIN reserva_jugadores rj ON rj.reserva_id = r.id
 LEFT JOIN usuarios u_j ON u_j.id = rj.jugador_id
 LEFT JOIN packs p ON p.id = r.pack_id
 LEFT JOIN clubes c ON c.id = r.club_id
 LEFT JOIN clubes p_c ON p_c.id = p.club_id
+LEFT JOIN mallas m ON m.id = r.malla_id
+LEFT JOIN clases_malla cm ON cm.id = r.clase_id
 WHERE r.entrenador_id = ?
   AND r.fecha >= CURDATE()
-  AND r.fecha <= DATE_ADD(CURDATE(), INTERVAL 10 DAY)
+  AND r.fecha <= DATE_ADD(CURDATE(), INTERVAL 35 DAY)
   AND r.estado != 'cancelado'
 GROUP BY r.fecha, r.hora_inicio, r.entrenador_id, tipo_real, p.id
 ORDER BY r.fecha ASC, r.hora_inicio ASC
@@ -124,7 +135,16 @@ while ($row = $result->fetch_assoc()) {
         "duracion_calculada" => $duracion,
         "tipo" => ($row['tipo_real'] === 'grupal' ? 'pack_grupal' : 'reserva_individual'),
         "jugador_nombre" => implode(', ', array_column($inscritos_final, 'nombre')),
-        "club_nombre" => $row['club_nombre']
+        "club_nombre" => $row['club_nombre'],
+        "malla_id" => $row['malla_id'],
+        "clase_id" => $row['clase_id'],
+        "clase_titulo" => $row['clase_titulo'],
+        "malla_nombre" => $row['malla_nombre'] ?? '',
+        "clase_objetivo" => $row['clase_objetivo'] ?? '',
+        "clase_calentamiento" => $row['clase_calentamiento'] ?? '',
+        "clase_drills" => $row['clase_drills'] ?? '',
+        "clase_juego" => $row['clase_juego'] ?? '',
+        "clase_recursos" => $row['clase_recursos'] ?? ''
     ];
 }
 

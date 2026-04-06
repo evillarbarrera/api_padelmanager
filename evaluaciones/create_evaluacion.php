@@ -39,19 +39,24 @@ $total_items = 0;
 // Normalizamos a JSON string para guardar
 $scores_json = json_encode($scores);
 
-// Calculamos promedio simple sumando todo
-foreach ($scores as $golpe => $metricas) {
-    // Si viene como objeto clave-valor
-    if (is_array($metricas)) {
-        foreach ($metricas as $k => $v) {
-            if (is_numeric($v)) {
-                $total_puntos += $v;
-                $total_items++;
-            }
+// Detectamos si es la estructura nueva (nested) o la antigua (plana)
+$is_nested = (isset($scores['tecnico']) || isset($scores['tactico']));
+$tecnico_scores = $is_nested ? ($scores['tecnico'] ?? []) : $scores;
+
+// Calculamos promedio general recorriendo todo lo numérico
+function calculateAverageSum($data, &$sum, &$count) {
+    if (!is_array($data)) return;
+    foreach ($data as $k => $v) {
+        if (is_numeric($v)) {
+            $sum += (float)$v;
+            $count++;
+        } else if (is_array($v)) {
+            calculateAverageSum($v, $sum, $count);
         }
     }
 }
 
+calculateAverageSum($scores, $total_puntos, $total_items);
 $promedio = ($total_items > 0) ? round($total_puntos / $total_items, 2) : 0;
 
 $sql = "INSERT INTO evaluaciones (jugador_id, entrenador_id, fecha, scores, promedio_general, comentarios) VALUES (?, ?, ?, ?, ?, ?)";
@@ -109,11 +114,15 @@ if ($stmt->execute()) {
                 <h3 style='color: #1e293b;'>Detalle por Golpe</h3>
                 <div style='margin: 20px 0;'>";
 
-        foreach ($scores as $golpe => $metrics) {
-            $avg_golpe = ((isset($metrics['tecnica']) ? $metrics['tecnica'] : 0) + 
-                          (isset($metrics['control']) ? $metrics['control'] : 0) + 
-                          (isset($metrics['direccion']) ? $metrics['direccion'] : 0) + 
-                          (isset($metrics['decision']) ? $metrics['decision'] : 0)) / 4;
+        foreach ($tecnico_scores as $golpe => $metrics) {
+            if (!is_array($metrics)) continue;
+            
+            $tec = (float)($metrics['tecnica'] ?? 0);
+            $con = (float)($metrics['control'] ?? 0);
+            $dir = (float)($metrics['direccion'] ?? 0);
+            $dec = (float)($metrics['decision'] ?? 0);
+            
+            $avg_golpe = round(($tec + $con + $dir + $dec) / 4, 1);
             
             $body .= "
             <div style='margin-bottom: 15px; padding: 15px; background: #fff; border: 1px solid #eee; border-radius: 10px;'>
@@ -122,11 +131,12 @@ if ($stmt->execute()) {
                     <span style='background: #ccff00; color: #000; padding: 2px 8px; border-radius: 10px; font-weight: bold; font-size: 14px;'>$avg_golpe</span>
                 </div>
                 <div style='font-size: 13px; color: #666;'>
-                    Técnica: {$metrics['tecnica']} | Control: {$metrics['control']} | Dierección: {$metrics['direccion']} | Decisión: {$metrics['decision']}
+                    Técnica: $tec | Control: $con | Dirección: $dir | Decisión: $dec
                 </div>";
             
             if (!empty($metrics['comentario'])) {
-                $body .= "<div style='margin-top: 8px; font-style: italic; color: #333; font-size: 13px; border-left: 3px solid #ccff00; padding-left: 10px;'>\"{$metrics['comentario']}\"</div>";
+                $comm = htmlspecialchars($metrics['comentario']);
+                $body .= "<div style='margin-top: 8px; font-style: italic; color: #333; font-size: 13px; border-left: 3px solid #ccff00; padding-left: 10px;'>\"$comm\"</div>";
             }
             
             $body .= "</div>";

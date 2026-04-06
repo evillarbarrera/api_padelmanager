@@ -14,6 +14,7 @@ require_once "../db.php";
 $data = json_decode(file_get_contents("php://input"), true);
 $entrenador_id = $data['entrenador_id'] ?? null;
 $days_count = $data['days_ahead'] ?? 30; // Default 30 days
+$date_start_str = $data['date_start'] ?? null;
 
 if (!$entrenador_id) {
     http_response_code(400);
@@ -42,11 +43,11 @@ if (empty($configByDay)) {
 $conn->begin_transaction();
 
 try {
-    $today = new DateTime();
+    $baseDate = $date_start_str ? new DateTime($date_start_str) : new DateTime();
     $stmtInsert = $conn->prepare("INSERT IGNORE INTO disponibilidad_profesor (profesor_id, fecha_inicio, fecha_fin, club_id, activo) VALUES (?, ?, ?, ?, 1)");
 
     for ($i = 0; $i < $days_count; $i++) {
-        $currentDate = clone $today;
+        $currentDate = clone $baseDate;
         $currentDate->modify("+$i day");
         $dayOfWeek = $currentDate->format('w'); // 0 (Dom) - 6 (Sab)
         $dateStr = $currentDate->format('Y-m-d');

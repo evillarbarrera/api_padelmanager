@@ -5,14 +5,12 @@
 
 function enviarCorreoSMTP($to, $subject, $bodyHTML) {
     $host = 'c2632100.ferozo.com';
-    $port = 465;
+    $port = 587; // Cambiamos a 587 para usar STARTTLS (Más compatible)
     $username = 'no_reply@padelmanager.cl';
     $password = 'H@kgrp6B';
     $fromName = 'Padel Manager';
 
-    // Construir el mensaje raw con formato MIME
-    $boundary = md5(uniqid(time()));
-    
+    // ... [Headers setup remains the same] ...
     $headers = [
         "From: $fromName <$username>",
         "To: $to",
@@ -26,8 +24,8 @@ function enviarCorreoSMTP($to, $subject, $bodyHTML) {
 
     $ch = curl_init();
 
-    // Configuración para SMTP sobre SSL (puerto 465)
-    curl_setopt($ch, CURLOPT_URL, "smtps://$host:$port");
+    // Configuración para SMTP sobre STARTTLS (puerto 587)
+    curl_setopt($ch, CURLOPT_URL, "smtp://$host:$port");
     curl_setopt($ch, CURLOPT_MAIL_FROM, "<$username>");
     curl_setopt($ch, CURLOPT_MAIL_RCPT, ["<$to>"]);
     
@@ -47,18 +45,23 @@ function enviarCorreoSMTP($to, $subject, $bodyHTML) {
     // Seguridad y detalles
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-    curl_setopt($ch, CURLOPT_USE_SSL, CURLUSESSL_ALL);
+    curl_setopt($ch, CURLOPT_USE_SSL, CURLUSESSL_ALL); // Forza STARTTLS en 587
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
     curl_setopt($ch, CURLOPT_VERBOSE, false);
 
     $response = curl_exec($ch);
     $error = curl_error($ch);
+    $info = curl_getinfo($ch);
     curl_close($ch);
     fclose($stream);
 
     if ($response) {
         return ['success' => true];
     } else {
+        // Log detallado para nosotros
+        $logFile = __DIR__ . '/mail_debug.log';
+        $logMsg = date('[Y-m-d H:i:s]') . " Email Error a $to: $error (Code: " . ($info['http_code'] ?? '0') . ")\n";
+        file_put_contents($logFile, $logMsg, FILE_APPEND);
         return ['success' => false, 'error' => $error];
     }
 }

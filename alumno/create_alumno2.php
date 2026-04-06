@@ -58,6 +58,13 @@ $data = json_decode(file_get_contents("php://input"), true);
 
 $nombre = $data['nombre'] ?? '';
 $email = $data['email'] ?? '';
+
+// 🧠 AUTOCORRECCIÓN: Si el nombre contiene una @ y el email no tiene @ (o está vacío), los intercambiamos.
+if (strpos($nombre, '@') !== false && strpos($email, '@') === false) {
+    $temp = $nombre;
+    $nombre = $email;
+    $email = $temp;
+}
 $entrenador_id = $data['entrenador_id'] ?? null;
 
 if (empty($nombre) || empty($email) || !$entrenador_id) {

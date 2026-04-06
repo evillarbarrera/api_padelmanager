@@ -52,7 +52,7 @@ if (!$resPack) {
 
 // Usamos el precio del servidor como fuente de verdad
 $precio_oficial = $resPack['precio'];
-$precio_a_guardar = ($precio_pagado !== null) ? $precio_pagado : $precio_oficial; 
+$precio_a_guardar = ($precio_pagado !== null) ? $precio_pagado : $precio_oficial;
 
 // Alerta de seguridad si hay discrepancia sospechosa
 if ($precio_pagado !== null && abs($precio_pagado - $precio_oficial) > 1.00) {
@@ -146,7 +146,7 @@ if ($stmt->execute()) {
 
         // --- PUSH NOTIFICATIONS ---
         require_once "../notifications/notificaciones_helper.php";
-        
+
         // Notificar al Entrenador
         $entrenador_id = intval($details['entrenador_id'] ?? 0);
         if ($entrenador_id > 0) {

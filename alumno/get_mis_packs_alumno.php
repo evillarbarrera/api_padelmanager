@@ -43,19 +43,37 @@ $sql = "
         pk.cantidad_personas,
         pk.rango_horario_inicio,
         pk.rango_horario_fin,
+        pk.entrenador_id,
+        pj.precio_pagado,
+        pj.estado_pago,
         COALESCE(ig.estado, 'activo') as estado_inscripcion
     FROM pack_jugadores pj
     JOIN packs pk ON pj.pack_id = pk.id
     LEFT JOIN inscripciones_grupales ig ON ig.pack_id = pk.id AND ig.jugador_id = pj.jugador_id
-    WHERE (pj.jugador_id = ? OR pj.id IN (SELECT pack_jugadores_id FROM pack_jugadores_adicionales WHERE jugador_id = ? AND estado = 'aceptado'))
-      AND pk.tipo != 'grupal'
+    WHERE (
+        -- Condición 1: Compras propias o pases de invitado oficial (Muestra compras múltiples del mismo pack correctamente)
+        pj.jugador_id = ? 
+        OR pj.id IN (SELECT pack_jugadores_id FROM pack_jugadores_adicionales WHERE jugador_id = ? AND estado = 'aceptado')
+        
+        -- Condición 2: Asistencia de cortesía (Si está en una reserva de un pack ajeno, le mostramos solo 1 tarjeta representativa)
+        OR (
+            pj.pack_id IN (SELECT r_sub.pack_id FROM reserva_jugadores rj_sub JOIN reservas r_sub ON r_sub.id = rj_sub.reserva_id WHERE rj_sub.jugador_id = ? AND r_sub.pack_id > 0 AND r_sub.estado != 'cancelado')
+            AND pj.id = (SELECT MIN(id) FROM pack_jugadores WHERE pack_id = pk.id)
+            AND pk.id NOT IN (
+                SELECT pj_own.pack_id FROM pack_jugadores pj_own 
+                WHERE pj_own.jugador_id = ? 
+                OR pj_own.id IN (SELECT pack_jugadores_id FROM pack_jugadores_adicionales WHERE jugador_id = ? AND estado = 'aceptado')
+            )
+        )
+    )
+    AND pk.tipo != 'grupal'
 ";
 
 if ($entrenador_id) {
     $sql .= " AND pk.entrenador_id = ?";
 }
 
-$sql .= " ORDER BY pj.fecha_inicio ASC";
+$sql .= " GROUP BY pj.id ORDER BY pj.fecha_inicio ASC";
 
 $stmt = $conn->prepare($sql);
 if (!$stmt) {
@@ -64,9 +82,9 @@ if (!$stmt) {
 }
 
 if ($entrenador_id) {
-    $stmt->bind_param("iii", $jugador_id, $jugador_id, $entrenador_id);
+    $stmt->bind_param("iiiiii", $jugador_id, $jugador_id, $jugador_id, $jugador_id, $jugador_id, $entrenador_id);
 } else {
-    $stmt->bind_param("ii", $jugador_id, $jugador_id);
+    $stmt->bind_param("iiiii", $jugador_id, $jugador_id, $jugador_id, $jugador_id, $jugador_id);
 }
 
 $stmt->execute();
@@ -108,7 +126,7 @@ $resT = $stmtT->get_result();
 
 $totals_map = [];
 $past_map = [];
-while($t = $resT->fetch_assoc()){
+while ($t = $resT->fetch_assoc()) {
     $totals_map[$t['nombre']] = (int)$t['total_reservas'];
     $past_map[$t['nombre']] = (int)$t['total_pasadas'];
 }
@@ -116,20 +134,20 @@ while($t = $resT->fetch_assoc()){
 // 3. Distribución FIFO (First In, First Out)
 // Vamos recorriendo los packs (del más viejo al más nuevo) y gastando las reservas globales.
 $results = [];
-foreach($all_packs as $pack) {
+foreach ($all_packs as $pack) {
     $pName = trim($pack['pack_nombre']); // Usar el nombre como bolsa global
     $maxCapacity = (int)($pack['sesiones_totales'] ?? 0);
-    
+
     // Obtener lo que queda en la bolsa para este nombre de pack
     $globalRemaining = isset($totals_map[$pName]) ? $totals_map[$pName] : 0;
     $globalPastRemaining = isset($past_map[$pName]) ? $past_map[$pName] : 0;
-    
+
     $assigned_reservadas = min($maxCapacity, $globalRemaining);
     $assigned_pasadas = min($assigned_reservadas, $globalPastRemaining);
-    
+
     $pack['sesiones_reservadas'] = $assigned_reservadas;
     $pack['sesiones_pasadas'] = $assigned_pasadas;
-    
+
     // IMPORTANTE: Restar de la bolsa global PARA EL SIGUIENTE PACK
     if (isset($totals_map[$pName])) {
         $totals_map[$pName] = $totals_map[$pName] - $assigned_reservadas;
@@ -137,17 +155,17 @@ foreach($all_packs as $pack) {
     if (isset($past_map[$pName])) {
         $past_map[$pName] = $past_map[$pName] - $assigned_pasadas;
     }
-    
+
     $results[] = $pack;
 }
 
 // 4. Volver a ordenar por fecha DESC para la vista final si se prefiere así
-usort($results, function($a, $b) {
+usort($results, function ($a, $b) {
     return strtotime($b['fecha_inicio']) - strtotime($a['fecha_inicio']);
 });
 
 // Agregar invitados (lógica original)
-foreach($results as &$row) {
+foreach ($results as &$row) {
     $invitados = [];
     if (($row['cantidad_personas'] ?? 1) > 1) {
         $sqlInv = "
@@ -161,7 +179,7 @@ foreach($results as &$row) {
             $stmtInv->bind_param("i", $row['pack_jugador_id']);
             $stmtInv->execute();
             $resInv = $stmtInv->get_result();
-            while($inv = $resInv->fetch_assoc()){
+            while ($inv = $resInv->fetch_assoc()) {
                 $invitados[] = $inv;
             }
         }
@@ -170,4 +188,3 @@ foreach($results as &$row) {
 }
 
 echo json_encode(["success" => true, "data" => $results]);
-?>

@@ -28,63 +28,90 @@ if (!$entrenador_id) {
 $first_day = date('Y-m-01 00:00:00');
 $last_day = date('Y-m-t 23:59:59');
 
-// 1. RECAUDADO 
-// Primero intentamos este mes. Si da 0, ampliamos la búsqueda a todos los packs activos vinculados al entrenador
-// para ver si el problema es la fecha de creación vs fecha de trabajo.
+// 1. RECAUDADO POR DIA (Ventas reales de packs este mes)
 $sql_packs = "
-    SELECT SUM(p.precio) as total 
+    SELECT DATE(pj.fecha_inicio) as fecha, SUM(pj.precio_pagado) as total_dia
     FROM pack_jugadores pj
     JOIN packs p ON pj.pack_id = p.id
     WHERE p.entrenador_id = ? 
-      AND (pj.created_at BETWEEN ? AND ? OR 1=1) -- Temporalmente permitimos todos para validar
+      AND pj.fecha_inicio BETWEEN ? AND ?
+    GROUP BY DATE(pj.fecha_inicio)
+    ORDER BY fecha ASC
 ";
-// Nota: 'OR 1=1' es para depuración rápida. En producción usaremos una lógica de 'packs activos'.
 $stmt = $conn->prepare($sql_packs);
 $stmt->bind_param("iss", $entrenador_id, $first_day, $last_day);
 $stmt->execute();
-$recaudado_packs = (float)$stmt->get_result()->fetch_assoc()['total'];
+$res = $stmt->get_result();
 
-$sql_grupales = "
-    SELECT SUM(p.precio) as total 
-    FROM inscripciones_grupales ig
-    JOIN packs p ON ig.pack_id = p.id
+$ventas_por_dia = [];
+$total_recaudado = 0;
+
+while ($row = $res->fetch_assoc()) {
+    $ventas_por_dia[] = [
+        "fecha" => $row['fecha'],
+        "total" => (float)$row['total_dia']
+    ];
+    $total_recaudado += (float)$row['total_dia'];
+}
+
+// Fallback legacy no longer completely needed, but we keep the structure just in case
+$recaudado_sin_fecha = 0;
+$total_recaudado += $recaudado_sin_fecha;
+
+// Mes a Mes (Año Completo actual)
+$first_day_year = date('Y-01-01 00:00:00');
+$last_day_year = date('Y-12-31 23:59:59');
+
+$sql_meses = "
+    SELECT DATE_FORMAT(pj.fecha_inicio, '%Y-%m') as mes, SUM(pj.precio_pagado) as total_mes
+    FROM pack_jugadores pj
+    JOIN packs p ON pj.pack_id = p.id
     WHERE p.entrenador_id = ? 
-      AND ig.estado = 'activo'
+      AND pj.fecha_inicio BETWEEN ? AND ?
+    GROUP BY DATE_FORMAT(pj.fecha_inicio, '%Y-%m')
+    ORDER BY mes ASC
 ";
-$stmt = $conn->prepare($sql_grupales);
-$stmt->bind_param("i", $entrenador_id);
+$stmt = $conn->prepare($sql_meses);
+$stmt->bind_param("iss", $entrenador_id, $first_day_year, $last_day_year);
 $stmt->execute();
-$recaudado_grupales = (float)$stmt->get_result()->fetch_assoc()['total'];
+$res_meses = $stmt->get_result();
 
-$total_recaudado = $recaudado_packs + $recaudado_grupales;
+$ventas_por_mes = [];
+$total_recaudado_anio = 0;
+while ($row = $res_meses->fetch_assoc()) {
+    $ventas_por_mes[] = [
+        "mes" => $row['mes'],
+        "total" => (float)$row['total_mes']
+    ];
+    $total_recaudado_anio += (float)$row['total_mes'];
+}
 
-// 2. PROYECTADO (Recaudado + Valor de sesiones agendadas de alumnos sin pack pagado aún)
-// Para simplificar y dar un dato útil: Consideramos Proyectado como el valor de todas las clases del mes
-// que ya están en la agenda (estimando un valor de sesión si no es de pack)
-$sql_reservas = "
-    SELECT COUNT(*) as total_clases
-    FROM reservas
-    WHERE entrenador_id = ? 
-      AND estado != 'cancelado'
-      AND fecha BETWEEN ? AND ?
+// 2. PROYECTADO 
+// La meta proyectada es el valor total de los packs que están siendo usados en la agenda este mes
+$sql_proyectado = "
+    SELECT SUM(DISTINCT p.precio) as total_proy
+    FROM reservas r
+    JOIN packs p ON r.pack_id = p.id
+    WHERE r.entrenador_id = ? 
+      AND r.estado != 'cancelado'
+      AND r.fecha BETWEEN ? AND ?
 ";
-$stmt = $conn->prepare($sql_reservas);
+$stmt = $conn->prepare($sql_proyectado);
 $stmt->bind_param("iss", $entrenador_id, $first_day, $last_day);
 $stmt->execute();
-$total_clases_mes = (int)$stmt->get_result()->fetch_assoc()['total_clases'];
+$total_proy_packs = (float)$stmt->get_result()->fetch_assoc()['total_proy'];
 
-// Estimación de valor por clase si no es pack: 25000
-// Pero si Recaudado es mayor (porque vendió muchos packs pero agendó poco), usamos Recaudado como base
-$valor_agenda = $total_clases_mes * 25000;
-$total_proyectado = max($total_recaudado, $valor_agenda);
+$total_proyectado = max($total_recaudado, $total_proy_packs);
 
-// Si no hay nada, devolvemos 0
+// Devolvemos los datos
 echo json_encode([
-    "recaudado" => $total_recaudado,
-    "proyectado" => $total_proyectado,
-    "clases_mes" => $total_clases_mes,
-    "moneda" => "CLP"
+    "recaudado" => (int)$total_recaudado,
+    "recaudado_anio" => (int)$total_recaudado_anio,
+    "proyectado" => (int)$total_recaudado, // Ya no se usa tanto proyectado base si tenemos datos exactos
+    "moneda" => "CLP",
+    "periodo" => date('F Y'),
+    "ventas_por_dia" => $ventas_por_dia,
+    "ventas_por_mes" => $ventas_por_mes
 ]);
 
 $conn->close();
-?>
