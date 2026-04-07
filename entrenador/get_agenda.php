@@ -70,7 +70,7 @@ LEFT JOIN clubes p_c ON p_c.id = p.club_id
 LEFT JOIN mallas m ON m.id = r.malla_id
 LEFT JOIN clases_malla cm ON cm.id = r.clase_id
 WHERE r.entrenador_id = ?
-  AND r.fecha >= CURDATE()
+  AND r.fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
   AND r.fecha <= DATE_ADD(CURDATE(), INTERVAL 35 DAY)
   AND r.estado != 'cancelado'
 GROUP BY r.fecha, r.hora_inicio, r.entrenador_id, tipo_real, p.id
@@ -89,7 +89,7 @@ while ($row = $result->fetch_assoc()) {
         $emails = explode('||', $row['jugador_emails']);
         $fotos = explode('||', $row['jugador_fotos']);
         $ids = explode('||', $row['jugador_ids']);
-        for($i=0; $i<count($names); $i++) {
+        for ($i = 0; $i < count($names); $i++) {
             $inscritos_final[] = [
                 "id" => trim($ids[$i] ?? ''),
                 "nombre" => trim($names[$i]),
@@ -180,7 +180,7 @@ while ($row = $result->fetch_assoc()) {
 
     $hora_inicio_sec = strtotime($row['hora_inicio']);
     $hora_fin = date("H:i:s", $hora_inicio_sec + ($duracion * 60));
-    
+
     $cap_max = ($row['capacidad_maxima'] <= 1) ? 6 : $row['capacidad_maxima'];
     $cap_min = ($row['capacidad_minima'] <= 1) ? 2 : $row['capacidad_minima'];
 
