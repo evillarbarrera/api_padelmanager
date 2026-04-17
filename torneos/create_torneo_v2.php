@@ -6,8 +6,14 @@ header("Content-Type: application/json");
 
 require_once "../db.php";
 
+// Manejo de peticiones preflight OPTIONS
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
 $data = json_decode(file_get_contents("php://input"), true);
-if (!$data) {
+if (!$data && $_SERVER['REQUEST_METHOD'] === 'POST') {
     http_response_code(400);
     echo json_encode(["error" => "Datos inválidos"]);
     exit;

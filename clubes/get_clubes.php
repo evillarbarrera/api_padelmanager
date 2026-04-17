@@ -19,16 +19,23 @@ require_once "../db.php";
 
 $admin_id = $_GET['admin_id'] ?? 0;
 
+// Usamos COALESCE para priorizar la nueva columna en 'clubes', manteniendo compatibilidad con 'direcciones'
+$sql_fields = "DISTINCT c.*, 
+               COALESCE(NULLIF(c.region, ''), d.region) as region, 
+               COALESCE(NULLIF(c.comuna, ''), d.comuna) as comuna";
+
 if ($admin_id) {
-    $sql = "SELECT c.*, d.region, d.comuna 
+    // Buscamos clubes donde sea el admin (dueño) O donde tenga un perfil activo en usuarios_clubes
+    $sql = "SELECT $sql_fields 
             FROM clubes c 
             LEFT JOIN direcciones d ON d.club_id = c.id 
-            WHERE c.admin_id = ? 
+            LEFT JOIN usuarios_clubes uc ON uc.club_id = c.id 
+            WHERE c.admin_id = ? OR (uc.usuario_id = ? AND uc.activo = 1)
             ORDER BY c.nombre ASC";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $admin_id);
+    $stmt->bind_param("ii", $admin_id, $admin_id);
 } else {
-    $sql = "SELECT c.*, d.region, d.comuna 
+    $sql = "SELECT $sql_fields 
             FROM clubes c 
             LEFT JOIN direcciones d ON d.club_id = c.id 
             ORDER BY c.nombre ASC";

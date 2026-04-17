@@ -92,7 +92,6 @@ SELECT
           AND r.estado != 'cancelado'
           AND r.pack_id > 0
           AND (ptr.id IS NULL OR ptr.tipo NOT IN ('grupal', 'pack_grupal'))
-          AND (r.fecha > CURDATE() OR (r.fecha = CURDATE() AND r.hora_fin > CURTIME()))
     ) AS sesiones_reservadas,
 
     /* TOTAL GRUPALES */
@@ -138,6 +137,7 @@ SELECT
               AND r5.estado != 'cancelado'
               AND r5.pack_id > 0
               AND (ptr5.id IS NULL OR ptr5.tipo NOT IN ('grupal', 'pack_grupal'))
+              AND (r5.fecha < CURDATE() OR (r5.fecha = CURDATE() AND r5.hora_fin <= CURTIME()))
         )
     ) AS sesiones_pendientes
 

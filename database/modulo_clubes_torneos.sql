@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS clubes (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(255) NOT NULL,
     direccion TEXT,
+    region VARCHAR(100),
+    comuna VARCHAR(100),
     telefono VARCHAR(50),
     instagram VARCHAR(100),
     email VARCHAR(100),
@@ -21,7 +23,10 @@ CREATE TABLE IF NOT EXISTS canchas (
     nombre VARCHAR(100) NOT NULL,
     tipo ENUM('Indoor', 'Outdoor', 'Cubierta') DEFAULT 'Outdoor',
     superficie VARCHAR(50) DEFAULT 'Césped Sintético',
-    precio_hora DECIMAL(10, 2) DEFAULT 0.00,
+    precio_60 DECIMAL(10, 2) DEFAULT 0.00,
+    precio_90 DECIMAL(10, 2) DEFAULT 0.00,
+    precio_120 DECIMAL(10, 2) DEFAULT 0.00,
+    precio_hora DECIMAL(10, 2) DEFAULT 0.00, -- Legacy field
     activa BOOLEAN DEFAULT TRUE,
     FOREIGN KEY (club_id) REFERENCES clubes(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

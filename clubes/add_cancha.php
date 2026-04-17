@@ -28,7 +28,9 @@ $club_id = $data['club_id'] ?? 0;
 $nombre = $data['nombre'] ?? '';
 $tipo = $data['tipo'] ?? 'Outdoor';
 $superficie = $data['superficie'] ?? 'Césped Sintético';
-$precio_hora = $data['precio_hora'] ?? 0;
+$p60 = $data['precio_60'] ?? 0;
+$p90 = $data['precio_90'] ?? 0;
+$p120 = $data['precio_120'] ?? 0;
 
 if (empty($club_id) || empty($nombre)) {
     http_response_code(400);
@@ -36,9 +38,9 @@ if (empty($club_id) || empty($nombre)) {
     exit;
 }
 
-$sql = "INSERT INTO canchas (club_id, nombre, tipo, superficie, precio_hora) VALUES (?, ?, ?, ?, ?)";
+$sql = "INSERT INTO canchas (club_id, nombre, tipo, superficie, precio_60, precio_90, precio_120) VALUES (?, ?, ?, ?, ?, ?, ?)";
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("isssd", $club_id, $nombre, $tipo, $superficie, $precio_hora);
+$stmt->bind_param("isssiii", $club_id, $nombre, $tipo, $superficie, $p60, $p90, $p120);
 
 if ($stmt->execute()) {
     echo json_encode(["success" => true, "id" => $conn->insert_id]);

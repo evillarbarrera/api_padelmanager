@@ -4,6 +4,12 @@ header("Access-Control-Allow-Methods: GET, OPTIONS");
 header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
+// Handle preflight OPTIONS request
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
 require_once "../db.php";
 
 $categoria_id = $_GET['categoria_id'] ?? 0;
@@ -14,6 +20,7 @@ if (!$categoria_id) {
 }
 
 $sql = "SELECT i.*, p.nombre_pareja, p.jugador1_id, p.jugador2_id,
+        i.es_semilla, i.nro_siembra, i.ranking_puntos,
         COALESCE(u1.nombre, p.jugador1_nombre_manual) as nombre_jugador_1, 
         COALESCE(u2.nombre, p.jugador2_nombre_manual) as nombre_jugador_2
         FROM torneo_inscripciones i 

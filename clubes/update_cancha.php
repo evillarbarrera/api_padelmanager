@@ -28,7 +28,11 @@ $id = $data['id'] ?? 0;
 $nombre = $data['nombre'] ?? '';
 $tipo = $data['tipo'] ?? 'Outdoor';
 $superficie = $data['superficie'] ?? 'Césped Sintético';
-$precio_hora = $data['precio_hora'] ?? 0;
+
+// Nuevos precios
+$p60 = $data['precio_60'] ?? 0;
+$p90 = $data['precio_90'] ?? 0;
+$p120 = $data['precio_120'] ?? 0;
 
 if (empty($id) || empty($nombre)) {
     http_response_code(400);
@@ -36,9 +40,9 @@ if (empty($id) || empty($nombre)) {
     exit;
 }
 
-$sql = "UPDATE canchas SET nombre = ?, tipo = ?, superficie = ?, precio_hora = ? WHERE id = ?";
+$sql = "UPDATE canchas SET nombre = ?, tipo = ?, superficie = ?, precio_60 = ?, precio_90 = ?, precio_120 = ? WHERE id = ?";
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("sssdi", $nombre, $tipo, $superficie, $precio_hora, $id);
+$stmt->bind_param("sssiiii", $nombre, $tipo, $superficie, $p60, $p90, $p120, $id);
 
 if ($stmt->execute()) {
     echo json_encode(["success" => true, "message" => "Cancha actualizada"]);

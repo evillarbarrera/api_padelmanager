@@ -41,40 +41,24 @@ if (empty($nombre)) {
     exit;
 }
 
-// 1. Actualizar tabla clubes
-$sql = "UPDATE clubes SET nombre = ?, direccion = ?, telefono = ?, instagram = ?, email = ? WHERE id = ?";
+// 1. Actualizar tabla clubes (incluyendo región y comuna directas)
+$sql = "UPDATE clubes SET nombre = ?, direccion = ?, region = ?, comuna = ?, telefono = ?, instagram = ?, email = ? WHERE id = ?";
 $stmt = $conn->prepare($sql);
-
-if (!$stmt) {
-    http_response_code(500);
-    echo json_encode(["error" => "Error al preparar consulta de clubes: " . $conn->error]);
-    exit;
-}
-
-$stmt->bind_param("sssssi", $nombre, $direccion, $telefono, $instagram, $email, $id);
+$stmt->bind_param("sssssssi", $nombre, $direccion, $region, $comuna, $telefono, $instagram, $email, $id);
 
 if ($stmt->execute()) {
-    // 2. Actualizar o Insertar en tabla direcciones
-    // Primero verificamos si ya existe una dirección para este club
+    // 2. Mantener tabla direcciones por compatibilidad
     $sqlCheck = "SELECT id FROM direcciones WHERE club_id = ?";
     $stmtCheck = $conn->prepare($sqlCheck);
-    
-    if (!$stmtCheck) {
-        echo json_encode(["success" => true, "message" => "Club actualizado, pero error al preparar verificación de dirección: " . $conn->error]);
-        exit;
-    }
-
     $stmtCheck->bind_param("i", $id);
     $stmtCheck->execute();
     $resCheck = $stmtCheck->get_result();
 
     if ($resCheck->num_rows > 0) {
-        // Update: Aseguramos que usuario_id sea NULL para que el FK no falle si estaba vacío o con 0
         $upd = $conn->prepare("UPDATE direcciones SET region = ?, comuna = ?, calle = ?, usuario_id = NULL WHERE club_id = ?");
         $upd->bind_param("sssi", $region, $comuna, $direccion, $id);
         $upd->execute();
     } else {
-        // Insert: Especificamos usuario_id como NULL explícitamente
         $ins = $conn->prepare("INSERT INTO direcciones (club_id, usuario_id, region, comuna, calle) VALUES (?, NULL, ?, ?, ?)");
         $ins->bind_param("isss", $id, $region, $comuna, $direccion);
         $ins->execute();

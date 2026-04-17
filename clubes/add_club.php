@@ -32,6 +32,7 @@ $telefono = $data['telefono'] ?? '';
 $instagram = $data['instagram'] ?? '';
 $email = $data['email'] ?? '';
 $admin_id = $data['admin_id'] ?? null;
+$rol = $data['rol'] ?? 'administrador_club'; // Default to admin for backwards compatibility
 
 if (empty($nombre) || empty($admin_id)) {
     http_response_code(400);
@@ -39,24 +40,24 @@ if (empty($nombre) || empty($admin_id)) {
     exit;
 }
 
-$sql = "INSERT INTO clubes (nombre, direccion, telefono, instagram, email, admin_id) VALUES (?, ?, ?, ?, ?, ?)";
+$sql = "INSERT INTO clubes (nombre, direccion, region, comuna, telefono, instagram, email, admin_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("sssssi", $nombre, $direccion, $telefono, $instagram, $email, $admin_id);
+$stmt->bind_param("sssssssi", $nombre, $direccion, $region, $comuna, $telefono, $instagram, $email, $admin_id);
 
 try {
     if ($stmt->execute()) {
         $club_id = $conn->insert_id;
         
-        // Ahora guardamos la dirección detallada en la tabla 'direcciones' vinculada al club
+        // Tabla direcciones por compatibilidad
         $sqlDir = "INSERT INTO direcciones (club_id, usuario_id, region, comuna, calle) VALUES (?, NULL, ?, ?, ?)";
         $stmtDir = $conn->prepare($sqlDir);
         $stmtDir->bind_param("isss", $club_id, $region, $comuna, $direccion);
         $stmtDir->execute();
 
-        // NUEVO: Crear automáticamente el perfil de Administrador para este usuario en la tabla de perfiles
-        $sqlPerfil = "INSERT INTO usuarios_clubes (usuario_id, club_id, rol) VALUES (?, ?, 'administrador_club')";
+        // Rol asignado (por defecto administrador_club, pero puede ser entrenador si se especifica)
+        $sqlPerfil = "INSERT INTO usuarios_clubes (usuario_id, club_id, rol) VALUES (?, ?, ?)";
         $stmtPerfil = $conn->prepare($sqlPerfil);
-        $stmtPerfil->bind_param("ii", $admin_id, $club_id);
+        $stmtPerfil->bind_param("iis", $admin_id, $club_id, $rol);
         $stmtPerfil->execute();
 
         echo json_encode(["success" => true, "id" => $club_id]);
@@ -65,20 +66,14 @@ try {
     }
 } catch (mysqli_sql_exception $e) {
     if ($e->getCode() === 1062) {
-        http_response_code(409); // Conflict
-        echo json_encode(["error" => "El nombre del club ya está registrado. Por favor elige otro."]);
+        http_response_code(409);
+        echo json_encode(["error" => "El nombre del club ya está registrado."]);
     } else {
         http_response_code(500);
         echo json_encode(["error" => "Error al ejecutar: " . $e->getMessage()]);
     }
 } catch (Exception $e) {
-    // Si la versión de PHP/MySQLi driver es antigua y no tira exception
-    if ($conn->errno === 1062) {
-        http_response_code(409);
-        echo json_encode(["error" => "El nombre del club ya está registrado. Por favor elige otro."]);
-    } else {
-        http_response_code(500);
-        echo json_encode(["error" => "Error al crear club: " . $conn->error]);
-    }
+    http_response_code(500);
+    echo json_encode(["error" => "Error al crear club: " . $e->getMessage()]);
 }
 ?>

@@ -39,15 +39,15 @@ $sql = "
          e.descripcion as entrenador_descripcion,
          COALESCE(ig_counts.cupos_ocupados, 0) as cupos_ocupados,
          (p.capacidad_maxima - COALESCE(ig_counts.cupos_ocupados, 0)) as cupos_disponibles,
-         d.latitud as trainer_lat,
-         d.longitud as trainer_lng,
-         d.comuna as trainer_comuna,
-         d.region as trainer_region
+          d_user.latitud as trainer_lat,
+          d_user.longitud as trainer_lng,
+          d_user.comuna as trainer_comuna,
+          d_user.region as trainer_region
 ";
 
 // ... [Haversine logic stays the same] ...
 if ($myLat && $myLng) {
-    $sql .= ", ( 6371 * acos( cos( radians($myLat) ) * cos( radians( d.latitud ) ) * cos( radians( d.longitud ) - radians($myLng) ) + sin( radians($myLat) ) * sin( radians( d.latitud ) ) ) ) AS distancia ";
+    $sql .= ", ( 6371 * acos( cos( radians($myLat) ) * cos( radians( d_user.latitud ) ) * cos( radians( d_user.longitud ) - radians($myLng) ) + sin( radians($myLat) ) * sin( radians( d_user.latitud ) ) ) ) AS distancia ";
 } else {
     $sql .= ", NULL as distancia ";
 }
@@ -55,7 +55,8 @@ if ($myLat && $myLng) {
 $sql .= "
   FROM packs p
   INNER JOIN usuarios e ON e.id = p.entrenador_id
-  LEFT JOIN direcciones d ON d.club_id = p.club_id
+  LEFT JOIN direcciones d_club ON d_club.club_id = p.club_id
+  LEFT JOIN direcciones d_user ON d_user.usuario_id = p.entrenador_id
   LEFT JOIN (
       SELECT pack_id, COUNT(*) as cupos_ocupados 
       FROM inscripciones_grupales 
@@ -71,12 +72,12 @@ if ($entrenador_id) {
 
 if ($region) {
     $safeRegion = $conn->real_escape_string($region);
-    $sql .= " AND d.region = '$safeRegion' ";
+    $sql .= " AND d_user.region = '$safeRegion' ";
 }
 
 if ($comuna) {
     $safeComuna = $conn->real_escape_string($comuna);
-    $sql .= " AND d.comuna = '$safeComuna' ";
+    $sql .= " AND d_user.comuna = '$safeComuna' ";
 }
 
 // Filter by radius if location and radius provided
