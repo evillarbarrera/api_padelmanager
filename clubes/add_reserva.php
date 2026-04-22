@@ -16,7 +16,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 require_once "../db.php";
 
 // SILENT SCHEMA FIX
-function ensureColumnReservas($conn, $column, $definition) {
+function ensureColumnReservas($conn, $column, $definition)
+{
     if ($column === 'usuario_id') {
         $conn->query("ALTER TABLE reservas_cancha MODIFY usuario_id INT NULL");
         return;
@@ -40,6 +41,10 @@ ensureColumnReservas($conn, 'pago_p1', "TINYINT(1) DEFAULT 1");
 ensureColumnReservas($conn, 'pago_p2', "TINYINT(1) DEFAULT 0");
 ensureColumnReservas($conn, 'pago_p3', "TINYINT(1) DEFAULT 0");
 ensureColumnReservas($conn, 'pago_p4', "TINYINT(1) DEFAULT 0");
+ensureColumnReservas($conn, 'marcador', "VARCHAR(50) NULL");
+ensureColumnReservas($conn, 'categoria', "VARCHAR(50) NULL");
+ensureColumnReservas($conn, 'resultado_registrado', "TINYINT(1) DEFAULT 0");
+ensureColumnReservas($conn, 'id_ganador', "INT NULL");
 
 $data = json_decode(file_get_contents("php://input"), true);
 
@@ -110,11 +115,28 @@ $sqlInsert = "INSERT INTO reservas_cancha
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
 $stmt = $conn->prepare($sqlInsert);
-$stmt->bind_param("iiiiisssssssdissiiii", 
-    $cancha_id, 
-    $jugador_id, $jugador2_id, $jugador3_id, $jugador4_id,
-    $nombre_externo, $nombre_externo2, $nombre_externo3, $nombre_externo4,
-    $fecha, $hora_inicio, $hora_fin, $data['precio'], $pagado, $estado, $metodo_pago, $pago_p1, $pago_p2, $pago_p3, $pago_p4
+$stmt->bind_param(
+    "iiiiisssssssdissiiii",
+    $cancha_id,
+    $jugador_id,
+    $jugador2_id,
+    $jugador3_id,
+    $jugador4_id,
+    $nombre_externo,
+    $nombre_externo2,
+    $nombre_externo3,
+    $nombre_externo4,
+    $fecha,
+    $hora_inicio,
+    $hora_fin,
+    $data['precio'],
+    $pagado,
+    $estado,
+    $metodo_pago,
+    $pago_p1,
+    $pago_p2,
+    $pago_p3,
+    $pago_p4
 );
 
 if ($stmt->execute()) {
@@ -125,4 +147,3 @@ if ($stmt->execute()) {
     http_response_code(500);
     echo json_encode(["error" => "Error al guardar la reserva: " . $conn->error]);
 }
-?>

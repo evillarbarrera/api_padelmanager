@@ -33,10 +33,17 @@ if (!$club_id) {
 }
 
 // Get all reservations for all courts of this club on a specific date
-$sql = "SELECT r.*, c.nombre as cancha_nombre, u.nombre as jugador_nombre 
+$sql = "SELECT r.*, c.nombre as cancha_nombre, 
+               u1.nombre as jugador_nombre,
+               u2.nombre as jugador2_nombre,
+               u3.nombre as jugador3_nombre,
+               u4.nombre as jugador4_nombre
         FROM reservas_cancha r 
         JOIN canchas c ON r.cancha_id = c.id 
-        LEFT JOIN usuarios u ON r.usuario_id = u.id 
+        LEFT JOIN usuarios u1 ON r.usuario_id = u1.id 
+        LEFT JOIN usuarios u2 ON r.jugador2_id = u2.id 
+        LEFT JOIN usuarios u3 ON r.jugador3_id = u3.id 
+        LEFT JOIN usuarios u4 ON r.jugador4_id = u4.id 
         WHERE c.club_id = ? AND r.fecha = ?
         ORDER BY r.hora_inicio ASC";
 

@@ -35,6 +35,20 @@ if (!$jugador_id || !$malla_id || !$entrenador_id) {
 // 0. Ensure column exists (one-time check, safe for performance)
 $conn->query("ALTER TABLE alumno_malla_seguimiento ADD COLUMN IF NOT EXISTS pack_id INT DEFAULT 0 AFTER entrenador_id");
 
+// 0.5 Verificar que no sea un pack grupal
+if ($pack_id > 0) {
+    $stmtP = $conn->prepare("SELECT tipo FROM packs WHERE id = ?");
+    $stmtP->bind_param("i", $pack_id);
+    $stmtP->execute();
+    $resP = $stmtP->get_result()->fetch_assoc();
+    $tipo = $resP['tipo'] ?? 'individual';
+    if ($tipo === 'grupal' || $tipo === 'pack_grupal' || $tipo === 'clase grupal') {
+        http_response_code(400);
+        echo json_encode(["error" => "No se puede asignar una hoja de ruta a un pack grupal."]);
+        exit;
+    }
+}
+
 // 1. Desactivar malla previa del MISMO pack para este alumno
 $conn->query("UPDATE alumno_malla_seguimiento SET estado = 'cancelado' WHERE jugador_id = $jugador_id AND pack_id = $pack_id AND estado = 'activo'");
 

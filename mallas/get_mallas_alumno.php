@@ -12,6 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 require_once "../db.php";
 
 $jugador_id = $_GET['jugador_id'] ?? 0;
+$entrenador_id = $_GET['entrenador_id'] ?? 0;
 
 if (!$jugador_id) {
     http_response_code(400);
@@ -19,14 +20,14 @@ if (!$jugador_id) {
     exit;
 }
 
-// 0. Robust Column Check (for compatibility with older MySQL/MariaDB)
+// 0. Robust Column Check
 $check = $conn->query("SHOW COLUMNS FROM alumno_malla_seguimiento LIKE 'pack_id'");
 if ($check && $check->num_rows == 0) {
     $conn->query("ALTER TABLE alumno_malla_seguimiento ADD pack_id INT DEFAULT 0 AFTER entrenador_id");
 }
 
 try {
-    // Fetch all active meshes for the student, including the coach and pack names
+    // Fetch meshes including coach and pack names
     $sql = "
         SELECT 
             ams.id as seguimiento_id,
@@ -44,8 +45,14 @@ try {
         JOIN usuarios u ON ams.entrenador_id = u.id
         LEFT JOIN packs p ON ams.pack_id = p.id
         WHERE ams.jugador_id = ? AND ams.estado = 'activo'
-        ORDER BY ams.fecha_inicio DESC
+          AND (p.tipo NOT IN ('grupal', 'pack_grupal', 'clase grupal') OR p.id IS NULL)
     ";
+
+    if ($entrenador_id) {
+        $sql .= " AND ams.entrenador_id = $entrenador_id";
+    }
+
+    $sql .= " ORDER BY ams.fecha_inicio DESC";
 
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("i", $jugador_id);
@@ -62,3 +69,4 @@ try {
     http_response_code(500);
     echo json_encode(["error" => $e->getMessage()]);
 }
+?>

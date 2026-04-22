@@ -22,6 +22,7 @@ $jugador_id = $input['jugador_id'] ?? 0;
 $amount = $input['amount'] ?? 0;
 $origin = $input['origin'] ?? 'https://padelmanager.cl/pack-alumno';
 $reserva_id = $input['reserva_id'] ?? null;
+$forceManual = ($input['manual'] == true || $input['metodo_pago'] === 'Pago Manual');
 
 if (!$pack_id || !$jugador_id) {
     http_response_code(400);
@@ -74,10 +75,35 @@ if ($pack['comision_activa'] == 1 && !$is_promo_period) {
     $marketplaceFee = $finalAmount * ($pack['comision_porcentaje'] / 100);
 }
 
-// 4. Validar que el Coach tenga cuenta de MercadoPago vinculada
-if (empty($pack['mp_collector_id'])) {
-    http_response_code(400);
-    echo json_encode(["error" => "El coach no tiene vinculada su cuenta de MercadoPago. Por favor, comuníqueselo para que la configure, o elija otro medio de pago."]);
+// 4. Validar si el Coach tiene MercadoPago vinculado O si el usuario forzó Pago Manual. 
+// Si NO tiene o es manual, registramos DIRECTAMENTE (Pago Manual / Pendiente) para no bloquear la reserva.
+if (empty($pack['mp_collector_id']) || $forceManual) {
+    require_once "payment_processor.php";
+    
+    $metodoPagoFinal = $forceManual ? "Pago Manual" : "Pago Manual (Coach s/MP)";
+    
+    $manualData = [
+        "pack_id" => (int)$pack_id,
+        "jugador_id" => (int)$jugador_id,
+        "amount" => $finalAmount,
+        "reserva_id" => $reserva_id,
+        "metodo_pago" => $metodoPagoFinal,
+        "moneda" => "CLP"
+    ];
+
+    $success = fulfillPayment($conn, $manualData);
+
+    if ($success) {
+        echo json_encode([
+            "success" => true,
+            "url" => null, // No URL needed for manual
+            "direct" => true,
+            "message" => "Reserva registrada directamente (Pago Manual)"
+        ]);
+    } else {
+        http_response_code(500);
+        echo json_encode(["success" => false, "error" => "Error al registrar la reserva manual"]);
+    }
     exit;
 }
 

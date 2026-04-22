@@ -66,7 +66,7 @@ $sql = "
             )
         )
     )
-    AND pk.tipo != 'grupal'
+    -- AND pk.tipo != 'grupal'
 ";
 
 if ($entrenador_id) {
@@ -145,8 +145,13 @@ foreach ($all_packs as $pack) {
     $assigned_reservadas = min($maxCapacity, $globalRemaining);
     $assigned_pasadas = min($assigned_reservadas, $globalPastRemaining);
 
-    $pack['sesiones_reservadas'] = $assigned_reservadas;
-    $pack['sesiones_pasadas'] = $assigned_pasadas;
+    $count_totales = (int)$maxCapacity;
+    $count_reservadas = (int)$assigned_reservadas;
+    
+    $pack['sesiones_reservadas'] = $count_reservadas;
+    $pack['sesiones_pasadas'] = (int)$assigned_pasadas;
+    $pack['sesiones_restantes'] = max(0, $count_totales - $count_reservadas);
+    $pack['id_pack'] = $pack['pack_id']; // For compatibility
 
     // IMPORTANTE: Restar de la bolsa global PARA EL SIGUIENTE PACK
     if (isset($totals_map[$pName])) {

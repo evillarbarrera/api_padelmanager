@@ -33,6 +33,8 @@ $instagram = $data['instagram'] ?? '';
 $email = $data['email'] ?? '';
 $admin_id = $data['admin_id'] ?? null;
 $rol = $data['rol'] ?? 'administrador_club'; // Default to admin for backwards compatibility
+$reservas_activas = isset($data['reservas_activas']) ? (int)$data['reservas_activas'] : 1;
+$academia_activa = isset($data['academia_activa']) ? (int)$data['academia_activa'] : 1;
 
 if (empty($nombre) || empty($admin_id)) {
     http_response_code(400);
@@ -40,9 +42,9 @@ if (empty($nombre) || empty($admin_id)) {
     exit;
 }
 
-$sql = "INSERT INTO clubes (nombre, direccion, region, comuna, telefono, instagram, email, admin_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+$sql = "INSERT INTO clubes (nombre, direccion, region, comuna, telefono, instagram, email, admin_id, reservas_activas, academia_activa) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("sssssssi", $nombre, $direccion, $region, $comuna, $telefono, $instagram, $email, $admin_id);
+$stmt->bind_param("sssssssiii", $nombre, $direccion, $region, $comuna, $telefono, $instagram, $email, $admin_id, $reservas_activas, $academia_activa);
 
 try {
     if ($stmt->execute()) {

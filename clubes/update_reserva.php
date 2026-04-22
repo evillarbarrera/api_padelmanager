@@ -40,6 +40,10 @@ ensureColumnReservas($conn, 'pago_p1', "TINYINT(1) DEFAULT 1");
 ensureColumnReservas($conn, 'pago_p2', "TINYINT(1) DEFAULT 0");
 ensureColumnReservas($conn, 'pago_p3', "TINYINT(1) DEFAULT 0");
 ensureColumnReservas($conn, 'pago_p4', "TINYINT(1) DEFAULT 0");
+ensureColumnReservas($conn, 'marcador', "VARCHAR(50) NULL");
+ensureColumnReservas($conn, 'categoria', "VARCHAR(50) NULL");
+ensureColumnReservas($conn, 'resultado_registrado', "TINYINT(1) DEFAULT 0");
+ensureColumnReservas($conn, 'id_ganador', "INT NULL");
 
 $data = json_decode(file_get_contents("php://input"), true);
 

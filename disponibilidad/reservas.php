@@ -77,8 +77,8 @@ try {
     ");
     $stmtReserva = $conn->prepare("
         INSERT INTO reservas
-        (entrenador_id, pack_id, fecha, hora_inicio, hora_fin, estado, serie_id, tipo, cantidad_personas, club_id, malla_id, clase_id, clase_titulo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (entrenador_id, pack_id, pack_jugador_id, fecha, hora_inicio, hora_fin, estado, serie_id, tipo, cantidad_personas, club_id, malla_id, clase_id, clase_titulo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $stmtJugador = $conn->prepare("
         INSERT INTO reserva_jugadores (reserva_id, jugador_id)
@@ -93,7 +93,7 @@ try {
         $stmtPT->execute();
         $pTypeInfo = $stmtPT->get_result()->fetch_assoc();
 
-        $isGroup = ($pTypeInfo && ($pTypeInfo['tipo'] === 'grupal' || $pTypeInfo['tipo'] === 'pack_grupal'));
+        $isGroup = ($pTypeInfo && ($pTypeInfo['tipo'] === 'grupal' || $pTypeInfo['tipo'] === 'pack_grupal' || $pTypeInfo['tipo'] === 'clase grupal'));
         $eId = $pTypeInfo['entrenador_id'] ?? $data['entrenador_id'];
 
         if ($isGroup) {
@@ -127,7 +127,7 @@ try {
                         JOIN packs p2 ON p2.id = pj2.pack_id
                         WHERE pj2.jugador_id = ? 
                           AND p2.entrenador_id = ?
-                          AND p2.tipo NOT IN ('grupal', 'pack_grupal')
+                          AND p2.tipo NOT IN ('grupal', 'pack_grupal', 'clase grupal')
                     ) as sesiones_totales,
                     (
                         SELECT COUNT(DISTINCT r2.id) 
@@ -136,7 +136,7 @@ try {
                         WHERE rj2.jugador_id = ? 
                           AND r2.entrenador_id = ?
                           AND r2.estado != 'cancelado'
-                          AND r2.tipo NOT IN ('grupal', 'pack_grupal')
+                          AND r2.tipo NOT IN ('grupal', 'pack_grupal', 'clase grupal')
                           AND r2.pack_id IN (SELECT pack_id FROM pack_jugadores WHERE jugador_id = ?)
                     ) as sesiones_usadas
             ");
@@ -212,36 +212,54 @@ try {
             throw new Exception("Ya tienes una reserva el $currentDate a las $hConf con {$conf['entrenador_nombre']}.");
         }
 
-        // 3. Insert
-        $cant = $data['cantidad_personas'] ?? 1;
-        $clubId = $data['club_id'] ?? null;
-        $insertPackId = $data['pack_id']; // Ya validado estrictamente arriba
-        $mallaId = $data['malla_id'] ?? 0;
-        $claseId = $data['clase_id'] ?? 0;
-        $claseTitulo = $data['clase_titulo'] ?? '';
+        // 2.5 JOIN LOGIC: Si se envió reserva_id, evitamos crear una nueva y nos unimos a la existente
+        $id_reserva_previa = isset($data['reserva_id']) ? intval($data['reserva_id']) : 0;
+        
+        if ($id_reserva_previa > 0) {
+            // Actualizar pack_id y pack_jugador_id de la reserva si están vacíos o si queremos forzar el link
+            // Nota: En sesiones grupales, el pack_id de la reserva suele ser el del creador, pero aquí vinculamos
+            // al menos el pack_jugador_id si es una reserva individual o queremos asegurar el rastro.
+            $stmtUpd = $conn->prepare("UPDATE reservas SET pack_id = ?, pack_jugador_id = ? WHERE id = ? AND (pack_id = 0 OR pack_id IS NULL)");
+            $pId = $data['pack_id'];
+            $pjId = $data['pack_jugador_id'] ?? 0;
+            $stmtUpd->bind_param("iii", $pId, $pjId, $id_reserva_previa);
+            $stmtUpd->execute();
+            
+            $new_reserva_id = $id_reserva_previa;
+        } else {
+            // 3. Insert NEW
+            $cant = $data['cantidad_personas'] ?? 1;
+            $clubId = $data['club_id'] ?? null;
+            $insertPackId = $data['pack_id']; 
+            $insertPackJugadorId = $data['pack_jugador_id'] ?? 0;
+            $mallaId = $data['malla_id'] ?? 0;
+            $claseId = $data['clase_id'] ?? 0;
+            $claseTitulo = $data['clase_titulo'] ?? '';
 
-        $stmtReserva->bind_param(
-            "iissssssiiiis",
-            $data['entrenador_id'],
-            $insertPackId,
-            $currentDate,
-            $data['hora_inicio'],
-            $data['hora_fin'],
-            $data['estado'],
-            $serie_id,
-            $tipoNuevo,
-            $cant,
-            $clubId,
-            $mallaId,
-            $claseId,
-            $claseTitulo
-        );
-        $stmtReserva->execute();
-        $new_reserva_id = $conn->insert_id;
+            $stmtReserva->bind_param(
+                "iiissssssiiiis",
+                $data['entrenador_id'],
+                $insertPackId,
+                $insertPackJugadorId,
+                $currentDate,
+                $data['hora_inicio'],
+                $data['hora_fin'],
+                $data['estado'],
+                $serie_id,
+                $tipoNuevo,
+                $cant,
+                $clubId,
+                $mallaId,
+                $claseId,
+                $claseTitulo
+            );
+            $stmtReserva->execute();
+            $new_reserva_id = $conn->insert_id;
+        }
 
         // 3.5 AUTO-ACTIVATE RoadMap (New Improvement!)
         // If the reservation includes a mesh and there's no active follow-up for that pack, create it.
-        if ($mallaId > 0 && $insertPackId > 0) {
+        if ($mallaId > 0 && $insertPackId > 0 && !$isGroup) {
             $checkMalla = $conn->prepare("SELECT id FROM alumno_malla_seguimiento 
                                           WHERE jugador_id = ? AND entrenador_id = ? AND pack_id = ? AND estado = 'activo' LIMIT 1");
             $checkMalla->bind_param("iii", $data['jugador_id'], $data['entrenador_id'], $insertPackId);
@@ -272,8 +290,14 @@ try {
         // 3. Inserción Masiva
         foreach ($jugadoresAInsertar as $idJugador) {
             if (!empty($idJugador)) {
-                $stmtJugador->bind_param("ii", $new_reserva_id, $idJugador);
-                $stmtJugador->execute();
+                // Verificar si ya existe para evitar duplicados en el JOIN
+                $checkRj = $conn->prepare("SELECT id FROM reserva_jugadores WHERE reserva_id = ? AND jugador_id = ?");
+                $checkRj->bind_param("ii", $new_reserva_id, $idJugador);
+                $checkRj->execute();
+                if ($checkRj->get_result()->num_rows === 0) {
+                    $stmtJugador->bind_param("ii", $new_reserva_id, $idJugador);
+                    $stmtJugador->execute();
+                }
             }
         }
 

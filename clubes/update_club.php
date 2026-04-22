@@ -34,6 +34,8 @@ $comuna = $data['comuna'] ?? '';
 $telefono = $data['telefono'] ?? '';
 $instagram = $data['instagram'] ?? '';
 $email = $data['email'] ?? '';
+$reservas_activas = isset($data['reservas_activas']) ? (int)$data['reservas_activas'] : 0;
+$academia_activa = isset($data['academia_activa']) ? (int)$data['academia_activa'] : 1;
 
 if (empty($nombre)) {
     http_response_code(400);
@@ -42,9 +44,9 @@ if (empty($nombre)) {
 }
 
 // 1. Actualizar tabla clubes (incluyendo región y comuna directas)
-$sql = "UPDATE clubes SET nombre = ?, direccion = ?, region = ?, comuna = ?, telefono = ?, instagram = ?, email = ? WHERE id = ?";
+$sql = "UPDATE clubes SET nombre = ?, direccion = ?, region = ?, comuna = ?, telefono = ?, instagram = ?, email = ?, reservas_activas = ?, academia_activa = ? WHERE id = ?";
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("sssssssi", $nombre, $direccion, $region, $comuna, $telefono, $instagram, $email, $id);
+$stmt->bind_param("sssssssiii", $nombre, $direccion, $region, $comuna, $telefono, $instagram, $email, $reservas_activas, $academia_activa, $id);
 
 if ($stmt->execute()) {
     // 2. Mantener tabla direcciones por compatibilidad

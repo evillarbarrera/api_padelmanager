@@ -44,7 +44,9 @@ $sql = "
         (SELECT COUNT(*) FROM alumno_asistencia WHERE alumno_malla_id = ams.id AND estado_asistencia = 'presente') as clases_asistidas
     FROM alumno_malla_seguimiento ams
     JOIN mallas m ON ams.malla_id = m.id
+    LEFT JOIN packs p ON ams.pack_id = p.id
     WHERE ams.jugador_id = ? AND ams.entrenador_id = ? AND ams.estado = 'activo'
+      AND (p.id IS NULL OR p.tipo NOT IN ('grupal', 'pack_grupal', 'clase grupal'))
     LIMIT 1
 ";
 

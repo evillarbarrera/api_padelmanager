@@ -16,11 +16,12 @@ if (isset($data['type']) && $data['type'] === 'payment') {
         
         if ($paymentInfo && $paymentInfo['status'] === 'approved') {
             $externalReference = json_decode($paymentInfo['external_reference'], true);
-            
             if ($externalReference) {
-                // Check if already processed (Idempotency)
-                // We could use the payment ID to avoid double insertion if needed
-                // For now, let's just fulfill it
+                // Enrich reference with actual payment data from MP
+                $externalReference['amount'] = $paymentInfo['transaction_amount'] ?? 0;
+                $externalReference['metodo_pago'] = $paymentInfo['payment_method_id'] ?? 'Mercado Pago';
+                $externalReference['moneda'] = $paymentInfo['currency_id'] ?? 'CLP';
+
                 fulfillPayment($conn, $externalReference);
             }
         }

@@ -41,6 +41,7 @@ try {
                 SELECT
                     p.id AS id,
                     p.nombre AS nombre,
+                    p.tipo,
                     p.entrenador_id,
                     u_e.nombre AS entrenador_nombre,
                     u_e.foto_perfil AS entrenador_foto,
@@ -57,7 +58,6 @@ try {
                         WHERE rj.jugador_id = ?
                           AND r.pack_id = p.id
                           AND r.estado != 'cancelado'
-                          AND r.tipo NOT IN ('grupal', 'pack_grupal')
                     ) AS clases_reservadas_total,
                     (
                         SELECT COUNT(DISTINCT r.id)
@@ -66,7 +66,6 @@ try {
                         WHERE rj.jugador_id = ?
                           AND r.pack_id = p.id
                           AND r.estado != 'cancelado'
-                          AND r.tipo NOT IN ('grupal', 'pack_grupal')
                           AND (r.fecha < CURDATE() OR (r.fecha = CURDATE() AND r.hora_fin <= CURTIME()))
                     ) AS sesiones_pasadas,
                     (
@@ -76,14 +75,12 @@ try {
                         WHERE rj.jugador_id = ?
                           AND r.pack_id = p.id
                           AND r.estado != 'cancelado'
-                          AND r.tipo NOT IN ('grupal', 'pack_grupal')
                           AND (r.fecha > CURDATE() OR (r.fecha = CURDATE() AND r.hora_fin > CURTIME()))
                     ) AS clases_reservadas_futuro
                 FROM packs p
                 JOIN usuarios u_e ON u_e.id = p.entrenador_id
                 JOIN pack_jugadores pj ON pj.pack_id = p.id
                 WHERE pj.jugador_id = ?
-                  AND p.tipo NOT IN ('grupal', 'pack_grupal')
                 GROUP BY p.id
     ");
     $stmtPacks->bind_param("iiiii", $jugador_id, $jugador_id, $jugador_id, $jugador_id, $jugador_id);
@@ -119,6 +116,7 @@ try {
             $packs[] = [
                 'id' => $pack['id'],
                 'nombre' => $pack['nombre'],
+                'tipo' => $pack['tipo'],
                 'entrenador_id' => $pack['entrenador_id'],
                 'entrenador_nombre' => $pack['entrenador_nombre'],
                 'entrenador_foto' => $pack['entrenador_foto'],
@@ -139,7 +137,7 @@ try {
         JOIN reserva_jugadores rj ON rj.reserva_id = r.id
         WHERE rj.jugador_id = ? 
           AND r.estado != 'cancelado'
-          AND (r.tipo = 'grupal' OR r.tipo = 'pack_grupal')
+          AND (r.tipo = 'grupal' OR r.tipo = 'pack_grupal' OR r.tipo = 'clase grupal')
     ");
     $stmtGrupales->bind_param("i", $jugador_id);
     $stmtGrupales->execute();

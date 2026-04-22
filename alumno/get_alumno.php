@@ -65,7 +65,7 @@ SELECT
         FROM pack_jugadores pj2
         JOIN packs p2 ON pj2.pack_id = p2.id
         WHERE p2.entrenador_id = ?
-          AND p2.tipo NOT IN ('grupal', 'pack_grupal')
+          AND p2.tipo NOT IN ('grupal', 'pack_grupal', 'clase grupal')
           AND (
             pj2.jugador_id = u.id 
             OR pj2.id IN (SELECT pack_jugadores_id FROM pack_jugadores_adicionales WHERE jugador_id = u.id AND estado = 'aceptado')
@@ -91,7 +91,7 @@ SELECT
           AND r.entrenador_id = ?
           AND r.estado != 'cancelado'
           AND r.pack_id > 0
-          AND (ptr.id IS NULL OR ptr.tipo NOT IN ('grupal', 'pack_grupal'))
+          AND (ptr.id IS NULL OR ptr.tipo NOT IN ('grupal', 'pack_grupal', 'clase grupal'))
     ) AS sesiones_reservadas,
 
     /* TOTAL GRUPALES */
@@ -102,7 +102,7 @@ SELECT
         WHERE rj3.jugador_id = u.id 
           AND r3.entrenador_id = ? 
           AND r3.estado != 'cancelado'
-          AND (r3.tipo = 'grupal' OR r3.tipo = 'pack_grupal')
+          AND (r3.tipo = 'grupal' OR r3.tipo = 'pack_grupal' OR r3.tipo = 'clase grupal')
     ) AS sesiones_grupales,
 
     /* CLASES PENDIENTES (Suma Pagadas - Pasadas, solo sobre individuales) */
@@ -112,7 +112,7 @@ SELECT
             FROM pack_jugadores pj4
             JOIN packs p4 ON pj4.pack_id = p4.id
             WHERE p4.entrenador_id = ?
-              AND p4.tipo NOT IN ('grupal', 'pack_grupal')
+              AND p4.tipo NOT IN ('grupal', 'pack_grupal', 'clase grupal')
               AND (
                 pj4.jugador_id = u.id 
                 OR pj4.id IN (SELECT pack_jugadores_id FROM pack_jugadores_adicionales WHERE jugador_id = u.id AND estado = 'aceptado')
@@ -136,7 +136,7 @@ SELECT
               AND r5.entrenador_id = ?
               AND r5.estado != 'cancelado'
               AND r5.pack_id > 0
-              AND (ptr5.id IS NULL OR ptr5.tipo NOT IN ('grupal', 'pack_grupal'))
+              AND (ptr5.id IS NULL OR ptr5.tipo NOT IN ('grupal', 'pack_grupal', 'clase grupal'))
               AND (r5.fecha < CURDATE() OR (r5.fecha = CURDATE() AND r5.hora_fin <= CURTIME()))
         )
     ) AS sesiones_pendientes

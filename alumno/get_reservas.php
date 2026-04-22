@@ -43,10 +43,12 @@ SELECT
     r.estado,
     r.tipo as tipo_reserva,
     r.pack_id,
-    (SELECT MAX(pj2.id) 
-     FROM pack_jugadores pj2 
-     WHERE pj2.pack_id = r.pack_id 
-       AND (pj2.jugador_id = rj.jugador_id OR pj2.id IN (SELECT pack_jugadores_id FROM pack_jugadores_adicionales WHERE jugador_id = rj.jugador_id AND estado = 'aceptado'))
+    COALESCE(
+      NULLIF(r.pack_jugador_id, 0),
+      (SELECT MAX(pj2.id) 
+       FROM pack_jugadores pj2 
+       WHERE pj2.pack_id = r.pack_id 
+         AND (pj2.jugador_id = rj.jugador_id OR pj2.id IN (SELECT pack_jugadores_id FROM pack_jugadores_adicionales WHERE jugador_id = rj.jugador_id AND estado = 'aceptado')))
     ) AS pack_jugador_id,
     p.nombre AS pack_nombre,
     p.capacidad_minima,

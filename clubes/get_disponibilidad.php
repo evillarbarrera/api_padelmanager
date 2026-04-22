@@ -41,7 +41,7 @@ if ($resConfig->num_rows == 0) {
     $inicio = strtotime("06:00:00");
     $fin = strtotime("23:30:00");
     $bloque = 30 * 60; // 30 min
-    
+
     for ($t = $inicio; $t < $fin; $t += $bloque) {
         $h_inicio = date('H:i:s', $t);
         // El bloque para mostrar es de 30 min, pero la reserva puede ser más larga.
@@ -93,4 +93,3 @@ if ($resConfig->num_rows == 0) {
 }
 
 echo json_encode($horarios_disponibles);
-?>
