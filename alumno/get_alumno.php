@@ -30,7 +30,8 @@ if (!$entrenador_id) {
 
 // SILENT SCHEMA FIX - Ensure columns exist
 ob_start(); // Buffer to catch any unintended output
-function ensureColumnUsers($conn, $column, $definition) {
+function ensureColumnUsers($conn, $column, $definition)
+{
     $check = $conn->query("SHOW COLUMNS FROM usuarios LIKE '$column'");
     if ($check && $check->num_rows == 0) {
         $conn->query("ALTER TABLE usuarios ADD `$column` $definition");
@@ -168,12 +169,12 @@ while ($row = $result->fetch_assoc()) {
     $row['sesiones_reservadas'] = (int)$row['sesiones_reservadas'];
     $row['sesiones_grupales'] = (int)$row['sesiones_grupales'];
     $row['sesiones_pendientes'] = max(0, (int)$row['sesiones_pendientes']);
-    
+
     // For internal frontend compatibility
     $row['sesiones_restantes'] = $row['sesiones_pendientes'];
     $row['creditos_reales'] = $row['sesiones_pendientes'];
     $row['pack_nombre'] = $row['pack_nombres'] ?: 'Sin Pack';
-    
+
     $data[] = $row;
 }
 

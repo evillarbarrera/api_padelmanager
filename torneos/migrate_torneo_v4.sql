@@ -1,0 +1,2 @@
+ALTER TABLE torneos_v2 ADD COLUMN IF NOT EXISTS formato_grupos INT DEFAULT 4;
+ALTER TABLE torneos_v2 ADD COLUMN IF NOT EXISTS formato_sets VARCHAR(50) DEFAULT 'Full Sets';

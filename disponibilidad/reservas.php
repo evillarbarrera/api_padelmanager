@@ -161,10 +161,12 @@ try {
     for ($i = 0; $i < $recurrencia; $i++) {
         $currentDate = date('Y-m-d', strtotime($data['fecha'] . " +$i weeks"));
 
+        /* 
         // --- QA VALIDATION: No permitir fechas pasadas ---
         if ($currentDate < date('Y-m-d')) {
             throw new Exception("No puedes agendar una clase en una fecha pasada ($currentDate).");
         }
+        */
 
         // 0. Pack Info
         $stmtPack->bind_param("i", $data['pack_id']);

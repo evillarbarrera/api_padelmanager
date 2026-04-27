@@ -80,6 +80,16 @@ if ($stmt->execute()) {
         $updateCupon->execute();
     }
 
+    // --- SUCCESS RESPONSE (Send immediately, then continue in background) ---
+    echo json_encode([
+        "success" => true,
+        "pack_jugador_id" => $pack_jugador_id
+    ]);
+
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    }
+
     // --- NOTIFICATIONS ---
     require_once "../system/mail_service.php";
 
@@ -163,10 +173,6 @@ if ($stmt->execute()) {
         }
     }
 
-    echo json_encode([
-        "success" => true,
-        "pack_jugador_id" => $pack_jugador_id
-    ]);
 } else {
     http_response_code(500);
     echo json_encode(["error" => $stmt->error]);

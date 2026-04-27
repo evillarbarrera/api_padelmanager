@@ -32,6 +32,8 @@ $fecha_inicio = isset($data->fecha_inicio) ? $conn->real_escape_string($data->fe
 $fecha_fin = isset($data->fecha_fin) ? $conn->real_escape_string($data->fecha_fin) : null;
 $club_id = isset($data->club_id) ? (int)$data->club_id : null;
 $tipo = isset($data->tipo) ? $conn->real_escape_string($data->tipo) : null;
+$formato_grupos = isset($data->formato_grupos) ? (int)$data->formato_grupos : null;
+$formato_sets = isset($data->formato_sets) ? $conn->real_escape_string($data->formato_sets) : null;
 
 // Build update query dynamically
 $updates = [];
@@ -41,6 +43,8 @@ if ($fecha_inicio !== null) $updates[] = "fecha_inicio = '$fecha_inicio'";
 if ($fecha_fin !== null) $updates[] = "fecha_fin = '$fecha_fin'";
 if ($club_id !== null) $updates[] = "club_id = $club_id";
 if ($tipo !== null) $updates[] = "tipo = '$tipo'";
+if ($formato_grupos !== null) $updates[] = "formato_grupos = $formato_grupos";
+if ($formato_sets !== null) $updates[] = "formato_sets = '$formato_sets'";
 
 if (empty($updates)) {
     echo json_encode(["status" => "success", "message" => "Nothing to update"]);

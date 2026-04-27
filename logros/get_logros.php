@@ -217,7 +217,8 @@ function getProgress($conn, $jugadorId, $codigo, $requisito) {
         case 'analista_pro':
             $r = $conn->query("
                 SELECT COUNT(*) as c FROM entrenamiento_videos 
-                WHERE ai_report IS NOT NULL AND ai_report != 'null' AND ai_report != ''
+                WHERE jugador_id = $jugadorId 
+                AND ai_report IS NOT NULL AND ai_report != 'null' AND ai_report != ''
             ");
             $actual = ($r) ? (int)$r->fetch_assoc()['c'] : 0;
             break;
@@ -227,7 +228,8 @@ function getProgress($conn, $jugadorId, $codigo, $requisito) {
             $maxAI = 0;
             $r = $conn->query("
                 SELECT ai_report FROM entrenamiento_videos 
-                WHERE ai_report IS NOT NULL AND ai_report != 'null' AND ai_report != ''
+                WHERE jugador_id = $jugadorId 
+                AND ai_report IS NOT NULL AND ai_report != 'null' AND ai_report != ''
             ");
             if ($r) {
                 while ($row = $r->fetch_assoc()) {

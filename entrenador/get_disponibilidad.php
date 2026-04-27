@@ -99,7 +99,7 @@ LEFT JOIN packs p2 ON p2.id = bg.pack_id AND p2.activo = 1
 
 WHERE d.profesor_id = ?
   AND d.activo = 1
-  AND DATE(d.fecha_inicio) >= DATE_SUB(CURDATE(), INTERVAL 2 DAY)
+  AND DATE(d.fecha_inicio) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
 GROUP BY d.id
 ORDER BY d.fecha_inicio ASC
 ";
