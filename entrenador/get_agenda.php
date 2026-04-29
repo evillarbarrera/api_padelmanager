@@ -153,11 +153,13 @@ $sql_grupales = "
 SELECT 
     p.id AS pack_id,
     p.nombre AS pack_nombre,
-    p.dia_semana,
+    COALESCE(WEEKDAY(p.fecha), p.dia_semana) as dia_semana,
     p.hora_inicio,
     p.capacidad_minima,
     p.capacidad_maxima,
     p.categoria,
+    p.fecha,
+    p.permite_inscripcion,
     p.duracion_sesion_min as duracion_original,
     COALESCE(c.nombre, '') as club_nombre
 FROM packs p
@@ -165,6 +167,8 @@ LEFT JOIN clubes c ON c.id = p.club_id
 WHERE p.entrenador_id = ?
   AND p.tipo = 'grupal'
   AND p.activo = 1
+  AND p.fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+  AND p.fecha <= DATE_ADD(CURDATE(), INTERVAL 35 DAY)
 ";
 
 $stmt = $conn->prepare($sql_grupales);
@@ -173,8 +177,16 @@ $stmt->execute();
 $result = $stmt->get_result();
 
 while ($row = $result->fetch_assoc()) {
-    $inscritos = [];
-    $count = 0;
+    // Si tiene fecha, solo mostrar si es relevante para el rango de la agenda
+    if ($row['fecha']) {
+        $fecha_ts = strtotime($row['fecha']);
+        $start_range = strtotime("-30 days", strtotime("today"));
+        $end_range = strtotime("+35 days", strtotime("today"));
+        
+        if ($fecha_ts < $start_range || $fecha_ts > $end_range) {
+            continue;
+        }
+    }
 
     $duracion = $row['duracion_original'] > 0 ? $row['duracion_original'] : 90;
 
@@ -184,20 +196,40 @@ while ($row = $result->fetch_assoc()) {
     $cap_max = ($row['capacidad_maxima'] <= 1) ? 6 : $row['capacidad_maxima'];
     $cap_min = ($row['capacidad_minima'] <= 1) ? 2 : $row['capacidad_minima'];
 
+    // Obtener inscritos actuales para este pack si es por fecha
+    $inscritos = [];
+    if ($row['fecha']) {
+        $sql_ig = "SELECT u.id, u.nombre, u.usuario as email, u.foto_perfil as foto 
+                   FROM (
+                       SELECT jugador_id FROM inscripciones_grupales WHERE pack_id = ? AND estado = 'activo'
+                       UNION
+                       SELECT rj.jugador_id FROM reserva_jugadores rj JOIN reservas r2 ON rj.reserva_id = r2.id WHERE r2.pack_id = ? AND r2.fecha = ? AND r2.estado = 'reservado'
+                   ) t
+                   JOIN usuarios u ON u.id = t.jugador_id";
+        $stmt_ig = $conn->prepare($sql_ig);
+        $stmt_ig->bind_param("iis", $row['pack_id'], $row['pack_id'], $row['fecha']);
+        $stmt_ig->execute();
+        $res_ig = $stmt_ig->get_result();
+        while($row_ig = $res_ig->fetch_assoc()) {
+            $inscritos[] = $row_ig;
+        }
+    }
+
     $data["packs_grupales"][] = [
         "pack_id" => $row['pack_id'],
         "pack_nombre" => $row['pack_nombre'],
         "dia_semana" => $row['dia_semana'],
+        "fecha" => $row['fecha'],
         "hora_inicio" => $row['hora_inicio'],
         "hora_fin" => $hora_fin,
         "capacidad_maxima" => $cap_max,
-        "cupos_ocupados" => 0,
-        "estado_grupo" => "abierto",
+        "cupos_ocupados" => count($inscritos),
+        "estado_grupo" => ($row['fecha'] ? (count($inscritos) >= $cap_min ? 'activo' : 'pendiente') : "abierto"),
         "categoria" => $row['categoria'],
         "duracion_calculada" => $duracion,
-        "tipo" => "grupal_template",
-        "inscritos" => [],
-        "jugador_nombre" => "",
+        "tipo" => ($row['fecha'] ? "grupal_fecha" : "grupal_template"),
+        "inscritos" => $inscritos,
+        "jugador_nombre" => implode(', ', array_column($inscritos, 'nombre')),
         "club_nombre" => $row['club_nombre']
     ];
 }

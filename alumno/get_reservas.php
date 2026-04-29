@@ -83,6 +83,7 @@ LEFT JOIN (
 LEFT JOIN usuarios u_e ON u_e.id = r.entrenador_id
 WHERE rj.jugador_id = ?
   AND r.estado = 'reservado'
+  AND (p.id IS NULL OR p.activo = 1)
   AND (r.fecha > CURDATE() OR (r.fecha = CURDATE() AND r.hora_fin > CURTIME()))
 ORDER BY r.fecha ASC, r.hora_inicio ASC
 ";
@@ -129,29 +130,36 @@ SELECT
     p.nombre AS pack_nombre,
     p.categoria,
     p.dia_semana,
+    p.fecha AS pack_fecha,
     p.hora_inicio,
     p.capacidad_minima,
     p.capacidad_maxima,
-    p.cupos_ocupados,
+    (SELECT COUNT(DISTINCT t.jugador_id) FROM (
+        SELECT jugador_id FROM inscripciones_grupales WHERE pack_id = p.id AND estado = 'activo'
+        UNION
+        SELECT rj.jugador_id FROM reserva_jugadores rj 
+        JOIN reservas r2 ON rj.reserva_id = r2.id 
+        WHERE r2.pack_id = p.id AND r2.fecha = p.fecha AND r2.estado != 'cancelado'
+    ) t) as cupos_ocupados,
     p.estado_grupo as pack_estado_grupo,
     p.duracion_sesion_min,
     u_e.nombre AS entrenador_nombre,
-    u_e.foto_perfil AS entrenador_foto,
     ig.fecha_inscripcion,
     ig.estado,
     'grupal' AS tipo,
     c.nombre as club_nombre,
     c.direccion as club_direccion,
-    c.google_maps_link as club_maps
+    c.google_maps_link as club_maps,
+    u_e.foto_perfil AS entrenador_foto
 FROM inscripciones_grupales ig
-INNER JOIN packs p ON p.id = ig.pack_id
+INNER JOIN packs p ON ig.pack_id = p.id
 LEFT JOIN usuarios u_e ON u_e.id = p.entrenador_id
 LEFT JOIN clubes c ON c.id = p.club_id
 WHERE ig.jugador_id = ?
   AND ig.estado = 'activo'
   AND p.activo = 1
   AND p.estado_grupo IN ('pendiente', 'activo')
-ORDER BY p.dia_semana ASC, p.hora_inicio ASC
+ORDER BY p.fecha ASC, p.dia_semana ASC, p.hora_inicio ASC
 ";
 
 $stmt = $conn->prepare($sql_grupales);
@@ -162,26 +170,18 @@ $result = $stmt->get_result();
 while ($row = $result->fetch_assoc()) {
     $row['duracion_calculada'] = ($row['duracion_sesion_min'] > 0) ? $row['duracion_sesion_min'] : (($row['cupos_ocupados'] >= 5) ? 120 : 60);
     
-    $dia_semana_pack = (int)$row['dia_semana'];
-    $hoy = new DateTime();
-    $dia_actual = (int)$hoy->format('w');
-    $dias_diferencia = $dia_semana_pack - $dia_actual;
-    if ($dias_diferencia < 0) $dias_diferencia += 7;
-    $fecha_calculada = clone $hoy;
-    if ($dias_diferencia > 0) {
-        $fecha_calculada->modify("+$dias_diferencia days");
-    } else if ($dias_diferencia === 0) {
-        if ($hoy->format('H:i:s') > $row['hora_inicio']) $fecha_calculada->modify("+7 days");
+    // Determine target dates
+    $dates_to_project = [];
+
+    if (!empty($row['pack_fecha'])) {
+        // CASE: Single Session Pack (Scheduled Instance)
+        $dates_to_project[] = $row['pack_fecha'];
     }
 
     $cap_min = (int)($row['capacidad_minima'] > 0 ? $row['capacidad_minima'] : 2);
     $row['estado_grupo'] = ($row['cupos_ocupados'] >= $cap_min) ? 'activo' : 'pendiente';
 
-    for ($i = 0; $i < 4; $i++) {
-        $fecha_occ = clone $fecha_calculada;
-        if ($i > 0) $fecha_occ->modify("+$i weeks");
-        $fecha_occ_str = $fecha_occ->format('Y-m-d');
-        
+    foreach ($dates_to_project as $fecha_occ_str) {
         $is_duplicate = false;
         if (isset($data['reservas_individuales'])) {
             foreach ($data['reservas_individuales'] as $ri) {

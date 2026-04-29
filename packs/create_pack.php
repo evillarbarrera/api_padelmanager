@@ -39,31 +39,26 @@ if ($tipo === 'individual') {
   $capacidad_minima = $data['capacidad_minima'] ?? null;
   $capacidad_maxima = $data['capacidad_maxima'] ?? null;
   $dia_semana = $data['dia_semana'] ?? null;
+  $fecha = $data['fecha'] ?? null;
   $hora_inicio = $data['hora_inicio'] ?? null;
   $categoria = $data['categoria'] ?? null;
 
   // Validaciones
-  if (!$capacidad_minima || !$capacidad_maxima || ($dia_semana === null) || !$hora_inicio || !$categoria) {
+  if (!$capacidad_minima || !$capacidad_maxima || ($dia_semana === null && !$fecha) || !$hora_inicio || !$categoria) {
     http_response_code(400);
-    echo json_encode(["error" => "Para packs grupales son obligatorios: capacidad_minima, capacidad_maxima, dia_semana, hora_inicio, categoria"]);
+    echo json_encode(["error" => "Para packs grupales son obligatorios: capacidad_minima, capacidad_maxima, (dia_semana o fecha), hora_inicio, categoria"]);
     exit;
   }
 
-  if ($capacidad_minima < 2 || $capacidad_minima > 6) {
+  if ($capacidad_minima < 1 || $capacidad_minima > 10) {
     http_response_code(400);
-    echo json_encode(["error" => "Capacidad mínima debe estar entre 2 y 6"]);
+    echo json_encode(["error" => "Capacidad mínima inválida"]);
     exit;
   }
 
-  if ($capacidad_maxima < $capacidad_minima || $capacidad_maxima > 6) {
+  if ($capacidad_maxima < $capacidad_minima) {
     http_response_code(400);
-    echo json_encode(["error" => "Capacidad máxima debe estar entre capacidad_minima y 6"]);
-    exit;
-  }
-
-  if ($dia_semana < 0 || $dia_semana > 6) {
-    http_response_code(400);
-    echo json_encode(["error" => "Día de semana debe estar entre 0 (domingo) y 6 (sábado)"]);
+    echo json_encode(["error" => "Capacidad máxima debe ser mayor o igual a capacidad_minima"]);
     exit;
   }
 } else {
@@ -75,6 +70,7 @@ if ($tipo === 'individual') {
 
 $rango_horario_inicio = $data['rango_horario_inicio'] ?? null;
 $rango_horario_fin    = $data['rango_horario_fin'] ?? null;
+$permite_inscripcion  = $data['permite_inscripcion'] ?? 1;
 
 // Validate time range if provided
 if (($rango_horario_inicio && !$rango_horario_fin) || (!$rango_horario_inicio && $rango_horario_fin)) {
@@ -87,8 +83,8 @@ $cantidad_personas = $data['cantidad_personas'] ?? 1;
 
 $sql = "
   INSERT INTO packs
-  (entrenador_id, nombre, descripcion, tipo, sesiones_totales, duracion_sesion_min, precio, capacidad_minima, capacidad_maxima, dia_semana, hora_inicio, rango_horario_inicio, rango_horario_fin, categoria, cantidad_personas, activo)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+  (entrenador_id, nombre, descripcion, tipo, sesiones_totales, duracion_sesion_min, precio, capacidad_minima, capacidad_maxima, dia_semana, fecha, hora_inicio, rango_horario_inicio, rango_horario_fin, categoria, cantidad_personas, permite_inscripcion, activo)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
 ";
 
 // Debug log for incoming data
@@ -96,7 +92,7 @@ error_log("Creating pack with: " . json_encode($data));
 
 $stmt = $conn->prepare($sql);
 $stmt->bind_param(
-  "isssiiiiiissssi", 
+  "isssiiiiiisssssii", 
   $entrenador_id,
   $data['nombre'],
   $data['descripcion'],
@@ -107,11 +103,13 @@ $stmt->bind_param(
   $capacidad_minima,
   $capacidad_maxima,
   $dia_semana,
+  $fecha,
   $hora_inicio,
   $rango_horario_inicio,
   $rango_horario_fin,
   $categoria,
-  $cantidad_personas
+  $cantidad_personas,
+  $permite_inscripcion
 );
 
 if ($stmt->execute()) {

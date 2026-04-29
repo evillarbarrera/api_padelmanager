@@ -33,7 +33,7 @@ if (!$jugador_id && !$entrenador_id) {
 
 // SI ES ENTRENADOR: Devolver catálogo de packs
 if ($entrenador_id) {
-    $sql = "SELECT id, nombre, sesiones_totales, precio, tipo, cantidad_personas, activo 
+    $sql = "SELECT id, nombre, sesiones_totales, precio, tipo, cantidad_personas, capacidad_minima, capacidad_maxima, duracion_sesion_min, activo 
             FROM packs 
             WHERE entrenador_id = ? AND (activo = 1 OR activo IS NULL)";
     $stmt = $conn->prepare($sql);

@@ -33,7 +33,7 @@ SELECT
     d.fecha_fin,
     -- Determinamos si el bloque es grupal
     CASE 
-        WHEN bg.id IS NOT NULL THEN 'grupal'
+        WHEN p2.id IS NOT NULL THEN 'grupal'
         WHEN r.id IS NOT NULL AND r.hora_inicio = TIME(d.fecha_inicio) AND (r.tipo = 'grupal' OR r.tipo = 'pack_grupal') THEN 'grupal'
         ELSE 'individual'
     END as tipo_real,
@@ -41,27 +41,23 @@ SELECT
     -- Verificamos si está ocupado
     CASE 
         -- Si es un bloque de grupo (recurrente o reserva grupal activa)
-        WHEN bg.id IS NOT NULL OR (r.id IS NOT NULL AND (r.tipo = 'grupal' OR r.tipo = 'pack_grupal')) THEN
+        WHEN p2.id IS NOT NULL OR (r.id IS NOT NULL AND (r.tipo = 'grupal' OR r.tipo = 'pack_grupal')) THEN
             IF((SELECT COUNT(DISTINCT jugador_id) FROM (
-                -- 1. Inscritos permanentes SIEMPRE cuentan para todas las fechas (si existen)
-                SELECT jugador_id FROM inscripciones_grupales WHERE pack_id = COALESCE(bg.pack_id, r.pack_id) AND estado = 'activo'
+                SELECT jugador_id FROM inscripciones_grupales WHERE pack_id = COALESCE(p2.id, r.pack_id) AND estado = 'activo'
                 UNION
-                -- 2. Inscritos específicos SOLO para esta fecha
-                SELECT rj.jugador_id FROM reserva_jugadores rj JOIN reservas r2 ON rj.reserva_id = r2.id WHERE r2.pack_id = COALESCE(bg.pack_id, r.pack_id) AND r2.fecha = DATE(d.fecha_inicio) AND r2.estado = 'reservado'
+                SELECT rj.jugador_id FROM reserva_jugadores rj JOIN reservas r2 ON rj.reserva_id = r2.id WHERE r2.pack_id = COALESCE(p2.id, r.pack_id) AND r2.fecha = DATE(d.fecha_inicio) AND r2.estado = 'reservado'
             ) t) >= COALESCE(p2.capacidad_maxima, p_r.capacidad_maxima, 6), 1, 0)
         
-        -- Si NO es grupal, pero hay CUALQUIER reserva que se solapa (clase individual ocupando el bloque)
         WHEN r_any.id IS NOT NULL THEN 1
         ELSE 0
     END as ocupado,
     
-    COALESCE(bg.pack_id, r.pack_id) as pack_id,
+    COALESCE(p2.id, r.pack_id) as pack_id,
     
-    -- Conteo consolidado de inscritos
     (SELECT COUNT(DISTINCT jugador_id) FROM (
-        SELECT jugador_id FROM inscripciones_grupales WHERE pack_id = COALESCE(bg.pack_id, r.pack_id) AND estado = 'activo'
+        SELECT jugador_id FROM inscripciones_grupales WHERE pack_id = COALESCE(p2.id, r.pack_id) AND estado = 'activo'
         UNION
-        SELECT rj.jugador_id FROM reserva_jugadores rj JOIN reservas r2 ON rj.reserva_id = r2.id WHERE r2.pack_id = COALESCE(bg.pack_id, r.pack_id) AND r2.fecha = DATE(d.fecha_inicio) AND r2.estado = 'reservado'
+        SELECT rj.jugador_id FROM reserva_jugadores rj JOIN reservas r2 ON rj.reserva_id = r2.id WHERE r2.pack_id = COALESCE(p2.id, r.pack_id) AND r2.fecha = DATE(d.fecha_inicio) AND r2.estado = 'reservado'
     ) t2) as inscritos_count,
     
     COALESCE(p2.capacidad_maxima, p_r.capacidad_maxima, 6) as cantidad_personas,
@@ -91,11 +87,12 @@ LEFT JOIN reservas r_any ON r_any.entrenador_id = d.profesor_id
     AND r_any.hora_fin > TIME(d.fecha_inicio)
     AND r_any.estado = 'reservado'
 
--- Unión con bloques_grupo (clases recurrentes confirmadas)
-LEFT JOIN bloques_grupo bg ON bg.entrenador_id = d.profesor_id
-    AND bg.dia_semana = (DAYOFWEEK(d.fecha_inicio) - 1)
-    AND bg.hora_inicio = TIME(d.fecha_inicio)
-LEFT JOIN packs p2 ON p2.id = bg.pack_id AND p2.activo = 1
+-- Unión con packs grupales agendados para esta FECHA específica
+LEFT JOIN packs p2 ON p2.entrenador_id = d.profesor_id
+    AND p2.fecha = DATE(d.fecha_inicio)
+    AND p2.hora_inicio = TIME(d.fecha_inicio)
+    AND p2.tipo = 'grupal'
+    AND p2.activo = 1
 
 WHERE d.profesor_id = ?
   AND d.activo = 1

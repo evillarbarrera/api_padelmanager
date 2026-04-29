@@ -28,11 +28,17 @@ $fecha_fin = $data['fecha_fin'] ?? '';
 $tipo = $data['tipo'] ?? 'Grupos + Playoffs';
 $formato_grupos = $data['formato_grupos'] ?? 4;
 $formato_sets = $data['formato_sets'] ?? 'Full Sets';
-$categorias = $data['categorias'] ?? []; // Array of {nombre, max_parejas, puntos_repartir}
+$poster_url = $data['poster_url'] ?? null;
+$categorias = $data['categorias'] ?? [];
+
+// Auto-calcular fecha_fin si viene vacía (7 días por defecto)
+if (empty($fecha_fin) && !empty($fecha_inicio)) {
+    $fecha_fin = date('Y-m-d', strtotime($fecha_inicio . ' + 7 days'));
+}
 
 if (empty($club_id) || empty($nombre) || empty($fecha_inicio)) {
     http_response_code(400);
-    echo json_encode(["error" => "Faltan campos obligatorios"]);
+    echo json_encode(["error" => "Faltan campos obligatorios (Club, Nombre y Fecha Inicio)"]);
     exit;
 }
 
@@ -40,10 +46,17 @@ if (empty($club_id) || empty($nombre) || empty($fecha_inicio)) {
 $conn->begin_transaction();
 
 try {
-    $sql = "INSERT INTO torneos_v2 (club_id, creator_id, nombre, descripcion, fecha_inicio, fecha_fin, tipo, formato_grupos, formato_sets) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    $inscripciones_abiertas = $data['inscripciones_abiertas'] ?? 0;
+
+    $sql = "INSERT INTO torneos_v2 (club_id, creator_id, nombre, descripcion, fecha_inicio, fecha_fin, tipo, formato_grupos, formato_sets, poster_url, inscripciones_abiertas) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("iisssssis", $club_id, $creator_id, $nombre, $descripcion, $fecha_inicio, $fecha_fin, $tipo, $formato_grupos, $formato_sets);
+    
+    if (!$stmt) {
+        throw new Exception("Error al preparar la consulta: " . $conn->error);
+    }
+
+    $stmt->bind_param("iisssssissi", $club_id, $creator_id, $nombre, $descripcion, $fecha_inicio, $fecha_fin, $tipo, $formato_grupos, $formato_sets, $poster_url, $inscripciones_abiertas);
     
     if (!$stmt->execute()) {
         throw new Exception($conn->error);

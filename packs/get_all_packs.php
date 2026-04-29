@@ -35,22 +35,18 @@ $sql = "
   SELECT p.*, 
          e.nombre as entrenador_nombre,
          e.foto_perfil as entrenador_foto,
-         e.transbank_activo,
          e.descripcion as entrenador_descripcion,
          COALESCE(ig_counts.cupos_ocupados, 0) as cupos_ocupados,
          (p.capacidad_maxima - COALESCE(ig_counts.cupos_ocupados, 0)) as cupos_disponibles,
-          d_user.latitud as trainer_lat,
-          d_user.longitud as trainer_lng,
+          NULL as trainer_lat,
+          NULL as trainer_lng,
           d_user.comuna as trainer_comuna,
           d_user.region as trainer_region
 ";
 
 // ... [Haversine logic stays the same] ...
-if ($myLat && $myLng) {
-    $sql .= ", ( 6371 * acos( cos( radians($myLat) ) * cos( radians( d_user.latitud ) ) * cos( radians( d_user.longitud ) - radians($myLng) ) + sin( radians($myLat) ) * sin( radians( d_user.latitud ) ) ) ) AS distancia ";
-} else {
-    $sql .= ", NULL as distancia ";
-}
+// Geolocation logic removed as columns don't exist
+$sql .= ", NULL as distancia ";
 
 $sql .= "
   FROM packs p
@@ -64,6 +60,8 @@ $sql .= "
       GROUP BY pack_id
   ) ig_counts ON ig_counts.pack_id = p.id
   WHERE p.activo = 1 AND e.rol = 'entrenador'
+    AND (p.fecha IS NULL OR p.fecha >= CURDATE())
+    AND (p.tipo != 'grupal' OR p.permite_inscripcion = 1)
 ";
 
 if ($entrenador_id) {
@@ -87,20 +85,24 @@ if ($myLat && $myLng && $radius) {
 
 $sql .= " ORDER BY p.created_at DESC";
 
-$result = $conn->query($sql);
+try {
+    $result = $conn->query($sql);
 
-$data = [];
-if ($result) {
-    while ($row = $result->fetch_assoc()) {
-        // Round distance for UI
-        if ($row['distancia'] !== null) {
-            $row['distancia'] = round(floatval($row['distancia']), 2);
+    $data = [];
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            // Round distance for UI
+            if (isset($row['distancia']) && $row['distancia'] !== null) {
+                $row['distancia'] = round(floatval($row['distancia']), 2);
+            }
+            $data[] = $row;
         }
-        $data[] = $row;
+    } else {
+        throw new Exception("Error en la consulta SQL: " . $conn->error);
     }
-} else {
-    // If error (e.g. unknown column latitud yet), return empty or error
-    // For now silent fallback
-}
 
-echo json_encode($data);
+    echo json_encode($data);
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode(["error" => $e->getMessage(), "sql" => $sql]);
+}

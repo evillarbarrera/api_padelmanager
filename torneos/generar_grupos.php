@@ -15,54 +15,67 @@ if (!$categoria_id) {
     exit;
 }
 
-// 1. Obtener parejas validadas para esta categoría
-$sql = "SELECT i.pareja_id FROM torneo_inscripciones i 
+// 1. Obtener inscripciones validadas con info de siembra
+$sql = "SELECT i.pareja_id, i.es_semilla, i.nro_siembra FROM torneo_inscripciones i 
         WHERE i.categoria_id = ? AND i.validado = 1";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("i", $categoria_id);
 $stmt->execute();
 $result = $stmt->get_result();
 
-$parejas = [];
+$semillas = [];
+$normales = [];
+
 while ($row = $result->fetch_assoc()) {
-    $parejas[] = $row['pareja_id'];
+    if ($row['es_semilla'] == 1) {
+        $semillas[] = $row;
+    } else {
+        $normales[] = $row['pareja_id'];
+    }
 }
 
-$totalParejas = count($parejas);
+$totalParejas = count($semillas) + count($normales);
 if ($totalParejas < 3) {
     http_response_code(400);
-    echo json_encode(["error" => "Se necesitan al menos 3 parejas validadas para generar grupos. Actuales: $totalParejas"]);
+    echo json_encode(["error" => "Se necesitan al menos 3 parejas validadas para generar los grupos."]);
     exit;
 }
 
-// 2. Limpiar grupos previos si existen (Opcional, precaución)
-$conn->query("DELETE FROM torneo_grupos WHERE categoria_id = $categoria_id");
+// Ordenar semillas por número de siembra (1, 2, 3...)
+usort($semillas, function($a, $b) {
+    return ($a['nro_siembra'] ?: 99) - ($b['nro_siembra'] ?: 99);
+});
 
-// 3. Determinar distribución de grupos (Priorizar 4 parejas por grupo, min 3)
-// Ejemplo: 12 parejas -> 3 grupos de 4. 10 parejas -> 2 grupos de 3 y 1 de 4.
-shuffle($parejas); // Aleatoriedad para el sorteo
+// 2. Determinar número de grupos (Priorizar 4 parejas por grupo)
+$numGrupos = floor($totalParejas / 3); // Intentamos grupos de 3 o 4
+if ($totalParejas % 4 == 0) $numGrupos = $totalParejas / 4;
+else if ($totalParejas <= 5) $numGrupos = 1;
+else if ($totalParejas <= 8 && $totalParejas >= 6) $numGrupos = 2;
 
-$numGrupos = floor($totalParejas / 4);
-if ($totalParejas % 4 != 0 && $numGrupos == 0) $numGrupos = 1;
+$grupos = array_fill(0, $numGrupos, []);
 
-// Ajuste si sobran muchas para hacer grupos de 3
-if ($totalParejas % 4 != 0 && $totalParejas > 4) {
-    // Si sobran 2, mejor hacer grupos de 3 y 4
-    // Por ahora lógica simple:
+// 3. Distribución de Semillas (Sorteo dirigido o Serpentina)
+shuffle($normales); 
+$currentGrupo = 0;
+
+// Posicionar semillas en grupos distintos
+foreach ($semillas as $s) {
+    $grupos[$currentGrupo % $numGrupos][] = $s['pareja_id'];
+    $currentGrupo++;
 }
 
-$grupos = array_chunk($parejas, 4); 
-// Si el último grupo tiene 1 o 2, lo repartimos en los anteriores o lo dejamos de 3 si es posible
-if (count($grupos) > 1) {
-    $ultimo = end($grupos);
-    if (count($ultimo) < 3) {
-        array_pop($grupos);
-        $i = 0;
-        foreach ($ultimo as $p_id) {
-            $grupos[$i % count($grupos)][] = $p_id;
-            $i++;
+// Rellenar el resto de forma equilibrada
+foreach ($normales as $p_id) {
+    // Buscar el grupo con menos integrantes para equilibrar
+    $target = 0;
+    $minSize = 999;
+    foreach ($grupos as $idx => $g) {
+        if (count($g) < $minSize) {
+            $minSize = count($g);
+            $target = $idx;
         }
     }
+    $grupos[$target][] = $p_id;
 }
 
 // 4. Crear los grupos en la DB

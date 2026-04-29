@@ -64,6 +64,12 @@ $dia = isset($data['dia_semana']) ? $data['dia_semana'] : null; // dia_semana ca
 $h_inicio = $data['hora_inicio'] ?? null;
 $cat = $data['categoria'] ?? null;
 
+// For Group Trainings, templates should NOT have fixed day/time
+if (($data['tipo'] ?? '') === 'grupal') {
+    $dia = null;
+    $h_inicio = null;
+}
+
 $stmt = $conn->prepare($sql);
 $stmt->bind_param(
     "sssiiiissiiissii", // 16 total: nombre(s), desc(s), tipo(s), sesiones(i), duracion(i), precio(i), cant_pers(i), r_inicio(s), r_fin(s), cap_min(i), cap_max(i), dia(i), h_ini(s), cat(s), id(i), entrenador_id(i)
