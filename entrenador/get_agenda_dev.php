@@ -1,9 +1,9 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 0);
+ini_set('display_errors', 1);
 
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
 header("Content-Type: application/json");
 
@@ -73,7 +73,7 @@ WHERE r.entrenador_id = ?
   AND r.fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
   AND r.fecha <= DATE_ADD(CURDATE(), INTERVAL 35 DAY)
   AND r.estado != 'cancelado'
-GROUP BY r.fecha, r.hora_inicio, r.entrenador_id, COALESCE(r.tipo, p.tipo, 'individual'), p.id
+GROUP BY r.fecha, r.hora_inicio, r.entrenador_id, tipo_real, p.id
 ORDER BY r.fecha ASC, r.hora_inicio ASC
 ";
 
@@ -105,8 +105,7 @@ while ($row = $result->fetch_assoc()) {
         $total_inscritos >= 5 ? 120 : ($total_inscritos >= 4 ? 90 : 60)
     );
 
-    $hora_inicio_val = $row['hora_inicio'] ?? '08:00:00';
-    $hora_inicio_sec = strtotime($hora_inicio_val);
+    $hora_inicio_sec = strtotime($row['hora_inicio']);
     $hora_fin = date("H:i:s", $hora_inicio_sec + ($duracion * 60));
 
     // Forzar capacidad mínima coherente para grupos
@@ -154,7 +153,7 @@ $sql_grupales = "
 SELECT 
     p.id AS pack_id,
     p.nombre AS pack_nombre,
-    COALESCE(WEEKDAY(p.fecha), p.dia_semana) as dia_semana,
+    p.dia_semana,
     p.hora_inicio,
     p.capacidad_minima,
     p.capacidad_maxima,
@@ -168,7 +167,7 @@ LEFT JOIN clubes c ON c.id = p.club_id
 WHERE p.entrenador_id = ?
   AND p.tipo = 'grupal'
   AND p.activo = 1
-  AND (p.fecha IS NULL OR (p.fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND p.fecha <= DATE_ADD(CURDATE(), INTERVAL 35 DAY)))
+  AND p.fecha IS NOT NULL
 ";
 
 $stmt = $conn->prepare($sql_grupales);
@@ -190,8 +189,7 @@ while ($row = $result->fetch_assoc()) {
 
     $duracion = $row['duracion_original'] > 0 ? $row['duracion_original'] : 90;
 
-    $hora_inicio_val = $row['hora_inicio'] ?? '08:00:00';
-    $hora_inicio_sec = strtotime($hora_inicio_val);
+    $hora_inicio_sec = strtotime($row['hora_inicio']);
     $hora_fin = date("H:i:s", $hora_inicio_sec + ($duracion * 60));
 
     $cap_max = ($row['capacidad_maxima'] <= 1) ? 6 : $row['capacidad_maxima'];
@@ -200,22 +198,6 @@ while ($row = $result->fetch_assoc()) {
     // Obtener inscritos actuales para este pack si es por fecha
     $inscritos = [];
     if ($row['fecha']) {
-        $sql_ig = "SELECT u.id, u.nombre, u.usuario as email, u.foto_perfil as foto 
-                   FROM (
-                       SELECT jugador_id FROM inscripciones_grupales WHERE pack_id = ? AND estado = 'activo'
-                       UNION
-                       SELECT rj.jugador_id FROM reserva_jugadores rj JOIN reservas r2 ON rj.reserva_id = r2.id WHERE r2.pack_id = ? AND r2.fecha = ? AND r2.estado = 'reservado'
-                   ) t
-                   JOIN usuarios u ON u.id = t.jugador_id";
-        $stmt_ig = $conn->prepare($sql_ig);
-        $stmt_ig->bind_param("iis", $row['pack_id'], $row['pack_id'], $row['fecha']);
-        $stmt_ig->execute();
-        $res_ig = $stmt_ig->get_result();
-        while($row_ig = $res_ig->fetch_assoc()) {
-            $inscritos[] = $row_ig;
-        }
-    } else {
-        // Para plantillas sin fecha, contar solo inscripciones fijas
         $sql_ig = "SELECT u.id, u.nombre, u.usuario as email, u.foto_perfil as foto 
                    FROM inscripciones_grupales ig 
                    JOIN usuarios u ON u.id = ig.jugador_id 
@@ -234,7 +216,7 @@ while ($row = $result->fetch_assoc()) {
         "pack_nombre" => $row['pack_nombre'],
         "dia_semana" => $row['dia_semana'],
         "fecha" => $row['fecha'],
-        "hora_inicio" => $hora_inicio_val,
+        "hora_inicio" => $row['hora_inicio'],
         "hora_fin" => $hora_fin,
         "capacidad_maxima" => $cap_max,
         "cupos_ocupados" => count($inscritos),
