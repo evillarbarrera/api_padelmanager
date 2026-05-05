@@ -38,10 +38,11 @@ $sql = "
          e.descripcion as entrenador_descripcion,
          COALESCE(ig_counts.cupos_ocupados, 0) as cupos_ocupados,
          (p.capacidad_maxima - COALESCE(ig_counts.cupos_ocupados, 0)) as cupos_disponibles,
-          NULL as trainer_lat,
-          NULL as trainer_lng,
-          d_user.comuna as trainer_comuna,
-          d_user.region as trainer_region
+         cl.nombre as club_nombre,
+         NULL as trainer_lat,
+         NULL as trainer_lng,
+         d_user.comuna as trainer_comuna,
+         d_user.region as trainer_region
 ";
 
 // ... [Haversine logic stays the same] ...
@@ -51,6 +52,7 @@ $sql .= ", NULL as distancia ";
 $sql .= "
   FROM packs p
   INNER JOIN usuarios e ON e.id = p.entrenador_id
+  LEFT JOIN clubes cl ON cl.id = p.club_id
   LEFT JOIN direcciones d_club ON d_club.club_id = p.club_id
   LEFT JOIN direcciones d_user ON d_user.usuario_id = p.entrenador_id
   LEFT JOIN (

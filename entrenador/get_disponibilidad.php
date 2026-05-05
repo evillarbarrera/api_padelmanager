@@ -1,6 +1,6 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 0);
+ini_set('display_errors', 1);
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
@@ -12,7 +12,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once "../auth/auth_helper.php";
-
 $userId = validateToken();
 if (!$userId) {
     sendUnauthorized("Token inválido o faltante");
@@ -28,93 +27,84 @@ if (!$entrenador_id) {
     exit;
 }
 
+// Consulta con JOIN para detectar tipos grupales de forma eficiente
 $sql = "
-SELECT 
-    d.id,
-    d.fecha_inicio,
-    d.fecha_fin,
-    -- Determinamos si el bloque es grupal
-    CASE 
-        WHEN p2.id IS NOT NULL THEN 'grupal'
-        WHEN r.id IS NOT NULL AND r.hora_inicio = TIME(d.fecha_inicio) AND (r.tipo = 'grupal' OR r.tipo = 'pack_grupal') THEN 'grupal'
-        ELSE 'individual'
-    END as tipo_real,
+    SELECT 
+        d.id,
+        d.fecha_inicio,
+        d.fecha_fin,
+        IF(p.id IS NOT NULL, 'grupal', 'individual') as tipo_real,
+        IF(EXISTS(SELECT 1 FROM reservas r2 WHERE r2.entrenador_id = d.profesor_id AND r2.fecha = DATE(d.fecha_inicio) AND r2.hora_inicio = TIME(d.fecha_inicio) AND r2.estado = 'reservado'), 1, 0) as ocupado,
+        p.id as pack_id,
+        (SELECT COUNT(*) FROM reserva_jugadores rj JOIN reservas r3 ON r3.id = rj.reserva_id WHERE r3.entrenador_id = d.profesor_id AND r3.fecha = DATE(d.fecha_inicio) AND r3.hora_inicio = TIME(d.fecha_inicio) AND r3.estado = 'reservado') as inscritos_count,
+        IFNULL(p.capacidad_maxima, 6) as cantidad_personas,
+        IFNULL(p.nombre, 'Clase') as nombre_pack,
+        COALESCE(p.club_id, d.club_id) as club_id,
+        c.nombre as club_nombre,
+        c.direccion as club_direccion,
+        c.google_maps_link as club_maps,
+        u_ent.telefono as entrenador_telefono
+    FROM disponibilidad_profesor d
+    INNER JOIN usuarios u_ent ON u_ent.id = d.profesor_id
+    LEFT JOIN clubes c ON c.id = d.club_id
+    LEFT JOIN packs p ON p.entrenador_id = d.profesor_id 
+        AND p.tipo = 'grupal' 
+        AND p.activo = 1 
+        AND p.permite_inscripcion = 1
+        AND (p.fecha = DATE(d.fecha_inicio) OR (p.fecha IS NULL AND p.dia_semana = (WEEKDAY(d.fecha_inicio))))
+        AND (p.hora_inicio IS NULL OR p.hora_inicio = TIME(d.fecha_inicio))
+    WHERE d.profesor_id = ? AND d.activo = 1
+      AND d.fecha_inicio >= DATE_SUB(NOW(), INTERVAL 60 DAY)
+      AND d.fecha_inicio <= DATE_ADD(NOW(), INTERVAL 35 DAY)
 
-    -- Verificamos si está ocupado
-    CASE 
-        -- Si es un bloque de grupo (recurrente o reserva grupal activa)
-        WHEN p2.id IS NOT NULL OR (r.id IS NOT NULL AND (r.tipo = 'grupal' OR r.tipo = 'pack_grupal')) THEN
-            IF((SELECT COUNT(DISTINCT jugador_id) FROM (
-                SELECT jugador_id FROM inscripciones_grupales WHERE pack_id = COALESCE(p2.id, r.pack_id) AND estado = 'activo'
-                UNION
-                SELECT rj.jugador_id FROM reserva_jugadores rj JOIN reservas r2 ON rj.reserva_id = r2.id WHERE r2.pack_id = COALESCE(p2.id, r.pack_id) AND r2.fecha = DATE(d.fecha_inicio) AND r2.estado = 'reservado'
-            ) t) >= COALESCE(p2.capacidad_maxima, p_r.capacidad_maxima, 6), 1, 0)
-        
-        WHEN r_any.id IS NOT NULL THEN 1
-        ELSE 0
-    END as ocupado,
-    
-    COALESCE(p2.id, r.pack_id) as pack_id,
-    
-    (SELECT COUNT(DISTINCT jugador_id) FROM (
-        SELECT jugador_id FROM inscripciones_grupales WHERE pack_id = COALESCE(p2.id, r.pack_id) AND estado = 'activo'
-        UNION
-        SELECT rj.jugador_id FROM reserva_jugadores rj JOIN reservas r2 ON rj.reserva_id = r2.id WHERE r2.pack_id = COALESCE(p2.id, r.pack_id) AND r2.fecha = DATE(d.fecha_inicio) AND r2.estado = 'reservado'
-    ) t2) as inscritos_count,
-    
-    COALESCE(p2.capacidad_maxima, p_r.capacidad_maxima, 6) as cantidad_personas,
-    COALESCE(p2.nombre, p_r.nombre, 'Clase Grupal') as nombre_pack,
-    d.club_id,
-    c.nombre as club_nombre,
-    c.direccion as club_direccion,
-    c.google_maps_link as club_maps,
-    u_ent.telefono as entrenador_telefono
+UNION ALL
 
-FROM disponibilidad_profesor d
-INNER JOIN usuarios u_ent ON u_ent.id = d.profesor_id
-LEFT JOIN clubes c ON c.id = d.club_id
-
--- Unión con reservas que EMPIEZAN en este bloque (para etiquetar el inicio)
--- Nota: Si las reservas de Emmanuel y Nelson fueron hechas solo para el 28 de feb, no aparecerán aquí para el 07 de marzo.
-LEFT JOIN reservas r ON r.entrenador_id = d.profesor_id 
-    AND r.fecha = DATE(d.fecha_inicio)
-    AND r.hora_inicio = TIME(d.fecha_inicio)
-    AND r.estado = 'reservado'
-LEFT JOIN packs p_r ON p_r.id = r.pack_id
-
--- Unión con CUALQUIER reserva que se solape
-LEFT JOIN reservas r_any ON r_any.entrenador_id = d.profesor_id 
-    AND r_any.fecha = DATE(d.fecha_inicio)
-    AND r_any.hora_inicio < TIME(d.fecha_fin)
-    AND r_any.hora_fin > TIME(d.fecha_inicio)
-    AND r_any.estado = 'reservado'
-
--- Unión con packs grupales agendados para esta FECHA específica
-LEFT JOIN packs p2 ON p2.entrenador_id = d.profesor_id
-    AND p2.fecha = DATE(d.fecha_inicio)
-    AND p2.hora_inicio = TIME(d.fecha_inicio)
-    AND p2.tipo = 'grupal'
-    AND p2.activo = 1
-
-WHERE d.profesor_id = ?
-  AND d.activo = 1
-  AND DATE(d.fecha_inicio) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-GROUP BY d.id
-ORDER BY d.fecha_inicio ASC
+    SELECT 
+        r.id as id,
+        CONCAT(r.fecha, ' ', r.hora_inicio) as fecha_inicio,
+        CONCAT(r.fecha, ' ', r.hora_fin) as fecha_fin,
+        r.tipo as tipo_real,
+        0 as ocupado,
+        r.pack_id as pack_id,
+        (SELECT COUNT(*) FROM reserva_jugadores rj2 WHERE rj2.reserva_id = r.id) as inscritos_count,
+        6 as cantidad_personas,
+        'Clase Grupal' as nombre_pack,
+        r.club_id,
+        c.nombre as club_nombre,
+        c.direccion as club_direccion,
+        c.google_maps_link as club_maps,
+        u_ent.telefono as entrenador_telefono
+    FROM reservas r
+    INNER JOIN usuarios u_ent ON u_ent.id = r.entrenador_id
+    LEFT JOIN clubes c ON c.id = r.club_id
+    WHERE r.entrenador_id = ? 
+      AND r.estado = 'reservado' 
+      AND r.fecha >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
+      AND r.fecha <= DATE_ADD(CURDATE(), INTERVAL 35 DAY)
 ";
 
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $entrenador_id);
-$stmt->execute();
-$result = $stmt->get_result();
+try {
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        echo json_encode(["error" => "Error prepare: " . $conn->error]);
+        exit;
+    }
+    $stmt->bind_param("ii", $entrenador_id, $entrenador_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
 
-$data = [];
-while ($row = $result->fetch_assoc()) {
-    $row['tipo'] = $row['tipo_real'];
-    $data[] = $row;
+    $data = [];
+    while ($row = $result->fetch_assoc()) {
+        $row['tipo'] = $row['tipo_real'];
+        $data[] = $row;
+    }
+
+    echo json_encode($data);
+    $stmt->close();
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode(["error" => $e->getMessage()]);
 }
 
-echo json_encode($data);
-
-$stmt->close();
 $conn->close();
+?>

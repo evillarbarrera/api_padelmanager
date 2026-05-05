@@ -66,9 +66,9 @@ if ($p1_id || $p2_id) {
         (jugador2_id IS NOT NULL AND jugador2_id IN (?, ?))
     )";
     
-    // We pass both IDs to both IN clauses. Use 0 if null to avoid syntax error or issues
-    $chk_p1 = $p1_id ?: 0;
-    $chk_p2 = $p2_id ?: 0;
+    // We pass both IDs to both IN clauses. Use -1 and -2 if null to avoid matching external partners stored as 0
+    $chk_p1 = $p1_id ? (int)$p1_id : -1;
+    $chk_p2 = $p2_id ? (int)$p2_id : -2;
     
     $stmtC = $conn->prepare($checkSql);
     $stmtC->bind_param("iiiii", $torneo_id, $chk_p1, $chk_p2, $chk_p1, $chk_p2);

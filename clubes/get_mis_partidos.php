@@ -19,15 +19,25 @@ if (!$userId) {
     exit;
 }
 
+$club_id = $_GET['club_id'] ?? 0;
+$where = "(r.usuario_id = ? OR r.jugador2_id = ? OR r.jugador3_id = ? OR r.jugador4_id = ?)";
+if ($club_id) {
+    $where .= " AND cl.id = " . (int)$club_id;
+}
+
 $sql = "SELECT r.*, 
                c.nombre as cancha_nombre, 
                cl.nombre as club_nombre,
                cl.logo as club_logo, 
                cl.direccion as club_direccion,
                u1.nombre as jugador1_nombre,
+               u1.foto_perfil as jugador1_foto,
                u2.nombre as jugador2_nombre,
+               u2.foto_perfil as jugador2_foto,
                u3.nombre as jugador3_nombre,
-               u4.nombre as jugador4_nombre
+               u3.foto_perfil as jugador3_foto,
+               u4.nombre as jugador4_nombre,
+               u4.foto_perfil as jugador4_foto
         FROM reservas_cancha r
         JOIN canchas c ON r.cancha_id = c.id
         JOIN clubes cl ON c.club_id = cl.id
@@ -35,7 +45,7 @@ $sql = "SELECT r.*,
         LEFT JOIN usuarios u2 ON r.jugador2_id = u2.id
         LEFT JOIN usuarios u3 ON r.jugador3_id = u3.id
         LEFT JOIN usuarios u4 ON r.jugador4_id = u4.id
-        WHERE r.usuario_id = ? OR r.jugador2_id = ? OR r.jugador3_id = ? OR r.jugador4_id = ?
+        WHERE $where
         ORDER BY r.fecha DESC, r.hora_inicio DESC";
 
 $stmt = $conn->prepare($sql);

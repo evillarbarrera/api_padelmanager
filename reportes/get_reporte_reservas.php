@@ -17,12 +17,12 @@ if (!$club_id) {
 try {
     /** @var PDO $pdo */
     // 1. Daily reservations (last 30 days)
-    $stmtDay = $pdo->prepare("SELECT r.fecha as label, COALESCE(COUNT(*), 0) as value 
+    $stmtDay = $pdo->prepare("SELECT DATE(r.fecha) as label, COALESCE(COUNT(*), 0) as value 
                                FROM reservas_cancha r
                                JOIN canchas c ON r.cancha_id = c.id
-                               WHERE c.club_id = ? AND r.estado != 'Cancelada' AND r.fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-                               GROUP BY r.fecha 
-                               ORDER BY r.fecha ASC");
+                               WHERE c.club_id = ? AND r.estado != 'Cancelada' AND DATE(r.fecha) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+                               GROUP BY DATE(r.fecha) 
+                               ORDER BY DATE(r.fecha) ASC");
     $stmtDay->execute([$club_id]);
     $daily = $stmtDay->fetchAll();
 
@@ -30,7 +30,7 @@ try {
     $stmtWeek = $pdo->prepare("SELECT DATE(DATE_SUB(r.fecha, INTERVAL WEEKDAY(r.fecha) DAY)) as label, COALESCE(COUNT(*), 0) as value 
                                 FROM reservas_cancha r
                                 JOIN canchas c ON r.cancha_id = c.id
-                                WHERE c.club_id = ? AND r.estado != 'Cancelada' AND r.fecha >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                                WHERE c.club_id = ? AND r.estado != 'Cancelada' AND DATE(r.fecha) >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
                                 GROUP BY label
                                 ORDER BY label ASC");
     $stmtWeek->execute([$club_id]);
@@ -40,7 +40,7 @@ try {
     $stmtMonth = $pdo->prepare("SELECT DATE_FORMAT(r.fecha, '%Y-%m') as label, COALESCE(COUNT(*), 0) as value 
                                  FROM reservas_cancha r
                                  JOIN canchas c ON r.cancha_id = c.id
-                                 WHERE c.club_id = ? AND r.estado != 'Cancelada' AND r.fecha >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+                                 WHERE c.club_id = ? AND r.estado != 'Cancelada' AND DATE(r.fecha) >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
                                  GROUP BY DATE_FORMAT(r.fecha, '%Y-%m') 
                                  ORDER BY DATE_FORMAT(r.fecha, '%Y-%m') ASC");
     $stmtMonth->execute([$club_id]);

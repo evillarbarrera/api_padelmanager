@@ -48,7 +48,7 @@ try {
     $sqlA = "SELECT COUNT(DISTINCT pj.jugador_id) as total_alumnos 
              FROM pack_jugadores pj
              JOIN packs p ON pj.pack_id = p.id
-             WHERE p.entrenador_id = ?";
+             WHERE p.entrenador_id = ? AND pj.precio_pagado > 0";
     $stmtA = $conn->prepare($sqlA);
     $stmtA->bind_param("i", $entrenador_id);
     $stmtA->execute();
@@ -89,7 +89,7 @@ try {
                 SUM(CASE WHEN pj.moneda = 'USD' THEN pj.precio_pagado ELSE 0 END) as ingresos_usd
              FROM pack_jugadores pj
              JOIN packs p ON pj.pack_id = p.id
-             WHERE p.entrenador_id = ?";
+             WHERE p.entrenador_id = ? AND pj.precio_pagado > 0";
     $stmtS = $conn->prepare($sqlS);
     $stmtS->bind_param("i", $entrenador_id);
     $stmtS->execute();

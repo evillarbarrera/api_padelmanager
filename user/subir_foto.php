@@ -45,8 +45,8 @@ $file_name = 'perfil_' . $user_id . '_' . time() . '.' . $file_ext;
 $target_file = $upload_dir . $file_name;
 
 if (move_uploaded_file($_FILES['foto']['tmp_name'], $target_file)) {
-    // 2. Correct URL construction (assuming api_training is root)
-    $foto_url = 'https://api.padelmanager.cl/uploads/perfiles/' . $file_name;
+    // 2. Save relative path to DB so frontend can dynamically prepend its current API URL
+    $foto_url = 'uploads/perfiles/' . $file_name;
     
     $sql = "UPDATE usuarios SET foto_perfil = ? WHERE id = ?";
     $stmt = $conn->prepare($sql);

@@ -159,12 +159,12 @@ try {
 
 // Packs vendidos y ganancias (Filtrado por mes/año si aplica)
 try {
-    $wherePacks = " WHERE 1=1 ";
+    $wherePacks = " WHERE pj.precio_pagado > 0 ";
     if ($month > 0 && $year > 0) {
         $wherePacks .= " AND MONTH(pj.fecha_inicio) = $month AND YEAR(pj.fecha_inicio) = $year";
     }
 
-    $sql_packs = "SELECT p.tipo, p.cantidad_personas, COUNT(pj.id) as total_packs, SUM(p.precio) as total_ingresos 
+    $sql_packs = "SELECT p.tipo, p.cantidad_personas, COUNT(pj.id) as total_packs, SUM(pj.precio_pagado) as total_ingresos 
                   FROM pack_jugadores pj 
                   JOIN packs p ON pj.pack_id = p.id
                   $wherePacks

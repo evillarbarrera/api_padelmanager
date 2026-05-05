@@ -70,7 +70,7 @@ LEFT JOIN clubes p_c ON p_c.id = p.club_id
 LEFT JOIN mallas m ON m.id = r.malla_id
 LEFT JOIN clases_malla cm ON cm.id = r.clase_id
 WHERE r.entrenador_id = ?
-  AND r.fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+  AND r.fecha >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
   AND r.fecha <= DATE_ADD(CURDATE(), INTERVAL 35 DAY)
   AND r.estado != 'cancelado'
 GROUP BY r.fecha, r.hora_inicio, r.entrenador_id, COALESCE(r.tipo, p.tipo, 'individual'), p.id
@@ -168,7 +168,9 @@ LEFT JOIN clubes c ON c.id = p.club_id
 WHERE p.entrenador_id = ?
   AND p.tipo = 'grupal'
   AND p.activo = 1
-  AND (p.fecha IS NULL OR (p.fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND p.fecha <= DATE_ADD(CURDATE(), INTERVAL 35 DAY)))
+  AND p.fecha IS NOT NULL
+  AND p.fecha >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
+  AND p.fecha <= DATE_ADD(CURDATE(), INTERVAL 35 DAY)
 ";
 
 $stmt = $conn->prepare($sql_grupales);
@@ -180,7 +182,7 @@ while ($row = $result->fetch_assoc()) {
     // Si tiene fecha, solo mostrar si es relevante para el rango de la agenda
     if ($row['fecha']) {
         $fecha_ts = strtotime($row['fecha']);
-        $start_range = strtotime("-30 days", strtotime("today"));
+        $start_range = strtotime("-60 days", strtotime("today"));
         $end_range = strtotime("+35 days", strtotime("today"));
         
         if ($fecha_ts < $start_range || $fecha_ts > $end_range) {

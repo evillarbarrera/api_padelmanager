@@ -23,10 +23,10 @@ if (!validateToken()) {
 // Get all trainers with their bank and config data + quick stats
 $sql = "SELECT u.id, u.nombre, u.usuario, u.foto, u.foto_perfil, u.telefono, u.categoria, 
         u.banco_titular, u.banco_rut, u.banco_nombre, u.banco_tipo_cuenta, u.banco_numero_cuenta,
-        u.transbank_activo, u.comision_activa, u.comision_porcentaje, u.mp_collector_id,
-        (SELECT COUNT(DISTINCT pj.jugador_id) FROM pack_jugadores pj JOIN packs p ON pj.pack_id = p.id WHERE p.entrenador_id = u.id) as total_alumnos,
-        (SELECT COUNT(*) FROM pack_jugadores pj JOIN packs p ON pj.pack_id = p.id WHERE p.entrenador_id = u.id) as packs_vendidos,
-        (SELECT SUM(pj.comision_plataforma) FROM pack_jugadores pj JOIN packs p ON pj.pack_id = p.id WHERE p.entrenador_id = u.id) as ganancia_plataforma
+        u.transbank_activo, u.comision_activa, u.comision_porcentaje, u.mp_collector_id, u.plan_id,
+        (SELECT COUNT(DISTINCT pj.jugador_id) FROM pack_jugadores pj JOIN packs p ON pj.pack_id = p.id WHERE p.entrenador_id = u.id AND pj.precio_pagado > 0) as total_alumnos,
+        (SELECT COUNT(*) FROM pack_jugadores pj JOIN packs p ON pj.pack_id = p.id WHERE p.entrenador_id = u.id AND pj.precio_pagado > 0) as packs_vendidos,
+        (SELECT SUM(pj.comision_plataforma) FROM pack_jugadores pj JOIN packs p ON pj.pack_id = p.id WHERE p.entrenador_id = u.id AND pj.precio_pagado > 0) as ganancia_plataforma
         FROM usuarios u WHERE u.rol = 'entrenador' ORDER BY u.nombre ASC";
 
 
