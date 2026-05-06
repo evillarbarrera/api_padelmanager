@@ -30,6 +30,7 @@ $formato_grupos = $data['formato_grupos'] ?? 4;
 $formato_sets = $data['formato_sets'] ?? 'Full Sets';
 $poster_url = $data['poster_url'] ?? null;
 $categorias = $data['categorias'] ?? [];
+$precio = isset($data['precio']) ? floatval($data['precio']) : 0;
 
 // Auto-calcular fecha_fin si viene vacía (7 días por defecto)
 if (empty($fecha_fin) && !empty($fecha_inicio)) {
@@ -48,15 +49,21 @@ $conn->begin_transaction();
 try {
     $inscripciones_abiertas = $data['inscripciones_abiertas'] ?? 0;
 
-    $sql = "INSERT INTO torneos_v2 (club_id, creator_id, nombre, descripcion, fecha_inicio, fecha_fin, tipo, formato_grupos, formato_sets, poster_url, inscripciones_abiertas) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    // Ensure precio column exists silently
+    $check = $conn->query("SHOW COLUMNS FROM `torneos_v2` LIKE 'precio'");
+    if ($check && $check->num_rows == 0) {
+        $conn->query("ALTER TABLE `torneos_v2` ADD `precio` DECIMAL(10,2) DEFAULT 0.00");
+    }
+
+    $sql = "INSERT INTO torneos_v2 (club_id, creator_id, nombre, descripcion, fecha_inicio, fecha_fin, tipo, formato_grupos, formato_sets, poster_url, inscripciones_abiertas, precio) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     $stmt = $conn->prepare($sql);
     
     if (!$stmt) {
         throw new Exception("Error al preparar la consulta: " . $conn->error);
     }
 
-    $stmt->bind_param("iisssssissi", $club_id, $creator_id, $nombre, $descripcion, $fecha_inicio, $fecha_fin, $tipo, $formato_grupos, $formato_sets, $poster_url, $inscripciones_abiertas);
+    $stmt->bind_param("iisssssissid", $club_id, $creator_id, $nombre, $descripcion, $fecha_inicio, $fecha_fin, $tipo, $formato_grupos, $formato_sets, $poster_url, $inscripciones_abiertas, $precio);
     
     if (!$stmt->execute()) {
         throw new Exception($conn->error);

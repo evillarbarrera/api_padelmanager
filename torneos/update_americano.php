@@ -26,13 +26,9 @@ if(empty($data->id)) {
 $id = (int)$data->id;
 
 // Silent schema check for precio (Safe version)
-$check = $conn->query("SHOW COLUMNS FROM `torneos_v2` LIKE 'precio'");
+$check = $conn->query("SHOW COLUMNS FROM `torneos_americanos` LIKE 'precio'");
 if ($check && $check->num_rows == 0) {
-    $conn->query("ALTER TABLE `torneos_v2` ADD `precio` DECIMAL(10,2) DEFAULT 0.00");
-}
-$checkPoster = $conn->query("SHOW COLUMNS FROM `torneos_v2` LIKE 'poster_url'");
-if ($checkPoster && $checkPoster->num_rows == 0) {
-    $conn->query("ALTER TABLE `torneos_v2` ADD `poster_url` VARCHAR(255) DEFAULT NULL");
+    $conn->query("ALTER TABLE `torneos_americanos` ADD `precio` DECIMAL(10,2) DEFAULT 0.00");
 }
 
 $updates = [];
@@ -45,22 +41,16 @@ if (isset($data->nombre)) {
     $params[] = $data->nombre;
 }
 
-if (isset($data->descripcion)) {
-    $updates[] = "descripcion = ?";
+if (!empty($data->fecha)) {
+    $updates[] = "fecha = ?";
     $types .= "s";
-    $params[] = $data->descripcion;
+    $params[] = $data->fecha;
 }
 
-if (!empty($data->fecha_inicio)) {
-    $updates[] = "fecha_inicio = ?";
+if (!empty($data->hora_inicio)) {
+    $updates[] = "hora_inicio = ?";
     $types .= "s";
-    $params[] = $data->fecha_inicio;
-}
-
-if (isset($data->fecha_fin)) {
-    $updates[] = "fecha_fin = ?";
-    $types .= "s";
-    $params[] = !empty($data->fecha_fin) ? $data->fecha_fin : null;
+    $params[] = $data->hora_inicio;
 }
 
 if (isset($data->precio)) {
@@ -69,16 +59,10 @@ if (isset($data->precio)) {
     $params[] = floatval($data->precio);
 }
 
-if (isset($data->formato_sets)) {
-    $updates[] = "formato_sets = ?";
-    $types .= "s";
-    $params[] = $data->formato_sets;
-}
-
-if (isset($data->poster_url)) {
-    $updates[] = "poster_url = ?";
-    $types .= "s";
-    $params[] = $data->poster_url;
+if (isset($data->tiempo_por_partido)) {
+    $updates[] = "tiempo_por_partido = ?";
+    $types .= "i";
+    $params[] = (int)$data->tiempo_por_partido;
 }
 
 if (empty($updates)) {
@@ -86,7 +70,7 @@ if (empty($updates)) {
     exit();
 }
 
-$sql = "UPDATE torneos_v2 SET " . implode(", ", $updates) . " WHERE id = ?";
+$sql = "UPDATE torneos_americanos SET " . implode(", ", $updates) . " WHERE id = ?";
 $types .= "i";
 $params[] = $id;
 
@@ -100,7 +84,7 @@ if (!$stmt) {
 $stmt->bind_param($types, ...$params);
 
 if ($stmt->execute()) {
-    echo json_encode(["status" => "success", "message" => "Torneo updated successfully"]);
+    echo json_encode(["status" => "success", "message" => "Torneo Americano updated successfully"]);
 } else {
     http_response_code(500);
     echo json_encode(["status" => "error", "message" => "Execute failed: " . $stmt->error]);

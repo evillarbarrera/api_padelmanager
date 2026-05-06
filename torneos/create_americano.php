@@ -37,6 +37,7 @@ $puntos_2 = $data['puntos_2do_lugar'] ?? 60;
 $puntos_3 = $data['puntos_3er_lugar'] ?? 40;
 $puntos_4 = $data['puntos_4to_lugar'] ?? 20;
 $puntos_part = $data['puntos_participacion'] ?? 5;
+$precio = isset($data['precio']) ? floatval($data['precio']) : 0;
 
 $categoria = $data['categoria'] ?? 'Cuarta';
 
@@ -68,6 +69,7 @@ ensureColumn($conn, 'torneos_americanos', 'tipo_torneo', "ENUM('estandar', 'grup
 ensureColumn($conn, 'torneos_americanos', 'modalidad', "ENUM('unicategoria', 'suma', 'mixto') DEFAULT 'unicategoria'");
 ensureColumn($conn, 'torneos_americanos', 'valor_suma', "INT NULL");
 ensureColumn($conn, 'torneos_americanos', 'genero', "VARCHAR(20) NULL");
+ensureColumn($conn, 'torneos_americanos', 'precio', "DECIMAL(10,2) DEFAULT 0.00");
 
 $creator_id = $data['creator_id'] ?? 0;
 $tipo_torneo = $data['tipo_torneo'] ?? 'estandar';
@@ -80,8 +82,8 @@ $max_parejas = $data['max_parejas'] ?? 8;
 $sql = "INSERT INTO torneos_americanos 
         (club_id, creator_id, nombre, fecha, hora_inicio, num_canchas, tiempo_por_partido, puntos_ganado, puntos_empate, 
          puntos_1er_lugar, puntos_2do_lugar, puntos_3er_lugar, puntos_4to_lugar, puntos_participacion, categoria,
-         tipo_torneo, modalidad, valor_suma, genero, max_parejas) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+         tipo_torneo, modalidad, valor_suma, genero, max_parejas, precio) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 $stmt = $conn->prepare($sql);
 if (!$stmt) {
     http_response_code(500);
@@ -89,9 +91,9 @@ if (!$stmt) {
     exit;
 }
 
-$stmt->bind_param("iisssiiiiiiiiisssisi", $club_id, $creator_id, $nombre, $fecha, $hora_inicio, $num_canchas, $tiempo_por_partido, 
+$stmt->bind_param("iisssiiiiiiiiisssisid", $club_id, $creator_id, $nombre, $fecha, $hora_inicio, $num_canchas, $tiempo_por_partido, 
                   $puntos_ganado, $puntos_empate, $puntos_1, $puntos_2, $puntos_3, $puntos_4, $puntos_part, $categoria,
-                  $tipo_torneo, $modalidad, $valor_suma, $genero, $max_parejas);
+                  $tipo_torneo, $modalidad, $valor_suma, $genero, $max_parejas, $precio);
 
 if ($stmt->execute()) {
     echo json_encode(["success" => true, "id" => $conn->insert_id]);

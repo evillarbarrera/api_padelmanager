@@ -66,14 +66,14 @@ $sql = "UPDATE reservas_cancha SET
         jugador4_id = COALESCE(?, jugador4_id)
         WHERE id = ?";
 
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("ssiiiiii", $marcador, $categoria, $id_ganador, $jugador_id2, $jugador_id3, $jugador_id4, $reserva_id);
-
 // Nota: bind_param no acepta null directamente de forma limpia para COALESCE si no se maneja bien,
 // pero aquí re-mapeamos para asegurar
 $jugador_id2 = $jugador2_id;
 $jugador_id3 = $jugador3_id;
 $jugador_id4 = $jugador4_id;
+
+$stmt = $conn->prepare($sql);
+$stmt->bind_param("ssiiiii", $marcador, $categoria, $id_ganador, $jugador_id2, $jugador_id3, $jugador_id4, $reserva_id);
 
 if ($stmt->execute()) {
     echo json_encode(["success" => true, "message" => "Resultado guardado correctamente"]);
