@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soporte - PadelManager</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #00f2fe;
+            --secondary: #4facfe;
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: radial-gradient(circle at top right, #1e293b, #0f172a);
+            color: var(--text);
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .logo {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin: 0;
+            letter-spacing: -1px;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 1.2rem;
+            max-width: 600px;
+            margin: 10px auto;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 60px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 40px;
+            text-align: center;
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            border-color: var(--primary);
+        }
+
+        .icon {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+        }
+
+        .card p {
+            color: var(--text-muted);
+            margin-bottom: 25px;
+        }
+
+        .btn {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: #000;
+            text-decoration: none;
+            padding: 12px 30px;
+            border-radius: 50px;
+            font-weight: 600;
+            transition: opacity 0.3s ease;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+        }
+
+        .faq {
+            margin-top: 80px;
+        }
+
+        .faq h2 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 40px;
+        }
+
+        .faq-item {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .faq-item h4 {
+            margin: 0 0 10px 0;
+            color: var(--primary);
+            font-size: 1.2rem;
+        }
+
+        .faq-item p {
+            margin: 0;
+            color: var(--text-muted);
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 60px;
+            padding-bottom: 40px;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 600px) {
+            h1 { font-size: 2.2rem; }
+            .grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <span class="logo">PADELMANAGER AI</span>
+            <h1>Centro de Soporte</h1>
+            <p class="subtitle">¿Tienes dudas sobre la App o tu suscripción? Estamos aquí para ayudarte 24/7.</p>
+        </header>
+
+        <div class="grid">
+            <div class="card">
+                <span class="icon">📧</span>
+                <h3>Atención al Cliente</h3>
+                <p>Nuestro equipo técnico responderá todas tus consultas sobre la App y la gestión de tu academia.</p>
+                <a href="mailto:soporte@padelmanager.cl" class="btn">Enviar Correo</a>
+            </div>
+
+            <div class="card">
+                <span class="icon">💬</span>
+                <h3>WhatsApp Directo</h3>
+                <p>¿Necesitas ayuda inmediata? Chatea con uno de nuestros asesores técnicos ahora mismo.</p>
+                <a href="https://wa.me/56900000000" class="btn">Chatear ahora</a>
+            </div>
+
+            <div class="card">
+                <span class="icon">📖</span>
+                <h3>Guía de Usuario</h3>
+                <p>Aprende a configurar tu perfil, agendar clases y usar las funciones de IA para mejorar tu técnica.</p>
+                <a href="#" class="btn">Ver Manual</a>
+            </div>
+        </div>
+
+        <section class="faq">
+            <h2>Preguntas Frecuentes</h2>
+            <div class="faq-item">
+                <h4>¿Cómo recupero mi contraseña?</h4>
+                <p>En la pantalla de inicio de sesión, pulsa en "¿Olvidaste tu contraseña?". Recibirás un enlace en tu correo para crear una nueva.</p>
+            </div>
+            <div class="faq-item">
+                <h4>¿Cómo elimino mi cuenta?</h4>
+                <p>Puedes hacerlo desde tu perfil dentro de la App pulsando "Eliminar Cuenta". Todos tus datos serán borrados permanentemente. Consulta nuestra <a href="privacy.html" style="color: var(--primary);">Política de Privacidad</a>.</p>
+            </div>
+            <div class="faq-item">
+                <h4>No puedo iniciar sesión con Apple</h4>
+                <p>Asegúrate de haber compartido tu correo en la primera configuración. Si tienes problemas, contacta a soporte@padelmanager.cl.</p>
+            </div>
+            <div class="faq-item">
+                <h4>¿Cómo gestiono mi suscripción?</h4>
+                <p>Si eres administrador, puedes ver el estado de tu plan en la sección "Mi Academia" del panel administrativo.</p>
+            </div>
+        </section>
+
+        <footer>
+            &copy; 2026 PadelManager AI Academy. Desarrollado por Lamatek.
+        </footer>
+    </div>
+</body>
+</html>
