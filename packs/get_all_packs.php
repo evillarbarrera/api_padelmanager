@@ -85,6 +85,7 @@ if ($myLat && $myLng && $radius) {
     $sql .= " HAVING distancia < $radius ";
 }
 
+$sql .= " GROUP BY p.id ";
 $sql .= " ORDER BY p.created_at DESC";
 
 try {
