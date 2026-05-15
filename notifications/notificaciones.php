@@ -15,6 +15,11 @@ require_once 'notificaciones_helper.php';
 
 $action = $_GET['action'] ?? null;
 
+// DEBUG GLOBAL: Log every single hit to this file
+$rawInput = file_get_contents('php://input');
+$debugMsg = date('Y-m-d H:i:s') . " - ACCESS: Action=$action - IP=" . ($_SERVER['REMOTE_ADDR'] ?? 'unknown') . " - Body=$rawInput" . PHP_EOL;
+file_put_contents(__DIR__ . '/access_debug.log', $debugMsg, FILE_APPEND);
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['error' => 'Método no permitido']);

@@ -27,6 +27,20 @@ function notifyUser($conn, $userId, $titulo, $mensaje, $tipo = 'general', $fecha
         }
         $stmtToken->close();
 
+        // FALLBACK: Check users table if no tokens found in fcm_tokens
+        if (empty($tokens)) {
+            $stmtUser = $conn->prepare("SELECT fcm_token FROM usuarios WHERE id = ?");
+            if ($stmtUser) {
+                $stmtUser->bind_param('i', $userId);
+                $stmtUser->execute();
+                $resUser = $stmtUser->get_result()->fetch_assoc();
+                if ($resUser && !empty($resUser['fcm_token'])) {
+                    $tokens[] = $resUser['fcm_token'];
+                }
+                $stmtUser->close();
+            }
+        }
+
         if (!empty($tokens)) {
             $success = send_fcm_push($tokens, $titulo, $mensaje, ['type' => $tipo]);
             // Log for debugging

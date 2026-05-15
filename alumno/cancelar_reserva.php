@@ -104,23 +104,67 @@ try {
         exit;
     }
     
-    // 4. Cancelar la reserva
-    $stmtCancel = $conn->prepare("UPDATE reservas SET estado = 'cancelado' WHERE id = ?");
-    if (!$stmtCancel) {
-        throw new Exception("Error prepare cancel: " . $conn->error);
+    // 4. Lógica de cancelación inteligente
+    // Contar cuántos jugadores hay en la reserva
+    $stmtCount = $conn->prepare("SELECT COUNT(*) as total FROM reserva_jugadores WHERE reserva_id = ?");
+    $stmtCount->bind_param("i", $reserva_id);
+    $stmtCount->execute();
+    $countRes = $stmtCount->get_result()->fetch_assoc();
+    $totalJugadores = $countRes['total'] ?? 0;
+
+    // Obtener tipo de reserva y otros detalles
+    $stmtInfo = $conn->prepare("SELECT tipo, estado FROM reservas WHERE id = ?");
+    $stmtInfo->bind_param("i", $reserva_id);
+    $stmtInfo->execute();
+    $resInfo = $stmtInfo->get_result()->fetch_assoc();
+    $tipo = strtolower($resInfo['tipo'] ?? 'individual');
+
+    // Definir si es una reserva de "múltiples cupos" (Grupal, Multi, etc.)
+    $esGrupal = (
+        $totalJugadores > 1 || 
+        $tipo === 'grupal' || 
+        $tipo === 'pack_grupal' || 
+        $tipo === 'clase grupal' || 
+        $tipo === 'multijugador' || 
+        $tipo === 'duo' || 
+        $tipo === 'trio'
+    );
+
+    $soloRemoverJugador = false;
+    if ($esGrupal) {
+        $soloRemoverJugador = true;
     }
-    
-    $stmtCancel->bind_param("i", $reserva_id);
-    
-    if (!$stmtCancel->execute()) {
-        throw new Exception("Error execute cancel: " . $stmtCancel->error);
+
+    if ($soloRemoverJugador) {
+        // --- SOLO QUITAR AL JUGADOR ---
+        $stmtDel = $conn->prepare("DELETE FROM reserva_jugadores WHERE reserva_id = ? AND jugador_id = ?");
+        $stmtDel->bind_param("ii", $reserva_id, $jugador_id);
+        if (!$stmtDel->execute()) {
+            throw new Exception("Error al remover jugador: " . $stmtDel->error);
+        }
+        
+        // Si no es un "producto" grupal fijo, decrementamos el contador de personas
+        if ($tipo !== 'grupal' && $tipo !== 'pack_grupal' && $tipo !== 'clase grupal') {
+            $conn->query("UPDATE reservas SET cantidad_personas = cantidad_personas - 1 WHERE id = $reserva_id");
+        }
+        
+        $msgFinal = "Has sido removido de la clase correctamente.";
+    } else {
+        // --- CANCELAR TODA LA RESERVA (Solo para individuales con 1 solo alumno) ---
+        $stmtCancel = $conn->prepare("UPDATE reservas SET estado = 'cancelado' WHERE id = ?");
+        $stmtCancel->bind_param("i", $reserva_id);
+        if (!$stmtCancel->execute()) {
+            throw new Exception("Error al cancelar reserva: " . $stmtCancel->error);
+        }
+        $msgFinal = "Reserva cancelada correctamente.";
     }
 
     // --- SEND RESPONSE IMMEDIATELY ---
     echo json_encode([
         "ok" => true,
-        "message" => "Reserva cancelada correctamente",
-        "reserva_id" => $reserva_id
+        "message" => $msgFinal,
+        "reserva_id" => $reserva_id,
+        "modo" => $soloRemoverJugador ? "remover_jugador" : "cancelar_total"
     ]);
 
     // Flush and close connection if possible

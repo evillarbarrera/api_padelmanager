@@ -65,6 +65,62 @@ $stmt->bind_param("ii", $reserva_id, $jugador_id);
 
 if ($stmt->execute()) {
     echo json_encode(["success" => true, "message" => "Jugador agregado a la sesión"]);
+
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+    }
+
+    // NOTIFICAR AL ALUMNO
+    require_once "../notifications/notificaciones_helper.php";
+    
+    // Obtener detalles para el mensaje
+    $sql_info = "
+        SELECT r.fecha, r.hora_inicio, u.nombre as entrenador_nombre
+        FROM reservas r
+        JOIN usuarios u ON u.id = r.entrenador_id
+        WHERE r.id = ?
+    ";
+    $stmt_info = $conn->prepare($sql_info);
+    $stmt_info->bind_param("i", $reserva_id);
+    $stmt_info->execute();
+    $info = $stmt_info->get_result()->fetch_assoc();
+
+    if ($info) {
+        $fechaFmt = date("d/m/Y", strtotime($info['fecha']));
+        $horaFmt = substr($info['hora_inicio'], 0, 5);
+        $nomEntrenador = $info['entrenador_nombre'];
+        
+        $msg = "Has sido agregado a la clase con $nomEntrenador el $fechaFmt a las $horaFmt.";
+        notifyUser($conn, $jugador_id, "🎾 Nueva Clase Agendada", $msg, 'clase_agendada');
+
+        // ENVIAR CORREO
+        require_once "../system/mail_service.php";
+        $stmtU = $conn->prepare("SELECT nombre, usuario FROM usuarios WHERE id = ?");
+        $stmtU->bind_param("i", $jugador_id);
+        $stmtU->execute();
+        $uAlum = $stmtU->get_result()->fetch_assoc();
+
+        if ($uAlum && !empty($uAlum['usuario'])) {
+            $nomJugador = $uAlum['nombre'];
+            $emailJugador = $uAlum['usuario'];
+            $subject = "🎾 Nueva Clase Agendada - $fechaFmt $horaFmt";
+            $body = "
+            <div style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
+                <h2 style='color: #1a73e8;'>¡Te han agregado a una clase!</h2>
+                <p>Hola <strong>$nomJugador</strong>,</p>
+                <p>Tu entrenador te ha agendado una nueva clase de pádel:</p>
+                <ul>
+                    <li><strong>Entrenador:</strong> $nomEntrenador</li>
+                    <li><strong>Fecha:</strong> $fechaFmt</li>
+                    <li><strong>Hora:</strong> $horaFmt</li>
+                </ul>
+                <p>¡Nos vemos en la pista!</p>
+                <hr style='border: 0; border-top: 1px solid #eee;'>
+                <p style='font-size: 12px; color: #777;'>Padel Manager - Academia</p>
+            </div>";
+            enviarCorreoSMTP($emailJugador, $subject, $body);
+        }
+    }
 } else {
     http_response_code(500);
     echo json_encode(["error" => "Error al agregar: " . $conn->error]);
