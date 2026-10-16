@@ -1,0 +1,23 @@
+[2026-07-13 20:10:48] --- SCRIPT START ---
+[2026-07-13 20:10:48] Log file location: /home/c2632100/public_html/api/prd/ia/gemini_debug.txt
+[2026-07-13 19:10:48] --- NEW REQUEST ---
+[2026-07-13 19:10:48] Video ID: 46 | URL: https://api.padelmanager.cl/prd/uploads/videos/vid_69d818e6e8ede.mp4 | Uploaded: NO
+[2026-07-13 19:10:48] Downloading video from: https://api.padelmanager.cl/prd/uploads/videos/vid_69d818e6e8ede.mp4
+[2026-07-13 19:10:48] Download failed with HTTP code 404
+[2026-07-13 19:10:48] FATAL ERROR: Error descargando video del origen (404)
+[2026-07-26 23:01:51] --- SCRIPT START ---
+[2026-07-26 23:01:51] Log file location: /home/c2632100/public_html/api/prd/ia/gemini_debug.txt
+[2026-07-26 22:01:51] --- NEW REQUEST ---
+[2026-07-26 22:01:51] Video ID: 49 | URL: https://api.padelmanager.cl/prd/uploads/videos/vid_6a663d6368889.mp4 | Uploaded: NO
+[2026-07-26 22:01:51] Downloading video from: https://api.padelmanager.cl/prd/uploads/videos/vid_6a663d6368889.mp4
+[2026-07-26 22:01:51] Local file ready: /tmp/gemini_gb6h2iqqhsg2fQePkUr, Size: 2.45 MB
+[2026-07-26 22:01:51] Initializing Gemini upload session...
+[2026-07-26 22:01:52] Init upload failed (403). Body: {
+  "error": {
+    "code": 403,
+    "message": "Your API key was reported as leaked. Please use another API key.",
+    "status": "PERMISSION_DENIED"
+  }
+}
+
+[2026-07-26 22:01:52] FATAL ERROR: Error Gemini Upload Session (403)

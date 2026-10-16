@@ -1,0 +1,37 @@
+name: Deploy API to Hosting (PRD)
+
+on:
+  push:
+    branches:
+      - prod
+  workflow_dispatch:
+
+jobs:
+  deploy-api:
+    name: Sincronizar API a Ferozo
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: 🚀 Sincronizar API a /public_html/api/prd/ por FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.SFTP_SERVER || 'c2632100.ferozo.com' }}
+          username: ${{ secrets.SFTP_USERNAME || 'c2632100' }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          port: ${{ secrets.SFTP_PORT || 21 }}
+          protocol: ${{ secrets.SFTP_PROTOCOL || 'ftps' }}
+          local-dir: ./
+          server-dir: ${{ secrets.SFTP_REMOTE_API_DIR || '/public_html/api/prd/' }}
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/.github/**
+            **/resp/**
+            **/scratch/**
+            **/*.log
+            **/*.zip
+            **/*.tar.gz
+          dangerous-clean-slate: false

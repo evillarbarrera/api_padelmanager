@@ -1,0 +1,253 @@
+<?php
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
+header("Content-Type: application/json");
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
+require_once "../auth/auth_helper.php";
+$userId = validateToken();
+if (!$userId) {
+    sendUnauthorized();
+}
+
+require_once "../db.php";
+
+$entrenador_id = $_GET['entrenador_id'] ?? null;
+
+if (!$entrenador_id) {
+    http_response_code(400);
+    echo json_encode(["error" => "entrenador_id es obligatorio"]);
+    exit;
+}
+
+$data = [
+    "reservas_tradicionales" => [],
+    "packs_grupales" => []
+];
+
+// 1. Reservas agendadas (Individuales y Grupales con fecha específica)
+$sql_reservas = "
+SELECT 
+    MIN(r.id) AS reserva_id,
+    r.fecha,
+    r.hora_inicio,
+    p.id as pack_id,
+    p.nombre AS pack_nombre,
+    p.categoria,
+    GROUP_CONCAT(COALESCE(u_j.id, '') SEPARATOR '||') AS jugador_ids,
+    GROUP_CONCAT(COALESCE(u_j.nombre, '') SEPARATOR '||') AS jugador_nombre,
+    GROUP_CONCAT(COALESCE(u_j.usuario, '') SEPARATOR '||') AS jugador_emails,
+    GROUP_CONCAT(COALESCE(u_j.foto_perfil, u_j.foto, '') SEPARATOR '||') AS jugador_fotos,
+    COALESCE(p.capacidad_minima, 2) as capacidad_minima,
+    COALESCE(p.capacidad_maxima, 6) as capacidad_maxima,
+    MAX(p.duracion_sesion_min) as duracion_original,
+    COALESCE(r.tipo, p.tipo, 'individual') as tipo_real,
+    MIN(r.estado) as reserva_estado,
+    COALESCE(MIN(c.nombre), MIN(p_c.nombre), '') as club_nombre,
+    MIN(r.malla_id) as malla_id,
+    MIN(r.clase_id) as clase_id,
+    MIN(r.clase_titulo) as clase_titulo,
+    MIN(m.nombre) as malla_nombre,
+    MIN(cm.objetivo) as clase_objetivo,
+    MIN(cm.calentamiento) as clase_calentamiento,
+    MIN(cm.drills) as clase_drills,
+    MIN(cm.juego) as clase_juego,
+    MIN(cm.recursos) as clase_recursos
+FROM reservas r
+LEFT JOIN reserva_jugadores rj ON rj.reserva_id = r.id
+LEFT JOIN usuarios u_j ON u_j.id = rj.jugador_id
+LEFT JOIN packs p ON p.id = r.pack_id
+LEFT JOIN clubes c ON c.id = r.club_id
+LEFT JOIN clubes p_c ON p_c.id = p.club_id
+LEFT JOIN mallas m ON m.id = r.malla_id
+LEFT JOIN clases_malla cm ON cm.id = r.clase_id
+WHERE r.entrenador_id = ?
+  AND r.fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+  AND r.fecha <= DATE_ADD(CURDATE(), INTERVAL 35 DAY)
+  AND r.estado != 'cancelado'
+GROUP BY r.fecha, r.hora_inicio, r.entrenador_id, COALESCE(r.tipo, p.tipo, 'individual'), p.id
+ORDER BY r.fecha ASC, r.hora_inicio ASC
+";
+
+$stmt = $conn->prepare($sql_reservas);
+$stmt->bind_param("i", $entrenador_id);
+$stmt->execute();
+$result = $stmt->get_result();
+
+while ($row = $result->fetch_assoc()) {
+    $inscritos_final = [];
+    if ($row['jugador_nombre']) {
+        $names = explode('||', $row['jugador_nombre']);
+        $emails = explode('||', $row['jugador_emails']);
+        $fotos = explode('||', $row['jugador_fotos']);
+        $ids = explode('||', $row['jugador_ids']);
+        for ($i = 0; $i < count($names); $i++) {
+            $inscritos_final[] = [
+                "id" => trim($ids[$i] ?? ''),
+                "nombre" => trim($names[$i]),
+                "email" => trim($emails[$i] ?? ''),
+                "foto" => trim($fotos[$i] ?? '')
+            ];
+        }
+    }
+
+    $total_inscritos = count($inscritos_final);
+
+    $duracion = $row['duracion_original'] > 0 ? $row['duracion_original'] : (
+        $total_inscritos >= 5 ? 120 : ($total_inscritos >= 4 ? 90 : 60)
+    );
+
+    $hora_inicio_val = $row['hora_inicio'] ?? '08:00:00';
+    $hora_inicio_sec = strtotime($hora_inicio_val);
+    $hora_fin = date("H:i:s", $hora_inicio_sec + ($duracion * 60));
+
+    // Forzar capacidad mínima coherente para grupos
+    $cap_max = $row['capacidad_maxima'];
+    if (($row['tipo_real'] === 'grupal' || $row['tipo_real'] === 'pack_grupal') && $cap_max <= 1) {
+        $cap_max = 6;
+    }
+
+    $estado_final = $row['reserva_estado'];
+    if ($row['tipo_real'] === 'grupal' || $row['tipo_real'] === 'pack_grupal') {
+        $cap_min = ($row['capacidad_minima'] <= 1) ? 2 : $row['capacidad_minima'];
+        $estado_final = ($total_inscritos >= $cap_min) ? 'activo' : 'pendiente';
+    }
+
+    $data["reservas_tradicionales"][] = [
+        "reserva_id" => $row['reserva_id'],
+        "fecha" => $row['fecha'],
+        "hora_inicio" => $row['hora_inicio'],
+        "hora_fin" => $hora_fin,
+        "estado" => $estado_final,
+        "estado_grupo" => ($row['tipo_real'] === 'grupal' || $row['tipo_real'] === 'pack_grupal' ? $estado_final : null),
+        "pack_nombre" => $row['pack_nombre'],
+        "categoria" => $row['categoria'],
+        "inscritos" => $inscritos_final,
+        "cupos_ocupados" => $total_inscritos,
+        "capacidad_maxima" => $cap_max,
+        "duracion_calculada" => $duracion,
+        "tipo" => ($row['tipo_real'] === 'grupal' ? 'pack_grupal' : 'reserva_individual'),
+        "jugador_nombre" => implode(', ', array_column($inscritos_final, 'nombre')),
+        "club_nombre" => $row['club_nombre'],
+        "malla_id" => $row['malla_id'],
+        "clase_id" => $row['clase_id'],
+        "clase_titulo" => $row['clase_titulo'],
+        "malla_nombre" => $row['malla_nombre'] ?? '',
+        "clase_objetivo" => $row['clase_objetivo'] ?? '',
+        "clase_calentamiento" => $row['clase_calentamiento'] ?? '',
+        "clase_drills" => $row['clase_drills'] ?? '',
+        "clase_juego" => $row['clase_juego'] ?? '',
+        "clase_recursos" => $row['clase_recursos'] ?? ''
+    ];
+}
+
+// 2. Packs recurrentes (Templates)
+$sql_grupales = "
+SELECT 
+    p.id AS pack_id,
+    p.nombre AS pack_nombre,
+    COALESCE(WEEKDAY(p.fecha), p.dia_semana) as dia_semana,
+    p.hora_inicio,
+    p.capacidad_minima,
+    p.capacidad_maxima,
+    p.categoria,
+    p.fecha,
+    p.permite_inscripcion,
+    p.duracion_sesion_min as duracion_original,
+    COALESCE(c.nombre, '') as club_nombre
+FROM packs p
+LEFT JOIN clubes c ON c.id = p.club_id
+WHERE p.entrenador_id = ?
+  AND p.tipo = 'grupal'
+  AND p.activo = 1
+  AND p.fecha IS NOT NULL
+  AND p.fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+  AND p.fecha <= DATE_ADD(CURDATE(), INTERVAL 35 DAY)
+";
+
+$stmt = $conn->prepare($sql_grupales);
+$stmt->bind_param("i", $entrenador_id);
+$stmt->execute();
+$result = $stmt->get_result();
+
+while ($row = $result->fetch_assoc()) {
+    // Si tiene fecha, solo mostrar si es relevante para el rango de la agenda
+    if ($row['fecha']) {
+        $fecha_ts = strtotime($row['fecha']);
+        $start_range = strtotime("-30 days", strtotime("today"));
+        $end_range = strtotime("+35 days", strtotime("today"));
+        
+        if ($fecha_ts < $start_range || $fecha_ts > $end_range) {
+            continue;
+        }
+    }
+
+    $duracion = $row['duracion_original'] > 0 ? $row['duracion_original'] : 90;
+
+    $hora_inicio_val = $row['hora_inicio'] ?? '08:00:00';
+    $hora_inicio_sec = strtotime($hora_inicio_val);
+    $hora_fin = date("H:i:s", $hora_inicio_sec + ($duracion * 60));
+
+    $cap_max = ($row['capacidad_maxima'] <= 1) ? 6 : $row['capacidad_maxima'];
+    $cap_min = ($row['capacidad_minima'] <= 1) ? 2 : $row['capacidad_minima'];
+
+    // Obtener inscritos actuales para este pack si es por fecha
+    $inscritos = [];
+    if ($row['fecha']) {
+        $sql_ig = "SELECT u.id, u.nombre, u.usuario as email, u.foto_perfil as foto 
+                   FROM (
+                       SELECT jugador_id FROM inscripciones_grupales WHERE pack_id = ? AND estado = 'activo'
+                       UNION
+                       SELECT rj.jugador_id FROM reserva_jugadores rj JOIN reservas r2 ON rj.reserva_id = r2.id WHERE r2.pack_id = ? AND r2.fecha = ? AND r2.estado = 'reservado'
+                   ) t
+                   JOIN usuarios u ON u.id = t.jugador_id";
+        $stmt_ig = $conn->prepare($sql_ig);
+        $stmt_ig->bind_param("iis", $row['pack_id'], $row['pack_id'], $row['fecha']);
+        $stmt_ig->execute();
+        $res_ig = $stmt_ig->get_result();
+        while($row_ig = $res_ig->fetch_assoc()) {
+            $inscritos[] = $row_ig;
+        }
+    } else {
+        // Para plantillas sin fecha, contar solo inscripciones fijas
+        $sql_ig = "SELECT u.id, u.nombre, u.usuario as email, u.foto_perfil as foto 
+                   FROM inscripciones_grupales ig 
+                   JOIN usuarios u ON u.id = ig.jugador_id 
+                   WHERE ig.pack_id = ? AND ig.estado = 'activo'";
+        $stmt_ig = $conn->prepare($sql_ig);
+        $stmt_ig->bind_param("i", $row['pack_id']);
+        $stmt_ig->execute();
+        $res_ig = $stmt_ig->get_result();
+        while($row_ig = $res_ig->fetch_assoc()) {
+            $inscritos[] = $row_ig;
+        }
+    }
+
+    $data["packs_grupales"][] = [
+        "pack_id" => $row['pack_id'],
+        "pack_nombre" => $row['pack_nombre'],
+        "dia_semana" => $row['dia_semana'],
+        "fecha" => $row['fecha'],
+        "hora_inicio" => $hora_inicio_val,
+        "hora_fin" => $hora_fin,
+        "capacidad_maxima" => $cap_max,
+        "cupos_ocupados" => count($inscritos),
+        "estado_grupo" => ($row['fecha'] ? (count($inscritos) >= $cap_min ? 'activo' : 'pendiente') : "abierto"),
+        "categoria" => $row['categoria'],
+        "duracion_calculada" => $duracion,
+        "tipo" => ($row['fecha'] ? "grupal_fecha" : "grupal_template"),
+        "inscritos" => $inscritos,
+        "jugador_nombre" => implode(', ', array_column($inscritos, 'nombre')),
+        "club_nombre" => $row['club_nombre']
+    ];
+}
+
+echo json_encode($data);
