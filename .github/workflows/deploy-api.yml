@@ -1,21 +1,33 @@
-name: Deploy API to Hosting (PRD)
+name: Deploy API to Hosting (DEV / PRD)
 
 on:
   push:
     branches:
+      - dev
       - prod
   workflow_dispatch:
 
 jobs:
   deploy-api:
-    name: Sincronizar API a Ferozo
+    name: Sincronizar API a Ferozo (${{ github.ref_name }})
     runs-on: ubuntu-latest
 
     steps:
       - name: 📥 Clonar repositorio
         uses: actions/checkout@v4
 
-      - name: 🚀 Sincronizar API a /public_html/api/prd/ por FTPS
+      - name: 🔍 Determinar Carpeta de Destino
+        id: target
+        run: |
+          if [ "${{ github.ref_name }}" = "dev" ]; then
+            echo "dir=/public_html/api/dev/" >> $GITHUB_OUTPUT
+            echo "env=DEV" >> $GITHUB_OUTPUT
+          else
+            echo "dir=/public_html/api/prd/" >> $GITHUB_OUTPUT
+            echo "env=PRD" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🚀 Sincronizar API por FTPS a ${{ steps.target.outputs.env }}
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.SFTP_SERVER || 'c2632100.ferozo.com' }}
@@ -24,7 +36,7 @@ jobs:
           port: ${{ secrets.SFTP_PORT || 21 }}
           protocol: ${{ secrets.SFTP_PROTOCOL || 'ftps' }}
           local-dir: ./
-          server-dir: ${{ secrets.SFTP_REMOTE_API_DIR || '/public_html/api/prd/' }}
+          server-dir: ${{ steps.target.outputs.dir }}
           exclude: |
             **/.git*
             **/.git*/**

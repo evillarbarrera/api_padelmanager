@@ -1,26 +1,23 @@
-# Archivos de configuración sensible
-academia-padel-firebase-adminsdk-fbsvc-e982fff4f3.json
-
-# Carpetas de respaldo y temporales
-resp/
-scratch/
-uploads/
-temp/
-
-# Archivos de Sistema
-.DS_Store
-.DS_Store?
-._*
-Thumbs.db
-ehthumbs.db
-
-# Logs y volcados de base de datos
+# Logs
 *.log
-*.sql
-*.tar.gz
-*.zip
+auth_debug.log
 
-# Variables de entorno locales
+# Temporary and archives
+*.zip
+*.tar.gz
+*.sql
+temp_schema.php
+scratch/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# User uploads and media
+uploads/
+resp/
+
+# Local environment overrides
 .env
-.env.*
-deploy-credentials.env
+.env.local
+db_local.php
