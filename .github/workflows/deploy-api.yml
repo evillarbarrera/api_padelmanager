@@ -27,23 +27,24 @@ jobs:
             echo "env=PRD" >> $GITHUB_OUTPUT
           fi
 
-      - name: 🚀 Sincronizar API por FTPS a ${{ steps.target.outputs.env }}
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.SFTP_SERVER || 'c2632100.ferozo.com' }}
-          username: ${{ secrets.SFTP_USERNAME || 'c2632100' }}
-          password: ${{ secrets.SFTP_PASSWORD }}
-          port: ${{ secrets.SFTP_PORT || 21 }}
-          protocol: ${{ secrets.SFTP_PROTOCOL || 'ftps' }}
-          local-dir: ./
-          server-dir: ${{ steps.target.outputs.dir }}
-          exclude: |
-            **/.git*
-            **/.git*/**
-            **/.github/**
-            **/resp/**
-            **/scratch/**
-            **/*.log
-            **/*.zip
-            **/*.tar.gz
-          dangerous-clean-slate: false
+      - name: 🚀 Sincronizar API a Ferozo (${{ steps.target.outputs.env }})
+        run: |
+          sudo apt-get update && sudo apt-get install -y lftp
+          lftp -u "${{ secrets.SFTP_USERNAME || 'c2632100' }},${{ secrets.SFTP_PASSWORD }}" -p 21 ${{ secrets.SFTP_SERVER || 'c2632100.ferozo.com' }} << 'EOF'
+          set ftp:ssl-allow yes
+          set ftp:ssl-protect-data no
+          set ssl:verify-certificate no
+          set net:timeout 60
+          set net:max-retries 3
+          mirror -R --verbose \
+            --exclude-glob .git/ \
+            --exclude-glob .git/** \
+            --exclude-glob .github/** \
+            --exclude-glob resp/** \
+            --exclude-glob scratch/** \
+            --exclude-glob *.log \
+            --exclude-glob *.zip \
+            --exclude-glob *.tar.gz \
+            ./ ${{ steps.target.outputs.dir }}
+          quit
+          EOF
