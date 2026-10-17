@@ -34,6 +34,14 @@ $checkPoster = $conn->query("SHOW COLUMNS FROM `torneos_v2` LIKE 'poster_url'");
 if ($checkPoster && $checkPoster->num_rows == 0) {
     $conn->query("ALTER TABLE `torneos_v2` ADD `poster_url` VARCHAR(255) DEFAULT NULL");
 }
+$checkCanchas = $conn->query("SHOW COLUMNS FROM `torneos_v2` LIKE 'num_canchas'");
+if ($checkCanchas && $checkCanchas->num_rows == 0) {
+    $conn->query("ALTER TABLE `torneos_v2` ADD `num_canchas` INT DEFAULT 2");
+}
+$checkCanchasIds = $conn->query("SHOW COLUMNS FROM `torneos_v2` LIKE 'canchas_ids'");
+if ($checkCanchasIds && $checkCanchasIds->num_rows == 0) {
+    $conn->query("ALTER TABLE `torneos_v2` ADD `canchas_ids` TEXT DEFAULT NULL");
+}
 
 $updates = [];
 $types = "";
@@ -79,6 +87,18 @@ if (isset($data->poster_url)) {
     $updates[] = "poster_url = ?";
     $types .= "s";
     $params[] = $data->poster_url;
+}
+
+if (isset($data->num_canchas)) {
+    $updates[] = "num_canchas = ?";
+    $types .= "i";
+    $params[] = (int)$data->num_canchas;
+}
+
+if (isset($data->canchas_ids)) {
+    $updates[] = "canchas_ids = ?";
+    $types .= "s";
+    $params[] = is_array($data->canchas_ids) ? json_encode($data->canchas_ids) : $data->canchas_ids;
 }
 
 if (empty($updates)) {
