@@ -339,12 +339,15 @@ try {
         if ($canchaId > 0) {
             $conn->query("UPDATE reservas SET cancha_id = $canchaId WHERE id = $new_reserva_id");
 
-            // Si el club está activo para reservas, proyectar en reservas_cancha
-            $chkClub = $conn->query("SELECT id, nombre, activo FROM clubes WHERE id = $clubId");
-            $clubRow = $chkClub ? $chkClub->fetch_assoc() : null;
-            $clubActivo = (!$clubRow || $clubRow['activo'] == 1 || $clubRow['activo'] === null);
+            // Obtener club_id si no viene definido
+            if (empty($clubId)) {
+                $canchaRes = $conn->query("SELECT club_id FROM canchas WHERE id = $canchaId");
+                if ($canchaRes && $cRow = $canchaRes->fetch_assoc()) {
+                    $clubId = intval($cRow['club_id']);
+                }
+            }
 
-            if ($clubActivo) {
+            if (!empty($clubId)) {
                 // Nombre del entrenador
                 $nomCoach = 'Entrenador';
                 $stmtC = $conn->prepare("SELECT nombre, apellido FROM usuarios WHERE id = ?");
