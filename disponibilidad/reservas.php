@@ -56,10 +56,23 @@ try {
     $serie_id = ($recurrencia > 1) ? uniqid('serie_') : null;
     $reservas_creadas = [];
 
-    // Asegurar columnas de vinculación cancha-entrenador
-    @$conn->query("ALTER TABLE reservas ADD COLUMN cancha_id INT DEFAULT NULL");
-    @$conn->query("ALTER TABLE reservas_cancha ADD COLUMN reserva_entrenador_id INT DEFAULT NULL");
-    @$conn->query("ALTER TABLE reservas_cancha ADD COLUMN entrenador_id INT DEFAULT NULL");
+    // Asegurar columnas de vinculación cancha-entrenador de forma defensiva
+    try {
+        $chkCols = @$conn->query("SHOW COLUMNS FROM reservas LIKE 'cancha_id'");
+        if ($chkCols && $chkCols->num_rows === 0) {
+            @$conn->query("ALTER TABLE reservas ADD COLUMN cancha_id INT DEFAULT NULL");
+        }
+        $chkRC1 = @$conn->query("SHOW COLUMNS FROM reservas_cancha LIKE 'reserva_entrenador_id'");
+        if ($chkRC1 && $chkRC1->num_rows === 0) {
+            @$conn->query("ALTER TABLE reservas_cancha ADD COLUMN reserva_entrenador_id INT DEFAULT NULL");
+        }
+        $chkRC2 = @$conn->query("SHOW COLUMNS FROM reservas_cancha LIKE 'entrenador_id'");
+        if ($chkRC2 && $chkRC2->num_rows === 0) {
+            @$conn->query("ALTER TABLE reservas_cancha ADD COLUMN entrenador_id INT DEFAULT NULL");
+        }
+    } catch (Throwable $t) {
+        // Ignorar si ya existen
+    }
 
     $conn->begin_transaction();
 
