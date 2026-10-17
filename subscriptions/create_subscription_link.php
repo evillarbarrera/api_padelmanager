@@ -42,11 +42,14 @@ try {
     }
 
     // 3. Diccionario de Planes
+    $user_role = strtolower($coach['rol'] ?? '');
+    $is_club = (strpos($user_role, 'club') !== false);
+
     $plans = [
         1 => ["name" => "EMPRENDEDOR", "price" => 0],
         2 => ["name" => "INICIAL 20", "price" => 19990],
         3 => ["name" => "PRO 40", "price" => 29990],
-        4 => ["name" => "GESTIÓN DE CLUB", "price" => 49990]
+        4 => ["name" => ($is_club ? "GESTIÓN DE CLUB" : "ELITE ILIMITADO"), "price" => 49990]
     ];
 
     $plan = $plans[$plan_id] ?? null;
@@ -56,18 +59,38 @@ try {
         exit;
     }
 
-    // 4. Calcular días transcurridos de prueba (3 meses / 90 días)
-    $created_at = $coach['created_at'] ?? date('Y-m-d H:i:s');
-    $created = new DateTime($created_at);
+    // 4. Calcular días transcurridos de prueba y vencimiento efectivo
     $now = new DateTime();
-    $diff = $created->diff($now);
-    $days_active = $diff->days;
-    $trial_days = 90;
-    $days_remaining = max(0, $trial_days - $days_active);
+    $has_explicit_end = !empty($coach['subscription_end_date']);
+    if ($has_explicit_end) {
+        $expiration = new DateTime($coach['subscription_end_date']);
+    } else {
+        $created_at = $coach['created_at'] ?? date('Y-m-d H:i:s');
+        $created = new DateTime($created_at);
+        $expiration = clone $created;
+        $expiration->modify('+90 days');
+    }
 
-    // 5. Si está dentro del período de prueba (3 meses gratis) o es plan gratuito:
-    // Asignar el plan directamente sin requerir tarjeta de crédito.
-    if ($days_remaining > 0 || $plan_id == 1) {
+    $is_expired = ($now > $expiration);
+    $days_remaining = $is_expired ? 0 : (int)$now->diff($expiration)->days;
+    $force_payment = !empty($input['force_payment']) || !empty($input['renew']);
+
+    // 5. Plan Emprendedor ($0) siempre es gratuito sin cobro
+    if ($plan_id == 1) {
+        $stmtUpd = $conn->prepare("UPDATE usuarios SET plan_id = 1, subscription_status = 'active' WHERE id = ?");
+        $stmtUpd->bind_param("i", $user_id);
+        $stmtUpd->execute();
+
+        echo json_encode([
+            "success" => true,
+            "redirect" => false,
+            "message" => "Plan EMPRENDEDOR ($0 CLP) activado con éxito."
+        ]);
+        exit;
+    }
+
+    // Si aún está dentro del período de prueba gratis y no forzó pago de renovación:
+    if ($days_remaining > 0 && !$is_expired && !$force_payment) {
         $stmtUpd = $conn->prepare("UPDATE usuarios SET plan_id = ?, subscription_status = 'active' WHERE id = ?");
         $stmtUpd->bind_param("ii", $plan_id, $user_id);
         $stmtUpd->execute();
@@ -75,33 +98,48 @@ try {
         echo json_encode([
             "success" => true,
             "redirect" => false,
-            "message" => "Plan " . $plan['name'] . " asignado exitosamente con 3 meses gratis. No requiere tarjeta de crédito hasta finalizar los $days_remaining días de prueba."
+            "message" => "Plan " . $plan['name'] . " asignado exitosamente durante tu periodo de prueba ($days_remaining días restantes). Al vencer se cobrará la mensualidad."
         ]);
         exit;
     }
 
-    // 6. Si los 3 meses gratis ya finalizaron, requerir vincular tarjeta de crédito vía Mercado Pago
+    // 6. Si el periodo venció o requiere pago para renovar +1 mes:
+    // Generar Checkout Pro de Mercado Pago (Permite Webpay Plus, Redcompra, Débito, Crédito y saldo MP)
+    $clientOrigin = !empty($input['origin']) ? $input['origin'] : "https://padelblox.cl/mi-plan";
     $subData = [
-        "payer_email" => $coach['usuario'] ?? ($coach['email'] ?? 'test@padelblox.cl'),
+        "payer_email" => $coach['usuario'] ?? ($coach['email'] ?? 'contacto@padelblox.cl'),
         "plan_name" => $plan['name'],
         "amount" => $plan['price'],
+        "user_id" => $user_id,
         "coach_id" => $user_id,
         "plan_id" => $plan_id,
-        "origin" => $origin
+        "origin" => $clientOrigin
     ];
 
-    $subscription = MercadoPagoService::createPreApproval($subData);
+    $preference = MercadoPagoService::createSubscriptionRenewalPreference($subData);
 
-    if ($subscription && isset($subscription['init_point'])) {
+    if ($preference && isset($preference['init_point'])) {
         echo json_encode([
             "success" => true,
-            "init_point" => $subscription['init_point'],
-            "id" => $subscription['id'] ?? null,
-            "redirect" => true
+            "init_point" => $preference['init_point'],
+            "id" => $preference['id'] ?? null,
+            "redirect" => true,
+            "message" => "Preferencia de pago generada exitosamente"
         ]);
     } else {
-        $error_msg = $subscription['message'] ?? "Error al conectar con Mercado Pago";
-        echo json_encode(["success" => false, "message" => $error_msg]);
+        // Fallback a preapproval si preferencia falla
+        $subscription = MercadoPagoService::createPreApproval($subData);
+        if ($subscription && isset($subscription['init_point'])) {
+            echo json_encode([
+                "success" => true,
+                "init_point" => $subscription['init_point'],
+                "id" => $subscription['id'] ?? null,
+                "redirect" => true
+            ]);
+        } else {
+            $error_msg = $preference['message'] ?? ($subscription['message'] ?? "Error al conectar con pasarela de pago");
+            echo json_encode(["success" => false, "message" => $error_msg]);
+        }
     }
 
 } catch (Exception $e) {

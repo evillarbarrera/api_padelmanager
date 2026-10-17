@@ -56,6 +56,11 @@ try {
     $serie_id = ($recurrencia > 1) ? uniqid('serie_') : null;
     $reservas_creadas = [];
 
+    // Asegurar columnas de vinculación cancha-entrenador
+    @$conn->query("ALTER TABLE reservas ADD COLUMN cancha_id INT DEFAULT NULL");
+    @$conn->query("ALTER TABLE reservas_cancha ADD COLUMN reserva_entrenador_id INT DEFAULT NULL");
+    @$conn->query("ALTER TABLE reservas_cancha ADD COLUMN entrenador_id INT DEFAULT NULL");
+
     $conn->begin_transaction();
 
     /* ========= PREPARE STATEMENTS ========= */
@@ -328,6 +333,69 @@ try {
         // 4. Actualizamos el 'cantidad_personas' real de la reserva por si el frontend envió otro
         $realCount = count($jugadoresAInsertar);
         $conn->query("UPDATE reservas SET cantidad_personas = $realCount WHERE id = $new_reserva_id");
+
+        // 5. Vincular Cancha y sincronizar con el calendario del Club (reservas_cancha)
+        $canchaId = intval($data['cancha_id'] ?? 0);
+        if ($canchaId > 0) {
+            $conn->query("UPDATE reservas SET cancha_id = $canchaId WHERE id = $new_reserva_id");
+
+            // Si el club está activo para reservas, proyectar en reservas_cancha
+            $chkClub = $conn->query("SELECT id, nombre, activo FROM clubes WHERE id = $clubId");
+            $clubRow = $chkClub ? $chkClub->fetch_assoc() : null;
+            $clubActivo = (!$clubRow || $clubRow['activo'] == 1 || $clubRow['activo'] === null);
+
+            if ($clubActivo) {
+                // Nombre del entrenador
+                $nomCoach = 'Entrenador';
+                $stmtC = $conn->prepare("SELECT nombre, apellido FROM usuarios WHERE id = ?");
+                $stmtC->bind_param("i", $data['entrenador_id']);
+                $stmtC->execute();
+                $resC = $stmtC->get_result()->fetch_assoc();
+                if ($resC) {
+                    $nomCoach = trim($resC['nombre'] . ' ' . ($resC['apellido'] ?? ''));
+                }
+
+                // Nombres de los alumnos
+                $nombresAlumnosArr = [];
+                foreach ($jugadoresAInsertar as $jId) {
+                    if ($jId > 0) {
+                        $stJ = $conn->prepare("SELECT nombre, apellido FROM usuarios WHERE id = ?");
+                        $stJ->bind_param("i", $jId);
+                        $stJ->execute();
+                        $rJ = $stJ->get_result()->fetch_assoc();
+                        if ($rJ) {
+                            $nombresAlumnosArr[] = trim($rJ['nombre'] . ' ' . ($rJ['apellido'] ?? ''));
+                        }
+                    }
+                }
+                $alumnosTexto = !empty($nombresAlumnosArr) ? implode(', ', $nombresAlumnosArr) : ($data['jugador_nombre'] ?? 'Alumno');
+                $nombreExterno = "🎾 Clase: $nomCoach ($alumnosTexto)";
+
+                $usuarioIdPrincipal = intval($data['jugador_id'] ?? 0);
+                if ($usuarioIdPrincipal <= 0 && !empty($jugadoresAInsertar)) {
+                    $usuarioIdPrincipal = intval($jugadoresAInsertar[0]);
+                }
+
+                // Validar que no haya conflicto en reservas_cancha antes de insertar
+                $chkConflict = $conn->prepare("
+                    SELECT id FROM reservas_cancha 
+                    WHERE cancha_id = ? AND fecha = ?
+                      AND LOWER(TRIM(estado)) NOT IN ('cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'eliminada')
+                      AND (hora_inicio < ? AND hora_fin > ?)
+                ");
+                $chkConflict->bind_param("isss", $canchaId, $currentDate, $data['hora_fin'], $data['hora_inicio']);
+                $chkConflict->execute();
+                if ($chkConflict->get_result()->num_rows === 0) {
+                    $insRC = $conn->prepare("
+                        INSERT INTO reservas_cancha 
+                        (cancha_id, usuario_id, nombre_externo, fecha, hora_inicio, hora_fin, precio, precio_total, pagado, estado, tipo_reserva, reserva_entrenador_id, entrenador_id)
+                        VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1, 'Confirmada', 'entrenamiento', ?, ?)
+                    ");
+                    $insRC->bind_param("iissssii", $canchaId, $usuarioIdPrincipal, $nombreExterno, $currentDate, $data['hora_inicio'], $data['hora_fin'], $new_reserva_id, $data['entrenador_id']);
+                    $insRC->execute();
+                }
+            }
+        }
 
         $reservas_creadas[] = $new_reserva_id;
     }
