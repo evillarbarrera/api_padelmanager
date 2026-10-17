@@ -6,6 +6,12 @@ on:
       - dev
       - prod
   workflow_dispatch:
+    inputs:
+      deploy_all:
+        description: 'Forzar despliegue completo de todos los archivos'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   deploy-api:
@@ -18,10 +24,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 🕒 Restaurar fechas de modificación de Git e instalar herramientas
+      - name: 🛠️ Instalar lftp
         run: |
-          sudo apt-get update && sudo apt-get install -y git-restore-mtime lftp
-          git restore-mtime
+          sudo apt-get update && sudo apt-get install -y lftp
 
       - name: 🔍 Determinar Carpeta de Destino
         id: target
@@ -34,23 +39,106 @@ jobs:
             echo "env=PRD" >> $GITHUB_OUTPUT
           fi
 
-      - name: 🚀 Sincronizar API incremental (solo nuevo/modificado) a ${{ steps.target.outputs.env }}
+      - name: 📦 Preparar archivos nuevos y modificados
+        id: prep
         run: |
+          mkdir -p .deploy_staging
+
+          DEPLOY_ALL="${{ inputs.deploy_all || 'false' }}"
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.sha }}"
+
+          echo "Modo Deploy All: $DEPLOY_ALL"
+          echo "Commit previo (before): $BEFORE"
+          echo "Commit actual (after): $AFTER"
+
+          if [ "$DEPLOY_ALL" = "true" ]; then
+            echo "⚠️ Despliegue completo solicitado. Copiando todos los archivos..."
+            rsync -av --exclude='.git/' --exclude='.github/' --exclude='resp/' --exclude='scratch/' --exclude='*.log' --exclude='*.zip' --exclude='*.tar.gz' ./ .deploy_staging/
+            echo "has_files=true" >> $GITHUB_OUTPUT
+            echo "count=todos" >> $GITHUB_OUTPUT
+          else
+            # Determinar base de comparación
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              BASE_COMMIT=$(git rev-parse HEAD~1 2>/dev/null || echo "")
+            else
+              BASE_COMMIT="$BEFORE"
+            fi
+
+            if [ -n "$BASE_COMMIT" ] && git cat-file -e "$BASE_COMMIT^{commit}" 2>/dev/null; then
+              echo "Comparando cambios entre $BASE_COMMIT y $AFTER..."
+              MODIFIED_FILES=$(git diff --name-only --diff-filter=d "$BASE_COMMIT" "$AFTER")
+              DELETED_FILES=$(git diff --name-only --diff-filter=D "$BASE_COMMIT" "$AFTER")
+            else
+              echo "Commit previo no disponible. Obteniendo archivos del último commit (HEAD)..."
+              MODIFIED_FILES=$(git diff-tree --no-commit-id --name-only --diff-filter=d -r HEAD)
+              DELETED_FILES=$(git diff-tree --no-commit-id --name-only --diff-filter=D -r HEAD)
+            fi
+
+            COUNT=0
+            echo "📋 Archivos modificados/nuevos detectados en Git:"
+            for file in $MODIFIED_FILES; do
+              case "$file" in
+                .git/*|.github/*|resp/*|scratch/*|*.log|*.zip|*.tar.gz)
+                  echo "  ⏭️ Ignorado: $file"
+                  continue
+                  ;;
+              esac
+
+              if [ -f "$file" ]; then
+                mkdir -p ".deploy_staging/$(dirname "$file")"
+                cp "$file" ".deploy_staging/$file"
+                echo "  ✅ Preparado: $file"
+                COUNT=$((COUNT + 1))
+              fi
+            done
+
+            echo "count=$COUNT" >> $GITHUB_OUTPUT
+            if [ $COUNT -gt 0 ]; then
+              echo "has_files=true" >> $GITHUB_OUTPUT
+            else
+              echo "has_files=false" >> $GITHUB_OUTPUT
+            fi
+
+            # Guardar lista de archivos eliminados
+            echo "$DELETED_FILES" > .deleted_files.txt
+          fi
+
+      - name: 🚀 Sincronizar API incremental (solo nuevo/modificado) a ${{ steps.target.outputs.env }}
+        if: steps.prep.outputs.has_files == 'true'
+        run: |
+          echo "Subiendo ${{ steps.prep.outputs.count }} archivo(s) a ${{ steps.target.outputs.dir }}..."
           lftp -u "${{ secrets.SFTP_USERNAME || 'c2632100' }},${{ secrets.SFTP_PASSWORD }}" -p 21 ${{ secrets.SFTP_SERVER || 'c2632100.ferozo.com' }} << 'EOF'
           set ftp:ssl-allow yes
           set ftp:ssl-protect-data no
           set ssl:verify-certificate no
           set net:timeout 60
           set net:max-retries 3
-          mirror -R --only-newer --parallel=3 --verbose \
-            --exclude-glob .git/ \
-            --exclude-glob .git/** \
-            --exclude-glob .github/** \
-            --exclude-glob resp/** \
-            --exclude-glob scratch/** \
-            --exclude-glob *.log \
-            --exclude-glob *.zip \
-            --exclude-glob *.tar.gz \
-            ./ ${{ steps.target.outputs.dir }}
+          mirror -R --verbose .deploy_staging/ ${{ steps.target.outputs.dir }}
           quit
           EOF
+
+      - name: 🗑️ Eliminar en servidor archivos borrados en Git
+        run: |
+          if [ -f .deleted_files.txt ] && [ -s .deleted_files.txt ]; then
+            echo "Procesando archivos eliminados en Git..."
+            while IFS= read -r file; do
+              [ -z "$file" ] && continue
+              case "$file" in
+                .git/*|.github/*|resp/*|scratch/*|*.log|*.zip|*.tar.gz) continue ;;
+              esac
+              echo "  🗑️ Eliminando en remoto: ${{ steps.target.outputs.dir }}$file"
+              lftp -u "${{ secrets.SFTP_USERNAME || 'c2632100' }},${{ secrets.SFTP_PASSWORD }}" -p 21 ${{ secrets.SFTP_SERVER || 'c2632100.ferozo.com' }} << EOF || true
+              set ftp:ssl-allow yes
+              set ftp:ssl-protect-data no
+              set ssl:verify-certificate no
+              rm -f "${{ steps.target.outputs.dir }}$file"
+              quit
+          EOF
+            done < .deleted_files.txt
+          fi
+
+      - name: ℹ️ Notificación si no hubo cambios
+        if: steps.prep.outputs.has_files != 'true'
+        run: |
+          echo "✨ No hubo archivos de código modificados en este commit. Despliegue omitido."
