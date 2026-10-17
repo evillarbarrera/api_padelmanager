@@ -42,6 +42,8 @@ addColumnSafe($conn, 'torneos_v2', 'poster_url', "VARCHAR(255) DEFAULT NULL AFTE
 addColumnSafe($conn, 'torneos_v2', 'inscripciones_abiertas', "BOOLEAN DEFAULT FALSE AFTER poster_url");
 addColumnSafe($conn, 'torneos_v2', 'formato_grupos', "INT DEFAULT 4 AFTER tipo");
 addColumnSafe($conn, 'torneos_v2', 'formato_sets', "VARCHAR(50) DEFAULT 'Full Sets' AFTER formato_grupos");
+addColumnSafe($conn, 'torneos_v2', 'num_canchas', "INT DEFAULT 2 AFTER precio");
+addColumnSafe($conn, 'torneos_v2', 'canchas_ids', "TEXT DEFAULT NULL AFTER num_canchas");
 
 // 3. Crear el resto de tablas
 $otras_tablas = [

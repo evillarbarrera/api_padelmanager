@@ -31,6 +31,8 @@ $formato_sets = $data['formato_sets'] ?? 'Full Sets';
 $poster_url = $data['poster_url'] ?? null;
 $categorias = $data['categorias'] ?? [];
 $precio = isset($data['precio']) ? floatval($data['precio']) : 0;
+$num_canchas = isset($data['num_canchas']) ? (int)$data['num_canchas'] : 2;
+$canchas_ids = isset($data['canchas_ids']) ? (is_array($data['canchas_ids']) ? json_encode($data['canchas_ids']) : $data['canchas_ids']) : null;
 
 // Auto-calcular fecha_fin si viene vacía (7 días por defecto)
 if (empty($fecha_fin) && !empty($fecha_inicio)) {
@@ -55,15 +57,25 @@ try {
         $conn->query("ALTER TABLE `torneos_v2` ADD `precio` DECIMAL(10,2) DEFAULT 0.00");
     }
 
-    $sql = "INSERT INTO torneos_v2 (club_id, creator_id, nombre, descripcion, fecha_inicio, fecha_fin, tipo, formato_grupos, formato_sets, poster_url, inscripciones_abiertas, precio) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    $checkCanchas = $conn->query("SHOW COLUMNS FROM `torneos_v2` LIKE 'num_canchas'");
+    if ($checkCanchas && $checkCanchas->num_rows == 0) {
+        $conn->query("ALTER TABLE `torneos_v2` ADD `num_canchas` INT DEFAULT 2");
+    }
+
+    $checkCanchasIds = $conn->query("SHOW COLUMNS FROM `torneos_v2` LIKE 'canchas_ids'");
+    if ($checkCanchasIds && $checkCanchasIds->num_rows == 0) {
+        $conn->query("ALTER TABLE `torneos_v2` ADD `canchas_ids` TEXT DEFAULT NULL");
+    }
+
+    $sql = "INSERT INTO torneos_v2 (club_id, creator_id, nombre, descripcion, fecha_inicio, fecha_fin, tipo, formato_grupos, formato_sets, poster_url, inscripciones_abiertas, precio, num_canchas, canchas_ids) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     $stmt = $conn->prepare($sql);
     
     if (!$stmt) {
         throw new Exception("Error al preparar la consulta: " . $conn->error);
     }
 
-    $stmt->bind_param("iisssssissid", $club_id, $creator_id, $nombre, $descripcion, $fecha_inicio, $fecha_fin, $tipo, $formato_grupos, $formato_sets, $poster_url, $inscripciones_abiertas, $precio);
+    $stmt->bind_param("iisssssissidis", $club_id, $creator_id, $nombre, $descripcion, $fecha_inicio, $fecha_fin, $tipo, $formato_grupos, $formato_sets, $poster_url, $inscripciones_abiertas, $precio, $num_canchas, $canchas_ids);
     
     if (!$stmt->execute()) {
         throw new Exception($conn->error);

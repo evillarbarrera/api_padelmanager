@@ -15,6 +15,13 @@ jobs:
     steps:
       - name: 📥 Clonar repositorio
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🕒 Restaurar fechas de modificación de Git e instalar herramientas
+        run: |
+          sudo apt-get update && sudo apt-get install -y git-restore-mtime lftp
+          git restore-mtime
 
       - name: 🔍 Determinar Carpeta de Destino
         id: target
@@ -27,9 +34,8 @@ jobs:
             echo "env=PRD" >> $GITHUB_OUTPUT
           fi
 
-      - name: 🚀 Sincronizar API a Ferozo (${{ steps.target.outputs.env }})
+      - name: 🚀 Sincronizar API incremental (solo nuevo/modificado) a ${{ steps.target.outputs.env }}
         run: |
-          sudo apt-get update && sudo apt-get install -y lftp
           lftp -u "${{ secrets.SFTP_USERNAME || 'c2632100' }},${{ secrets.SFTP_PASSWORD }}" -p 21 ${{ secrets.SFTP_SERVER || 'c2632100.ferozo.com' }} << 'EOF'
           set ftp:ssl-allow yes
           set ftp:ssl-protect-data no
