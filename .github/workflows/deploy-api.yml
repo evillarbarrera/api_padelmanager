@@ -36,7 +36,7 @@ jobs:
           set ssl:verify-certificate no
           set net:timeout 60
           set net:max-retries 3
-          mirror -R --verbose \
+          mirror -R --only-newer --parallel=3 --verbose \
             --exclude-glob .git/ \
             --exclude-glob .git/** \
             --exclude-glob .github/** \
