@@ -171,5 +171,77 @@ class MercadoPagoService {
             ];
         }
     }
+
+    /**
+     * Creates a Checkout Pro preference for subscription renewal (+1 month)
+     * Compatible with Webpay, Redcompra, Debit, Credit and MP wallet in Chile
+     */
+    public static function createSubscriptionRenewalPreference($data) {
+        $url = MP_API_URL . "/checkout/preferences";
+        
+        $userId = (int)($data['user_id'] ?? ($data['coach_id'] ?? 0));
+        $planId = (int)($data['plan_id'] ?? 0);
+        $planName = $data['plan_name'] ?? 'Membresía Mensual Padelblox';
+        $amount = (float)($data['amount'] ?? 0);
+        $origin = rtrim($data['origin'] ?? 'https://padelblox.cl', '/');
+
+        $preference = [
+            "items" => [
+                [
+                    "id" => "sub_" . $planId,
+                    "title" => "Membresía Mensual Padelblox - " . $planName,
+                    "quantity" => 1,
+                    "currency_id" => "CLP",
+                    "unit_price" => $amount
+                ]
+            ],
+            "payer" => [
+                "email" => !empty($data['payer_email']) ? $data['payer_email'] : "contacto@padelblox.cl"
+            ],
+            "back_urls" => [
+                "success" => $origin . "?payment_status=success&payment_type=sub_renewal&plan_id=" . $planId . "&user_id=" . $userId,
+                "failure" => $origin . "?payment_status=failure&payment_type=sub_renewal&plan_id=" . $planId . "&user_id=" . $userId,
+                "pending" => $origin . "?payment_status=pending&payment_type=sub_renewal&plan_id=" . $planId . "&user_id=" . $userId
+            ],
+            "auto_return" => "approved",
+            "external_reference" => json_encode([
+                "type" => "subscription_renewal",
+                "user_id" => $userId,
+                "coach_id" => $userId,
+                "plan_id" => $planId,
+                "amount" => $amount
+            ]),
+            "notification_url" => "https://padelblox.cl/api/pagos/mp_webhook.php",
+            "statement_descriptor" => "PADELBLOX",
+            "binary_mode" => true
+        ];
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "Authorization: Bearer " . MP_ACCESS_TOKEN,
+            "Content-Type: application/json"
+        ]);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($preference));
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $decoded = json_decode($response, true);
+
+        if ($httpCode >= 200 && $httpCode < 300) {
+            return $decoded;
+        } else {
+            error_log("Mercado Pago Subscription Preference Error: " . $response);
+            return [
+                "error" => true,
+                "status" => $httpCode,
+                "message" => $decoded['message'] ?? "Error desconocido al generar Checkout Mercado Pago (Code: $httpCode)",
+                "raw" => $response
+            ];
+        }
+    }
 }
 

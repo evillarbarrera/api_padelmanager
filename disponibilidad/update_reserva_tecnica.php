@@ -45,7 +45,7 @@ try {
 
     // 2. Update Reservation
     $stmt = $conn->prepare("UPDATE reservas SET malla_id = ?, clase_id = ?, clase_titulo = ?, pack_id = ? WHERE id = ?");
-    $stmt->bind_param("iiiis", $malla_id, $clase_id, $clase_titulo, $pack_id, $reserva_id);
+    $stmt->bind_param("iisis", $malla_id, $clase_id, $clase_titulo, $pack_id, $reserva_id);
     
     if ($stmt->execute()) {
         // 3. AUTO-ACTIVATE RoadMap if mesh provided

@@ -26,6 +26,7 @@ require_once '../db.php';
 $jugador_id = intval($_GET['jugador_id'] ?? 0);
 $entrenador_id = intval($_GET['entrenador_id'] ?? 0);
 $pack_id = intval($_GET['pack_id'] ?? 0); // NEW: Filter by specific pack
+$malla_param = intval($_GET['malla_id'] ?? 0);
 
 if (!$jugador_id) {
     echo json_encode([]);
@@ -33,36 +34,39 @@ if (!$jugador_id) {
 }
 
 try {
-    // 1. Find Mesh in follow-up table (alumno_malla_seguimiento) for THIS trainer AND PACK
-    $sqlMalla = "SELECT malla_id FROM alumno_malla_seguimiento WHERE jugador_id = ? AND estado = 'activo'";
-    $params = [$jugador_id];
-    $types = "i";
+    $malla = $malla_param;
 
-    if ($pack_id) {
-        $sqlMalla .= " AND (pack_id = ? OR pack_id = 0)";
-        $params[] = $pack_id;
-        $types .= "i";
-    } else if ($entrenador_id) {
-        $sqlMalla .= " AND entrenador_id = ?";
-        $params[] = $entrenador_id;
-        $types .= "i";
-    }
-    $sqlMalla .= " LIMIT 1";
+    if (!$malla) {
+        // 1. Find Mesh in follow-up table (alumno_malla_seguimiento) for THIS trainer AND PACK
+        $sqlMalla = "SELECT malla_id FROM alumno_malla_seguimiento WHERE jugador_id = ? AND estado = 'activo'";
+        $params = [$jugador_id];
+        $types = "i";
 
-    $stmtM = $conn->prepare($sqlMalla);
-    $stmtM->bind_param($types, ...$params);
-    $stmtM->execute();
-    $resM = $stmtM->get_result();
-    $malla = 0;
-    if ($rowM = $resM->fetch_assoc()) {
-        $malla = $rowM['malla_id'];
+        if ($pack_id) {
+            $sqlMalla .= " AND (pack_id = ? OR pack_id = 0)";
+            $params[] = $pack_id;
+            $types .= "i";
+        } else if ($entrenador_id) {
+            $sqlMalla .= " AND entrenador_id = ?";
+            $params[] = $entrenador_id;
+            $types .= "i";
+        }
+        $sqlMalla .= " ORDER BY id DESC LIMIT 1";
+
+        $stmtM = $conn->prepare($sqlMalla);
+        $stmtM->bind_param($types, ...$params);
+        $stmtM->execute();
+        $resM = $stmtM->get_result();
+        if ($rowM = $resM->fetch_assoc()) {
+            $malla = intval($rowM['malla_id']);
+        }
     }
 
     if (!$malla) {
         // Fallback to latest global mesh if none active
         $resFB = $conn->query("SELECT id FROM mallas ORDER BY id DESC LIMIT 1");
         if ($rowFB = $resFB->fetch_assoc()) {
-            $malla = $rowFB['id'];
+            $malla = intval($rowFB['id']);
         }
     }
 
@@ -88,21 +92,41 @@ try {
                 aa.estado_asistencia
               FROM clases_malla cm
               LEFT JOIN (
-                  SELECT rx.id, rx.fecha, rx.hora_inicio, rx.clase_id
+                  SELECT 
+                      rx.id, 
+                      rx.fecha, 
+                      rx.hora_inicio, 
+                      rx.clase_id,
+                      rx.malla_id
                   FROM reservas rx
-                  JOIN reserva_jugadores rjx ON rx.id = rjx.reserva_id
-                  WHERE rjx.jugador_id = ? 
-                    AND (rx.pack_id = ? OR rx.pack_id = 0 OR rx.pack_id IS NULL)
+                  LEFT JOIN reserva_jugadores rjx ON rx.id = rjx.reserva_id
+                  WHERE (
+                      rjx.jugador_id = ? 
+                      OR rx.pack_jugador_id IN (SELECT id FROM pack_jugadores WHERE jugador_id = ?)
+                  )
                     AND rx.estado != 'cancelado' 
-                    AND rx.clase_id > 0
-              ) r ON cm.id = r.clase_id
+                    AND (
+                        ? = 0 
+                        OR rx.pack_id = ? 
+                        OR rx.pack_jugador_id = ? 
+                        OR rx.pack_id = 0 
+                        OR rx.pack_id IS NULL
+                        OR (rx.malla_id > 0 AND rx.malla_id = ?)
+                    )
+                    AND (rx.clase_id > 0)
+                  ORDER BY rx.fecha DESC, rx.hora_inicio DESC
+              ) r ON (
+                  cm.id = r.clase_id 
+                  OR (cm.orden = r.clase_id AND (r.malla_id = cm.malla_id OR r.malla_id = 0 OR r.malla_id IS NULL))
+              )
               LEFT JOIN alumno_asistencia aa ON r.id = aa.reserva_id AND aa.jugador_id = ?
               WHERE cm.malla_id = ?
+              GROUP BY cm.id
               ORDER BY cm.orden ASC
               LIMIT 15";
     
     $stmt = $conn->prepare($query);
-    $stmt->bind_param("iiii", $jugador_id, $pack_id, $jugador_id, $malla);
+    $stmt->bind_param("iiiiiiii", $jugador_id, $jugador_id, $pack_id, $pack_id, $pack_id, $malla, $jugador_id, $malla);
     $stmt->execute();
     $result = $stmt->get_result();
 

@@ -76,16 +76,14 @@ LEFT JOIN (
         COUNT(rj2.reserva_id) as ocupados 
     FROM reservas r2
     JOIN reserva_jugadores rj2 ON rj2.reserva_id = r2.id
-    WHERE r2.estado = 'reservado' AND r2.fecha >= CURDATE()
+    WHERE LOWER(r2.estado) NOT IN ('cancelada', 'cancelado', 'rechazada', 'rechazado', 'anulada', 'anulado') AND r2.fecha >= CURDATE()
     GROUP BY r2.entrenador_id, r2.fecha, r2.hora_inicio
 ) block_counts ON block_counts.entrenador_id = r.entrenador_id 
              AND block_counts.fecha = r.fecha 
              AND block_counts.hora_inicio = r.hora_inicio
 LEFT JOIN usuarios u_e ON u_e.id = r.entrenador_id
 WHERE rj.jugador_id = ?
-  AND r.estado = 'reservado'
-  AND (p.id IS NULL OR p.activo = 1)
-  AND (r.fecha > CURDATE() OR (r.fecha = CURDATE() AND r.hora_fin > CURTIME()))
+  AND (r.estado IS NULL OR LOWER(r.estado) NOT IN ('cancelada', 'cancelado', 'rechazada', 'rechazado', 'anulada', 'anulado', 'eliminada'))
 ORDER BY r.fecha ASC, r.hora_inicio ASC
 ";
 
@@ -118,10 +116,12 @@ while ($row = $result->fetch_assoc()) {
             while($inv = $resInv->fetch_assoc()){
                 $row['invitados'][] = $inv;
             }
+            $stmtInv->close();
         }
     }
     $data["reservas_individuales"][] = $row;
 }
+$stmt->close();
 
 // 2. Entrenamientos grupales inscritos
 $sql_grupales = "
@@ -177,6 +177,25 @@ while ($row = $result->fetch_assoc()) {
     if (!empty($row['pack_fecha'])) {
         // CASE: Single Session Pack (Scheduled Instance)
         $dates_to_project[] = $row['pack_fecha'];
+    } elseif (isset($row['dia_semana']) && $row['dia_semana'] !== null && $row['dia_semana'] !== '') {
+        // CASE: Recurring group pack by day of week
+        $daysMap = [
+            'domingo' => 0, 'lunes' => 1, 'martes' => 2, 'miercoles' => 3, 'jueves' => 4, 'viernes' => 5, 'sabado' => 6,
+            'sunday' => 0, 'monday' => 1, 'tuesday' => 2, 'wednesday' => 3, 'thursday' => 4, 'friday' => 5, 'saturday' => 6,
+            '0' => 0, '1' => 1, '2' => 2, '3' => 3, '4' => 4, '5' => 5, '6' => 6, '7' => 0
+        ];
+        $diaStr = strtolower(trim((string)$row['dia_semana']));
+        $targetDay = $daysMap[$diaStr] ?? (is_numeric($diaStr) ? (int)$diaStr : null);
+        if ($targetDay !== null) {
+            $today = new DateTime();
+            for ($i = 0; $i < 35; $i++) {
+                $clone = clone $today;
+                $clone->modify("+$i days");
+                if ((int)$clone->format('w') === $targetDay) {
+                    $dates_to_project[] = $clone->format('Y-m-d');
+                }
+            }
+        }
     }
 
     $cap_min = (int)($row['capacidad_minima'] > 0 ? $row['capacidad_minima'] : 2);
@@ -200,6 +219,8 @@ while ($row = $result->fetch_assoc()) {
             $data['entrenamientos_grupales'][] = $row_occ;
         }
     }
+}
+$stmt->close();
 // 3. Reservas de canchas (Partidos / Arriendos) del jugador
 $sql_canchas = "
 SELECT 

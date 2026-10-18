@@ -308,11 +308,18 @@ function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = [])
     $club_nombre = $reserva['club_nombre'];
     $precio = number_format($reserva['precio'], 0, ',', '.');
     $estado_pago = intval($reserva['pagado']) === 1 ? 'PAGADA' : 'PENDIENTE / DEBE';
+    $isEntrenamiento = (strtolower($reserva['tipo_reserva'] ?? '') === 'entrenamiento');
 
     if ($action === 'creacion') {
-        $subject = "🎾 Reserva Confirmada - $fechaFmt $cancha_nombre";
-        $title = "¡Reserva Confirmada!";
-        $sub = "Detalles de la nueva reserva de cancha.";
+        if ($isEntrenamiento) {
+            $subject = "🎾 Nueva Clase en Cancha - $fechaFmt $cancha_nombre ($club_nombre)";
+            $title = "¡Nueva Clase / Entrenamiento en Cancha!";
+            $sub = "Un entrenador ha reservado esta cancha para impartir una clase a sus alumnos.";
+        } else {
+            $subject = "🎾 Reserva Confirmada - $fechaFmt $cancha_nombre";
+            $title = "¡Reserva Confirmada!";
+            $sub = "Detalles de la nueva reserva de cancha.";
+        }
         $themeColor = "#ccff00";
         $textColor = "#000000";
     } elseif ($action === 'actualizacion') {
@@ -322,9 +329,9 @@ function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = [])
         $themeColor = "#ccff00";
         $textColor = "#000000";
     } else {
-        $subject = "🚫 Reserva Cancelada - $fechaFmt $cancha_nombre";
-        $title = "Reserva Cancelada";
-        $sub = "Una reserva de cancha ha sido eliminada.";
+        $subject = ($isEntrenamiento ? "🚫 Clase en Cancha Cancelada" : "🚫 Reserva Cancelada") . " - $fechaFmt $cancha_nombre";
+        $title = $isEntrenamiento ? "Clase en Cancha Cancelada" : "Reserva Cancelada";
+        $sub = $isEntrenamiento ? "El entrenador ha cancelado la clase. La pista ha quedado liberada." : "Una reserva de cancha ha sido eliminada.";
         $themeColor = "#ef4444";
         $textColor = "#ffffff";
     }
@@ -352,9 +359,10 @@ function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = [])
                   <p style='margin: 0 0 12px; font-size: 15px;'><strong>Cancha:</strong> $cancha_nombre</p>
                   <p style='margin: 0 0 12px; font-size: 15px;'><strong>Fecha:</strong> $fechaFmt</p>
                   <p style='margin: 0 0 12px; font-size: 15px;'><strong>Horario:</strong> $horaFmt</p>
-                  <p style='margin: 0 0 12px; font-size: 15px;'><strong>Jugadores:</strong> $playersListStr</p>
-                  <p style='margin: 0 0 12px; font-size: 15px;'><strong>Precio:</strong> $$precio</p>
-                  <p style='margin: 0; font-size: 15px;'><strong>Estado Pago:</strong> <strong style='color: " . ($estado_pago === 'PAGADA' ? '#16a34a' : '#dc2626') . ";'>$estado_pago</strong></p>
+                  <p style='margin: 0 0 12px; font-size: 15px;'><strong>" . ($isEntrenamiento ? "Detalle Clase / Alumnos" : "Jugadores") . ":</strong> $playersListStr</p>
+                  " . ($isEntrenamiento 
+                    ? "<p style='margin: 0; font-size: 15px;'><strong>Modalidad:</strong> <span style='color: #0284c7; font-weight: 800;'>Clase / Entrenamiento de Pádel</span></p>" 
+                    : "<p style='margin: 0 0 12px; font-size: 15px;'><strong>Precio:</strong> $$precio</p><p style='margin: 0; font-size: 15px;'><strong>Estado Pago:</strong> <strong style='color: " . ($estado_pago === 'PAGADA' ? '#16a34a' : '#dc2626') . ";'>$estado_pago</strong></p>") . "
                 </div>
 
                 <div style='text-align: center; margin-bottom: 20px;'>

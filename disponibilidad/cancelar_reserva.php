@@ -100,6 +100,9 @@ try {
         $stmt->bind_param("i", $reserva_id);
         $resExec = $stmt->execute();
 
+        // Liberar la cancha en el club
+        @$conn->query("UPDATE reservas_cancha SET estado = 'Cancelada' WHERE reserva_entrenador_id = " . intval($reserva_id));
+
         if ($resExec) {
             echo json_encode(["success" => true, "message" => "Reserva cancelada correctamente."]);
 

@@ -21,8 +21,14 @@ if (isset($data['type']) && $data['type'] === 'payment') {
                 $externalReference['amount'] = $paymentInfo['transaction_amount'] ?? 0;
                 $externalReference['metodo_pago'] = $paymentInfo['payment_method_id'] ?? 'Mercado Pago';
                 $externalReference['moneda'] = $paymentInfo['currency_id'] ?? 'CLP';
+                $externalReference['payment_id'] = $paymentId;
 
-                fulfillPayment($conn, $externalReference);
+                if (isset($externalReference['type']) && $externalReference['type'] === 'subscription_renewal') {
+                    require_once "../subscriptions/subscription_helper.php";
+                    processSubscriptionPayment($conn, $externalReference);
+                } else {
+                    fulfillPayment($conn, $externalReference);
+                }
             }
         }
     }
