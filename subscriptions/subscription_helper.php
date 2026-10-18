@@ -50,6 +50,18 @@ function ensureSubscriptionTablesAndColumns($conn) {
     if (!isset($existing['paypal_sub_id'])) {
         @$conn->query("ALTER TABLE usuarios ADD COLUMN paypal_sub_id VARCHAR(100) NULL");
     }
+    if (!isset($existing['card_last_four'])) {
+        @$conn->query("ALTER TABLE usuarios ADD COLUMN card_last_four VARCHAR(10) NULL");
+    }
+    if (!isset($existing['card_brand'])) {
+        @$conn->query("ALTER TABLE usuarios ADD COLUMN card_brand VARCHAR(30) NULL DEFAULT 'Visa'");
+    }
+    if (!isset($existing['card_holder'])) {
+        @$conn->query("ALTER TABLE usuarios ADD COLUMN card_holder VARCHAR(150) NULL");
+    }
+    if (!isset($existing['card_expiry'])) {
+        @$conn->query("ALTER TABLE usuarios ADD COLUMN card_expiry VARCHAR(10) NULL");
+    }
 }
 
 function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null) {
@@ -59,7 +71,11 @@ function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null)
     $plan_id = (int)($target_user['plan_id'] ?? 0);
     $mp_id = $target_user['mp_preapproval_id'] ?? '';
     $paypal_id = $target_user['paypal_sub_id'] ?? '';
-    $has_payment_method = (!empty($mp_id) || !empty($paypal_id));
+    $card_last_four = $target_user['card_last_four'] ?? null;
+    $card_brand = $target_user['card_brand'] ?? 'Visa';
+    $card_holder = $target_user['card_holder'] ?? null;
+    $card_expiry = $target_user['card_expiry'] ?? null;
+    $has_payment_method = (!empty($mp_id) || !empty($paypal_id) || !empty($card_last_four));
 
     $is_club = (strpos($effective_role, 'club') !== false || $effective_role === 'administrador_club' || $effective_role === 'admin_club');
 
@@ -169,6 +185,10 @@ function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null)
         "price_clp" => $price_clp,
         "subscription_status" => $is_blocked ? "blocked" : "active",
         "has_payment_method" => $has_payment_method,
+        "card_last_four" => $card_last_four,
+        "card_brand" => $card_brand,
+        "card_holder" => $card_holder,
+        "card_expiry" => $card_expiry,
         "message" => $message,
         "is_club" => $is_club,
         "subscription_end_date" => $expiration->format('Y-m-d H:i:s'),

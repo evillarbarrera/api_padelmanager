@@ -53,6 +53,18 @@ try {
     $stmt->bind_param("i", $reserva_id);
 
     if ($stmt->execute()) {
+        // Cancelar también reserva_cancha asociada si existía
+        $rcCancelledIds = [];
+        $chkRc = $conn->query("SELECT id FROM reservas_cancha WHERE reserva_entrenador_id = $reserva_id AND estado != 'cancelada'");
+        if ($chkRc) {
+            while ($rcRow = $chkRc->fetch_assoc()) {
+                $rcCancelledIds[] = intval($rcRow['id']);
+            }
+            if (!empty($rcCancelledIds)) {
+                $conn->query("UPDATE reservas_cancha SET estado = 'cancelada' WHERE reserva_entrenador_id = $reserva_id");
+            }
+        }
+
         // --- RESPUESTA INMEDIATA ---
         echo json_encode(["ok" => true, "message" => "Reserva cancelada correctamente"]);
         
@@ -157,6 +169,17 @@ try {
         
         if ($celEntrenador) {
             enviarWhatsApp($celEntrenador, 'reserva_cancelada', 'es_CL', [$fechaFmt, $horaFmt, 'Todos los alumnos', $nomEntrenador]);
+        }
+
+        // 4. Notificar al Club de la liberación de la cancha
+        if (!empty($rcCancelledIds)) {
+            foreach ($rcCancelledIds as $cancelledRcId) {
+                try {
+                    notificarReservaCancha($conn, $cancelledRcId, 'cancelacion');
+                } catch (Throwable $eMailClub) {
+                    error_log("Error enviando cancelación de reserva cancha a club: " . $eMailClub->getMessage());
+                }
+            }
         }
 
     } else {
