@@ -84,8 +84,11 @@ function obtenerPosicionesArray($conn, $categoria_id = null, $grupo_id = null) {
         if (empty($n2)) $n2 = !empty($p['nombre_externo2']) ? $p['nombre_externo2'] : 'Jugador 2';
 
         $nomPareja = $p['nombre_pareja'];
-        if (empty($nomPareja) || strpos($nomPareja, ' / ') !== false || $nomPareja === 'Pareja' || $nomPareja === 'Jugador 1 / Jugador 2') {
+        if (empty($nomPareja) || strpos($nomPareja, ' / ') !== false || $nomPareja === 'Pareja' || $nomPareja === 'Jugador 1 / Jugador 2' || strpos($nomPareja, 'Jugador 1') !== false) {
             $nomPareja = $n1 . " / " . $n2;
+            if ($nomPareja !== 'Jugador 1 / Jugador 2' && strpos($nomPareja, 'Jugador 1') === false && strpos($nomPareja, 'Jugador 2') === false) {
+                @$conn->query("UPDATE liga_parejas SET nombre_pareja = '" . $conn->real_escape_string($nomPareja) . "' WHERE id = $pid AND (nombre_pareja = 'Jugador 1 / Jugador 2' OR nombre_pareja LIKE '%Jugador 1%' OR nombre_pareja = 'Pareja' OR nombre_pareja IS NULL OR nombre_pareja = '')");
+            }
         }
 
         $parejas[$pid] = [

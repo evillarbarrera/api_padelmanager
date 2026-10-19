@@ -63,13 +63,21 @@ if (!function_exists('notificarPartidoLiga')) {
         if (empty($n11)) $n11 = !empty($row['p1_ext1']) ? $row['p1_ext1'] : 'Jugador 1';
         $n12 = trim($row['u12_nom'] . ' ' . $row['u12_ape']);
         if (empty($n12)) $n12 = !empty($row['p1_ext2']) ? $row['p1_ext2'] : 'Jugador 2';
-        $pareja1_nombre = !empty($row['p1_nombre']) ? $row['p1_nombre'] : "$n11 / $n12";
+        if (empty($row['p1_nombre']) || $row['p1_nombre'] === 'Pareja' || $row['p1_nombre'] === 'Jugador 1 / Jugador 2' || strpos($row['p1_nombre'], 'Jugador 1') !== false) {
+            $pareja1_nombre = "$n11 / $n12";
+        } else {
+            $pareja1_nombre = $row['p1_nombre'];
+        }
 
         $n21 = trim($row['u21_nom'] . ' ' . $row['u21_ape']);
         if (empty($n21)) $n21 = !empty($row['p2_ext1']) ? $row['p2_ext1'] : 'Jugador 1';
         $n22 = trim($row['u22_nom'] . ' ' . $row['u22_ape']);
         if (empty($n22)) $n22 = !empty($row['p2_ext2']) ? $row['p2_ext2'] : 'Jugador 2';
-        $pareja2_nombre = !empty($row['p2_nombre']) ? $row['p2_nombre'] : "$n21 / $n22";
+        if (empty($row['p2_nombre']) || $row['p2_nombre'] === 'Pareja' || $row['p2_nombre'] === 'Jugador 1 / Jugador 2' || strpos($row['p2_nombre'], 'Jugador 1') !== false) {
+            $pareja2_nombre = "$n21 / $n22";
+        } else {
+            $pareja2_nombre = $row['p2_nombre'];
+        }
 
         // Recolectar destinatarios de correo válidos
         $emailTargets = [];
