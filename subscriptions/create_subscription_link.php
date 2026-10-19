@@ -14,12 +14,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 require_once "../db.php";
 require_once "../pagos/mercado_pago_service.php";
 require_once "../auth/auth_helper.php";
+require_once "subscription_helper.php";
 
 try {
     // 1. Obtener Input
     $input = json_decode(file_get_contents("php://input"), true);
     $user_id = intval($input['coach_id'] ?? ($input['user_id'] ?? 0));
     $plan_id = intval($input['plan_id'] ?? 0);
+    $club_id = intval($input['club_id'] ?? 0);
     
     // Mercado Pago NO acepta '#' en la back_url. Usamos una URL limpia.
     $origin = "https://padelblox.cl/"; 
@@ -38,6 +40,16 @@ try {
 
     if (!$coach) {
         echo json_encode(["status" => "error", "message" => "Usuario no encontrado"]);
+        exit;
+    }
+
+    // Si es usuario o club de PowerPadel: Servicio gratuito sin cobros
+    if (isPowerPadelUser($conn, $user_id, $coach, $club_id)) {
+        echo json_encode([
+            "status" => "success",
+            "is_free" => true,
+            "message" => "PowerPadel es el club de prueba oficial. Cuenta con servicio gratuito permanente sin cobros."
+        ]);
         exit;
     }
 

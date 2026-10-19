@@ -20,8 +20,14 @@ $data = json_decode(file_get_contents("php://input"), true);
 $usuario = trim($data['usuario'] ?? '');
 $password = trim($data['password'] ?? '');
 
+// Asegurar columna club_guide_seen
+$chkGuide = $conn->query("SHOW COLUMNS FROM usuarios LIKE 'club_guide_seen'");
+if ($chkGuide && $chkGuide->num_rows == 0) {
+    $conn->query("ALTER TABLE usuarios ADD club_guide_seen TINYINT(1) DEFAULT 0");
+}
+
 // Búsqueda insensible a mayúsculas/minúsculas para el email
-$sql = "SELECT id, usuario, password, rol, nombre FROM usuarios WHERE LOWER(usuario) = LOWER(?)";
+$sql = "SELECT id, usuario, password, rol, nombre, club_guide_seen FROM usuarios WHERE LOWER(usuario) = LOWER(?)";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("s", $usuario);
 $stmt->execute();
@@ -133,6 +139,7 @@ try {
           "rol" => $user['rol'],
           "id" => $user['id'],
           "nombre" => $user['nombre'],
+          "club_guide_seen" => (int)($user['club_guide_seen'] ?? 0),
           "perfiles" => $perfiles
         ]);
         exit;

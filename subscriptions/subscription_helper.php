@@ -64,7 +64,138 @@ function ensureSubscriptionTablesAndColumns($conn) {
     }
 }
 
-function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null) {
+function isPowerPadelUser($conn, $user_id = 0, $target_user = null, $club_id = 0) {
+    $uid = $user_id ? intval($user_id) : intval($target_user['id'] ?? 0);
+
+    // 0. Si se especificó club_id explícito
+    if ($club_id == 17 || $club_id == 21) {
+        return true;
+    }
+
+    // 1. Revisar nombre de club en el array de target_user o parámetros
+    if (!empty($target_user['club_nombre'])) {
+        $cn = strtolower($target_user['club_nombre']);
+        if (strpos($cn, 'powerpadel') !== false || strpos($cn, 'power padel') !== false) {
+            return true;
+        }
+    }
+    if (!empty($target_user['club_id']) && ($target_user['club_id'] == 17 || $target_user['club_id'] == 21)) {
+        return true;
+    }
+
+    // 2. Revisar si el email o usuario contiene "powerpadel"
+    if (!empty($target_user['usuario']) && (stripos($target_user['usuario'], 'powerpadel') !== false || stripos($target_user['usuario'], 'power padel') !== false)) {
+        return true;
+    }
+    if (!empty($target_user['email']) && (stripos($target_user['email'], 'powerpadel') !== false || stripos($target_user['email'], 'power padel') !== false)) {
+        return true;
+    }
+
+    if (!$conn) {
+        return false;
+    }
+
+    // 3. Si se pasó club_id > 0, verificar el nombre del club en la BD
+    if ($club_id > 0) {
+        $stmtCId = $conn->prepare("SELECT nombre FROM clubes WHERE id = ? LIMIT 1");
+        if ($stmtCId) {
+            $stmtCId->bind_param("i", $club_id);
+            $stmtCId->execute();
+            $cRow = $stmtCId->get_result()->fetch_assoc();
+            if ($cRow) {
+                $cName = strtolower($cRow['nombre'] ?? '');
+                if (strpos($cName, 'powerpadel') !== false || strpos($cName, 'power padel') !== false) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    if ($uid <= 0) {
+        return false;
+    }
+
+    // 4. Si target_user no traía usuario/email, consultarlo en usuarios
+    if (empty($target_user['usuario'])) {
+        $stmtU = $conn->prepare("SELECT usuario, email FROM usuarios WHERE id = ? LIMIT 1");
+        if ($stmtU) {
+            $stmtU->bind_param("i", $uid);
+            $stmtU->execute();
+            $uRow = $stmtU->get_result()->fetch_assoc();
+            if ($uRow) {
+                if (stripos($uRow['usuario'] ?? '', 'powerpadel') !== false || stripos($uRow['usuario'] ?? '', 'power padel') !== false) {
+                    return true;
+                }
+                if (stripos($uRow['email'] ?? '', 'powerpadel') !== false || stripos($uRow['email'] ?? '', 'power padel') !== false) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // 5. Revisar si es dueño/admin de un club PowerPadel (por nombre o IDs conocidos 17, 21)
+    $stmtAdmin = $conn->prepare("
+        SELECT id FROM clubes 
+        WHERE admin_id = ? 
+          AND (LOWER(nombre) LIKE '%power%padel%' OR LOWER(nombre) LIKE '%powerpadel%' OR id IN (17, 21))
+        LIMIT 1
+    ");
+    if ($stmtAdmin) {
+        $stmtAdmin->bind_param("i", $uid);
+        $stmtAdmin->execute();
+        if ($stmtAdmin->get_result()->num_rows > 0) {
+            return true;
+        }
+    }
+
+    // 6. Revisar si pertenece a un club PowerPadel en usuarios_clubes
+    $stmtUC = $conn->prepare("
+        SELECT uc.id FROM usuarios_clubes uc 
+        JOIN clubes c ON uc.club_id = c.id 
+        WHERE uc.usuario_id = ? 
+          AND uc.activo = 1 
+          AND (LOWER(c.nombre) LIKE '%power%padel%' OR LOWER(c.nombre) LIKE '%powerpadel%' OR c.id IN (17, 21))
+        LIMIT 1
+    ");
+    if ($stmtUC) {
+        $stmtUC->bind_param("i", $uid);
+        $stmtUC->execute();
+        if ($stmtUC->get_result()->num_rows > 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null, $club_id = 0) {
+    // EXCEPCIÓN CLUB DE PRUEBA: POWERPADEL
+    // Los usuarios de PowerPadel cuentan con servicio 100% gratuito sin necesidad de cobrar plan
+    if (isPowerPadelUser($conn, $target_user['id'] ?? 0, $target_user, $club_id)) {
+        return [
+            "status" => "active",
+            "is_blocked" => false,
+            "days_remaining" => 9999,
+            "plan_id" => 4,
+            "plan_name" => "Club de Prueba - Servicio Gratuito (PowerPadel)",
+            "price_clp" => 0,
+            "subscription_status" => "active",
+            "has_payment_method" => true,
+            "card_last_four" => "FREE",
+            "card_brand" => "PowerPadel",
+            "card_holder" => "Club de Prueba",
+            "card_expiry" => "2099",
+            "message" => "Servicio gratuito activo (Club de prueba oficial PowerPadel). Sin cobros ni vencimiento.",
+            "is_club" => true,
+            "is_free_test_club" => true,
+            "subscription_end_date" => "2099-12-31 23:59:59",
+            "next_billing_date" => "2099-12-31",
+            "billing_history" => [],
+            "pending_commission" => 0,
+            "recaudo_mp_activo" => true
+        ];
+    }
+
     $now = new DateTime();
     $created_at = $target_user['created_at'] ?? date('Y-m-d H:i:s');
     $created = new DateTime($created_at);

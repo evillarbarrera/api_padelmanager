@@ -77,8 +77,13 @@ try {
         }
     }
 
+    $club_id = intval($_GET['club_id'] ?? 0);
+    if (!$club_id && !empty($user['club_id'])) {
+        $club_id = intval($user['club_id']);
+    }
+
     // 2. Evaluar estado centralizado de suscripción mensual y bloqueo
-    $response = evaluateSubscriptionStatus($target_user, $effective_role, $conn);
+    $response = evaluateSubscriptionStatus($target_user, $effective_role, $conn, $club_id);
     echo json_encode($response);
 
 } catch (Exception $e) {

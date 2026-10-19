@@ -29,7 +29,12 @@ if (empty($email)) {
     exit;
 }
 
-$sql = "SELECT id, usuario, rol, nombre FROM usuarios WHERE usuario = ?";
+$chkGuide = $conn->query("SHOW COLUMNS FROM usuarios LIKE 'club_guide_seen'");
+if ($chkGuide && $chkGuide->num_rows == 0) {
+    $conn->query("ALTER TABLE usuarios ADD club_guide_seen TINYINT(1) DEFAULT 0");
+}
+
+$sql = "SELECT id, usuario, rol, nombre, club_guide_seen FROM usuarios WHERE usuario = ?";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("s", $email);
 $stmt->execute();
@@ -47,7 +52,8 @@ if ($user = $result->fetch_assoc()) {
         "token" => $token,
         "rol" => $user['rol'],
         "id" => $user['id'],
-        "nombre" => $user['nombre']
+        "nombre" => $user['nombre'],
+        "club_guide_seen" => (int)($user['club_guide_seen'] ?? 0)
     ]);
 } else {
     // Usuario NO EXISTE -> Requiere registro (selección de rol)

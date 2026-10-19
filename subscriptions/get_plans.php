@@ -10,19 +10,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once "../db.php";
+require_once "subscription_helper.php";
 
 $role = strtolower($_GET['role'] ?? ($_GET['user_role'] ?? ''));
+$club_id = intval($_GET['club_id'] ?? 0);
 
 // Si se pasa coach_id o user_id, obtenemos el rol del usuario desde la BD
 $user_id = intval($_GET['coach_id'] ?? ($_GET['user_id'] ?? 0));
 if ($user_id > 0) {
-    $stmt = $conn->prepare("SELECT rol FROM usuarios WHERE id = ?");
+    $stmt = $conn->prepare("SELECT rol, club_id FROM usuarios WHERE id = ?");
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
     $res = $stmt->get_result()->fetch_assoc();
-    if ($res && !empty($res['rol'])) {
-        $role = strtolower($res['rol']);
+    if ($res) {
+        if (!empty($res['rol'])) $role = strtolower($res['rol']);
+        if (!$club_id && !empty($res['club_id'])) $club_id = intval($res['club_id']);
     }
+}
+
+// Para usuarios de PowerPadel: Servicio 100% gratuito (Club de prueba oficial)
+if (isPowerPadelUser($conn, $user_id, null, $club_id)) {
+    echo json_encode([
+        [
+            "id" => 4,
+            "name" => "CLUB DE PRUEBA (POWERPADEL)",
+            "price_clp" => 0,
+            "description" => "Club de prueba oficial: Servicio 100% bonificado con acceso ilimitado sin cobro de plan.",
+            "type" => "fixed",
+            "is_free" => true
+        ]
+    ]);
+    exit;
 }
 
 // Para Clubes (administrador_club, club, staff_club): Plan Único "GESTIÓN DE CLUB" $49.990 CLP / mes
