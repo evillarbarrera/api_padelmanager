@@ -35,6 +35,29 @@ try {
         $hIniTarget = substr($horaIniRes, 0, 5); // e.g. "20:00"
         $hFinTarget = substr($horaFinRes, 0, 5); // e.g. "21:30"
 
+        // Helper para resolver el nombre visible real de una pareja
+        if (!function_exists('resolverNombreParejaProg')) {
+            function resolverNombreParejaProg($rawNom, $u1Nom, $u1Ape, $ext1, $u2Nom, $u2Ape, $ext2, $fallback = 'Pareja') {
+                $n1 = trim(($u1Nom ?? '') . ' ' . ($u1Ape ?? ''));
+                if (empty($n1)) $n1 = !empty($ext1) ? trim($ext1) : '';
+
+                $n2 = trim(($u2Nom ?? '') . ' ' . ($u2Ape ?? ''));
+                if (empty($n2)) $n2 = !empty($ext2) ? trim($ext2) : '';
+
+                if (!empty($n1) && !empty($n2)) {
+                    return "$n1 / $n2";
+                }
+                if (!empty($n1)) return $n1;
+                if (!empty($n2)) return $n2;
+
+                $raw = trim((string)$rawNom);
+                if (!empty($raw) && $raw !== 'Jugador 1 / Jugador 2' && $raw !== 'Pareja' && strpos($raw, 'Jugador 1') === false) {
+                    return $raw;
+                }
+                return $fallback;
+            }
+        }
+
         // 1. Obtener detalles del partido a programar y sus participantes
         $sql_detail = "SELECT p.pareja1_id, p.pareja2_id, p.cancha_id, p.fecha_hora,
                               par1.nombre_pareja as p1_nom, par2.nombre_pareja as p2_nom,
@@ -64,8 +87,40 @@ try {
 
         $p1_id = (int)($row_p['pareja1_id'] ?? 0);
         $p2_id = (int)($row_p['pareja2_id'] ?? 0);
-        $p1_nom = !empty($row_p['p1_nom']) ? $row_p['p1_nom'] : 'Pareja 1';
-        $p2_nom = !empty($row_p['p2_nom']) ? $row_p['p2_nom'] : 'Pareja 2';
+
+        $p1_nom = resolverNombreParejaProg(
+            $row_p['p1_nom'],
+            $row_p['p1_j1_u'],
+            $row_p['p1_j1_ape'],
+            $row_p['p1_j1_ext'],
+            $row_p['p1_j2_u'],
+            $row_p['p1_j2_ape'],
+            $row_p['p1_j2_ext'],
+            'Pareja 1'
+        );
+
+        $p2_nom = resolverNombreParejaProg(
+            $row_p['p2_nom'],
+            $row_p['p2_j1_u'],
+            $row_p['p2_j1_ape'],
+            $row_p['p2_j1_ext'],
+            $row_p['p2_j2_u'],
+            $row_p['p2_j2_ape'],
+            $row_p['p2_j2_ext'],
+            'Pareja 2'
+        );
+
+        // Auto-sanar nombres de parejas en BD si contenían valores genéricos
+        if ($p1_id > 0 && ($row_p['p1_nom'] === 'Jugador 1 / Jugador 2' || empty($row_p['p1_nom']) || $row_p['p1_nom'] === 'Pareja' || strpos($row_p['p1_nom'], 'Jugador 1') !== false)) {
+            if ($p1_nom !== 'Pareja 1' && strpos($p1_nom, 'Jugador 1') === false) {
+                @$conn->query("UPDATE liga_parejas SET nombre_pareja = '" . $conn->real_escape_string($p1_nom) . "' WHERE id = $p1_id");
+            }
+        }
+        if ($p2_id > 0 && ($row_p['p2_nom'] === 'Jugador 1 / Jugador 2' || empty($row_p['p2_nom']) || $row_p['p2_nom'] === 'Pareja' || strpos($row_p['p2_nom'], 'Jugador 1') !== false)) {
+            if ($p2_nom !== 'Pareja 2' && strpos($p2_nom, 'Jugador 1') === false) {
+                @$conn->query("UPDATE liga_parejas SET nombre_pareja = '" . $conn->real_escape_string($p2_nom) . "' WHERE id = $p2_id");
+            }
+        }
 
         $j1_id = (!empty($row_p['p1_j1_id']) && (int)$row_p['p1_j1_id'] > 0) ? (int)$row_p['p1_j1_id'] : null;
         $j2_id = (!empty($row_p['p1_j2_id']) && (int)$row_p['p1_j2_id'] > 0) ? (int)$row_p['p1_j2_id'] : null;
@@ -121,11 +176,21 @@ try {
         }
 
         // 3. Validar si la cancha ya está asignada a otro partido de liga que se traslape
-        $sql_check_part = "SELECT p.id, p.fecha_hora, par1.nombre_pareja as p1, par2.nombre_pareja as p2, c.nombre as cancha_nom
+        $sql_check_part = "SELECT p.id, p.fecha_hora, par1.nombre_pareja as p1, par2.nombre_pareja as p2, c.nombre as cancha_nom,
+                                  par1.nombre_externo1 as p1_ext1, par1.nombre_externo2 as p1_ext2,
+                                  par2.nombre_externo1 as p2_ext1, par2.nombre_externo2 as p2_ext2,
+                                  u11.nombre as p1_j1_u, COALESCE(u11.apellido, '') as p1_j1_ape,
+                                  u12.nombre as p1_j2_u, COALESCE(u12.apellido, '') as p1_j2_ape,
+                                  u21.nombre as p2_j1_u, COALESCE(u21.apellido, '') as p2_j1_ape,
+                                  u22.nombre as p2_j2_u, COALESCE(u22.apellido, '') as p2_j2_ape
                            FROM liga_partidos p
                            LEFT JOIN canchas c ON p.cancha_id = c.id
                            LEFT JOIN liga_parejas par1 ON p.pareja1_id = par1.id
                            LEFT JOIN liga_parejas par2 ON p.pareja2_id = par2.id
+                           LEFT JOIN usuarios u11 ON par1.jugador1_id = u11.id
+                           LEFT JOIN usuarios u12 ON par1.jugador2_id = u12.id
+                           LEFT JOIN usuarios u21 ON par2.jugador1_id = u21.id
+                           LEFT JOIN usuarios u22 ON par2.jugador2_id = u22.id
                            WHERE p.cancha_id = ? 
                              AND p.id != ? 
                              AND p.estado NOT IN ('Cancelado', 'Suspendido') 
@@ -142,7 +207,9 @@ try {
             $conf_p = $res_check_p->fetch_assoc();
             $horaConf = date('H:i', strtotime($conf_p['fecha_hora']));
             $cNom = !empty($conf_p['cancha_nom']) ? " en {$conf_p['cancha_nom']}" : "";
-            $matchNom = trim(($conf_p['p1'] ?? '') . ' vs ' . ($conf_p['p2'] ?? ''));
+            $confP1 = resolverNombreParejaProg($conf_p['p1'], $conf_p['p1_j1_u'], $conf_p['p1_j1_ape'], $conf_p['p1_ext1'], $conf_p['p1_j2_u'], $conf_p['p1_j2_ape'], $conf_p['p1_ext2'], 'Pareja 1');
+            $confP2 = resolverNombreParejaProg($conf_p['p2'], $conf_p['p2_j1_u'], $conf_p['p2_j1_ape'], $conf_p['p2_ext1'], $conf_p['p2_j2_u'], $conf_p['p2_j2_ape'], $conf_p['p2_ext2'], 'Pareja 2');
+            $matchNom = trim("$confP1 vs $confP2");
             echo json_encode([
                 "success" => false, 
                 "error" => "⚠️ La cancha ya tiene programado el partido '$matchNom' a las $horaConf$cNom. Por favor selecciona otro horario o cancha."
@@ -156,11 +223,21 @@ try {
             $pIdsStr = implode(',', $pIdsArr);
             $sql_chk_pair = "SELECT p.id, p.fecha_hora, p.pareja1_id, p.pareja2_id,
                                     par1.nombre_pareja as p1, par2.nombre_pareja as p2,
+                                    par1.nombre_externo1 as p1_ext1, par1.nombre_externo2 as p1_ext2,
+                                    par2.nombre_externo1 as p2_ext1, par2.nombre_externo2 as p2_ext2,
+                                    u11.nombre as p1_j1_u, COALESCE(u11.apellido, '') as p1_j1_ape,
+                                    u12.nombre as p1_j2_u, COALESCE(u12.apellido, '') as p1_j2_ape,
+                                    u21.nombre as p2_j1_u, COALESCE(u21.apellido, '') as p2_j1_ape,
+                                    u22.nombre as p2_j2_u, COALESCE(u22.apellido, '') as p2_j2_ape,
                                     c.nombre as cancha_nom
                              FROM liga_partidos p
                              LEFT JOIN canchas c ON p.cancha_id = c.id
                              LEFT JOIN liga_parejas par1 ON p.pareja1_id = par1.id
                              LEFT JOIN liga_parejas par2 ON p.pareja2_id = par2.id
+                             LEFT JOIN usuarios u11 ON par1.jugador1_id = u11.id
+                             LEFT JOIN usuarios u12 ON par1.jugador2_id = u12.id
+                             LEFT JOIN usuarios u21 ON par2.jugador1_id = u21.id
+                             LEFT JOIN usuarios u22 ON par2.jugador2_id = u22.id
                              WHERE p.id != ?
                                AND p.estado NOT IN ('Cancelado', 'Suspendido')
                                AND p.fecha_hora IS NOT NULL
@@ -170,7 +247,7 @@ try {
                                AND SUBSTRING(TIME(DATE_ADD(p.fecha_hora, INTERVAL ? MINUTE)), 1, 5) > ?
                              LIMIT 1";
             $stmt_chk_pair = $conn->prepare($sql_chk_pair);
-            $stmt_chk_pair->bind_param("isssi", $partido_id, $fechaRes, $hFinTarget, $duracion_minutos, $hIniTarget);
+            $stmt_chk_pair->bind_param("issis", $partido_id, $fechaRes, $hFinTarget, $duracion_minutos, $hIniTarget);
             $stmt_chk_pair->execute();
             $res_chk_pair = $stmt_chk_pair->get_result();
             if ($res_chk_pair && $res_chk_pair->num_rows > 0) {
@@ -178,7 +255,9 @@ try {
                 $horaConf = date('H:i', strtotime($conf_pair['fecha_hora']));
                 $cNom = !empty($conf_pair['cancha_nom']) ? " en {$conf_pair['cancha_nom']}" : "";
                 $nomParejaConf = ($conf_pair['pareja1_id'] == $p1_id || $conf_pair['pareja2_id'] == $p1_id) ? $p1_nom : $p2_nom;
-                $matchNom = trim(($conf_pair['p1'] ?? 'Pareja 1') . ' vs ' . ($conf_pair['p2'] ?? 'Pareja 2'));
+                $confP1 = resolverNombreParejaProg($conf_pair['p1'], $conf_pair['p1_j1_u'], $conf_pair['p1_j1_ape'], $conf_pair['p1_ext1'], $conf_pair['p1_j2_u'], $conf_pair['p1_j2_ape'], $conf_pair['p1_ext2'], 'Pareja 1');
+                $confP2 = resolverNombreParejaProg($conf_pair['p2'], $conf_pair['p2_j1_u'], $conf_pair['p2_j1_ape'], $conf_pair['p2_ext1'], $conf_pair['p2_j2_u'], $conf_pair['p2_j2_ape'], $conf_pair['p2_ext2'], 'Pareja 2');
+                $matchNom = trim("$confP1 vs $confP2");
                 
                 echo json_encode([
                     "success" => false,
@@ -194,13 +273,23 @@ try {
             $jIdsStr = implode(',', $jIds);
             $sql_chk_jug = "SELECT p.id, p.fecha_hora,
                                    par1.nombre_pareja as p1, par2.nombre_pareja as p2,
+                                   par1.nombre_externo1 as p1_ext1, par1.nombre_externo2 as p1_ext2,
+                                   par2.nombre_externo1 as p2_ext1, par2.nombre_externo2 as p2_ext2,
                                    par1.jugador1_id as p1_j1, par1.jugador2_id as p1_j2,
                                    par2.jugador1_id as p2_j1, par2.jugador2_id as p2_j2,
+                                   u11.nombre as p1_j1_u, COALESCE(u11.apellido, '') as p1_j1_ape,
+                                   u12.nombre as p1_j2_u, COALESCE(u12.apellido, '') as p1_j2_ape,
+                                   u21.nombre as p2_j1_u, COALESCE(u21.apellido, '') as p2_j1_ape,
+                                   u22.nombre as p2_j2_u, COALESCE(u22.apellido, '') as p2_j2_ape,
                                    c.nombre as cancha_nom
                             FROM liga_partidos p
                             LEFT JOIN canchas c ON p.cancha_id = c.id
                             LEFT JOIN liga_parejas par1 ON p.pareja1_id = par1.id
                             LEFT JOIN liga_parejas par2 ON p.pareja2_id = par2.id
+                            LEFT JOIN usuarios u11 ON par1.jugador1_id = u11.id
+                            LEFT JOIN usuarios u12 ON par1.jugador2_id = u12.id
+                            LEFT JOIN usuarios u21 ON par2.jugador1_id = u21.id
+                            LEFT JOIN usuarios u22 ON par2.jugador2_id = u22.id
                             WHERE p.id != ?
                               AND p.estado NOT IN ('Cancelado', 'Suspendido')
                               AND p.fecha_hora IS NOT NULL
@@ -213,7 +302,7 @@ try {
                               AND SUBSTRING(TIME(DATE_ADD(p.fecha_hora, INTERVAL ? MINUTE)), 1, 5) > ?
                             LIMIT 1";
             $stmt_chk_jug = $conn->prepare($sql_chk_jug);
-            $stmt_chk_jug->bind_param("isssi", $partido_id, $fechaRes, $hFinTarget, $duracion_minutos, $hIniTarget);
+            $stmt_chk_jug->bind_param("issis", $partido_id, $fechaRes, $hFinTarget, $duracion_minutos, $hIniTarget);
             $stmt_chk_jug->execute();
             $res_chk_jug = $stmt_chk_jug->get_result();
             if ($res_chk_jug && $res_chk_jug->num_rows > 0) {
@@ -228,7 +317,9 @@ try {
                 $nomJugConf = $confUid ? ($jugadoresMap[$confUid] ?? 'Uno de los jugadores') : 'Uno de los jugadores';
                 $horaConf = date('H:i', strtotime($conf_j['fecha_hora']));
                 $cNom = !empty($conf_j['cancha_nom']) ? " en {$conf_j['cancha_nom']}" : "";
-                $matchNom = trim(($conf_j['p1'] ?? 'Pareja 1') . ' vs ' . ($conf_j['p2'] ?? 'Pareja 2'));
+                $confP1 = resolverNombreParejaProg($conf_j['p1'], $conf_j['p1_j1_u'], $conf_j['p1_j1_ape'], $conf_j['p1_ext1'], $conf_j['p1_j2_u'], $conf_j['p1_j2_ape'], $conf_j['p1_ext2'], 'Pareja 1');
+                $confP2 = resolverNombreParejaProg($conf_j['p2'], $conf_j['p2_j1_u'], $conf_j['p2_j1_ape'], $conf_j['p2_ext1'], $conf_j['p2_j2_u'], $conf_j['p2_j2_ape'], $conf_j['p2_ext2'], 'Pareja 2');
+                $matchNom = trim("$confP1 vs $confP2");
 
                 echo json_encode([
                     "success" => false,
@@ -236,7 +327,7 @@ try {
                 ]);
                 exit;
             }
-
+        }
             // 6. Validar si alguno de los jugadores tiene una reserva de cancha activa
             $sql_chk_jres = "SELECT r.id, r.hora_inicio, r.hora_fin, r.usuario_id, r.jugador2_id, r.jugador3_id, r.jugador4_id,
                                     c.nombre as cancha_nom

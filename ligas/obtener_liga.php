@@ -248,6 +248,31 @@ ensureLigaSchema($conn);
 @$conn->query("UPDATE liga_partidos lp JOIN liga_jornadas lj ON lp.jornada_id = lj.id SET lp.categoria_id = lj.categoria_id WHERE lp.categoria_id IS NULL OR lp.categoria_id = 0");
 @$conn->query("UPDATE liga_partidos lp JOIN liga_parejas lpar ON lp.pareja1_id = lpar.id SET lp.categoria_id = lpar.categoria_id WHERE lp.categoria_id IS NULL OR lp.categoria_id = 0");
 
+// Auto-sanar nombres de parejas reales en liga_parejas cuando tengan nombres genéricos o estén vacíos
+@$conn->query("UPDATE liga_parejas
+               SET nombre_pareja = CONCAT(TRIM(nombre_externo1), ' / ', TRIM(nombre_externo2))
+               WHERE (nombre_pareja IS NULL OR nombre_pareja = '' OR nombre_pareja = 'Pareja' OR nombre_pareja = 'Jugador 1 / Jugador 2' OR nombre_pareja LIKE '%Jugador 1%')
+                 AND nombre_externo1 IS NOT NULL AND TRIM(nombre_externo1) != ''
+                 AND nombre_externo2 IS NOT NULL AND TRIM(nombre_externo2) != ''");
+
+@$conn->query("UPDATE liga_parejas lp
+               JOIN usuarios u1 ON lp.jugador1_id = u1.id
+               JOIN usuarios u2 ON lp.jugador2_id = u2.id
+               SET lp.nombre_pareja = CONCAT(TRIM(CONCAT(u1.nombre, ' ', COALESCE(u1.apellido, ''))), ' / ', TRIM(CONCAT(u2.nombre, ' ', COALESCE(u2.apellido, ''))))
+               WHERE (lp.nombre_pareja IS NULL OR lp.nombre_pareja = '' OR lp.nombre_pareja = 'Pareja' OR lp.nombre_pareja = 'Jugador 1 / Jugador 2' OR lp.nombre_pareja LIKE '%Jugador 1%')");
+
+@$conn->query("UPDATE liga_parejas lp
+               JOIN usuarios u1 ON lp.jugador1_id = u1.id
+               SET lp.nombre_pareja = CONCAT(TRIM(CONCAT(u1.nombre, ' ', COALESCE(u1.apellido, ''))), ' / ', TRIM(lp.nombre_externo2))
+               WHERE (lp.nombre_pareja IS NULL OR lp.nombre_pareja = '' OR lp.nombre_pareja = 'Pareja' OR lp.nombre_pareja = 'Jugador 1 / Jugador 2' OR lp.nombre_pareja LIKE '%Jugador 1%')
+                 AND lp.nombre_externo2 IS NOT NULL AND TRIM(lp.nombre_externo2) != ''");
+
+@$conn->query("UPDATE liga_parejas lp
+               JOIN usuarios u2 ON lp.jugador2_id = u2.id
+               SET lp.nombre_pareja = CONCAT(TRIM(lp.nombre_externo1), ' / ', TRIM(CONCAT(u2.nombre, ' ', COALESCE(u2.apellido, ''))))
+               WHERE (lp.nombre_pareja IS NULL OR lp.nombre_pareja = '' OR lp.nombre_pareja = 'Pareja' OR lp.nombre_pareja = 'Jugador 1 / Jugador 2' OR lp.nombre_pareja LIKE '%Jugador 1%')
+                 AND lp.nombre_externo1 IS NOT NULL AND TRIM(lp.nombre_externo1) != ''");
+
 // Auto-sincronizar partidos de liga con sus reservas de cancha existentes en el club
 @$conn->query("UPDATE liga_partidos lp 
                JOIN reservas_cancha rc ON rc.liga_partido_id = lp.id 
@@ -376,6 +401,10 @@ try {
 
                         if (empty($par['nombre_pareja']) || strpos($par['nombre_pareja'], ' / ') !== false || $par['nombre_pareja'] === 'Pareja') {
                             $par['nombre_pareja'] = $nom1 . ' / ' . $nom2;
+                        }
+
+                        if (!empty($par['id']) && $par['nombre_pareja'] !== 'Jugador 1 / Jugador 2' && strpos($par['nombre_pareja'], 'Jugador 1') === false && strpos($par['nombre_pareja'], 'Jugador 2') === false) {
+                            @$conn->query("UPDATE liga_parejas SET nombre_pareja = '" . $conn->real_escape_string($par['nombre_pareja']) . "' WHERE id = " . (int)$par['id'] . " AND (nombre_pareja = 'Jugador 1 / Jugador 2' OR nombre_pareja LIKE '%Jugador 1%' OR nombre_pareja = 'Pareja' OR nombre_pareja IS NULL OR nombre_pareja = '')");
                         }
                         $parejas[] = $par;
                     }

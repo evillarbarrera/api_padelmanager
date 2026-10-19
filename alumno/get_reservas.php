@@ -83,7 +83,7 @@ LEFT JOIN (
              AND block_counts.hora_inicio = r.hora_inicio
 LEFT JOIN usuarios u_e ON u_e.id = r.entrenador_id
 WHERE rj.jugador_id = ?
-  AND (r.estado IS NULL OR LOWER(r.estado) NOT IN ('cancelada', 'cancelado', 'rechazada', 'rechazado', 'anulada', 'anulado', 'eliminada'))
+  AND LOWER(r.estado) = 'reservado'
 ORDER BY r.fecha ASC, r.hora_inicio ASC
 ";
 
@@ -261,8 +261,6 @@ if ($stmtCancha) {
     while ($rcRow = $resCancha->fetch_assoc()) {
         $rcRow['invitados'] = [];
         $data["reservas_cancha"][] = $rcRow;
-        // Inyectar en reservas_individuales para compatibilidad total con vistas actuales de calendario
-        $data["reservas_individuales"][] = $rcRow;
     }
     $stmtCancha->close();
 }
