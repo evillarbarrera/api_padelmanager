@@ -25,8 +25,13 @@ try {
         exit;
     }
 
-    // 1. Get base user info
-    $sql = "SELECT id, nombre, rol, foto_perfil FROM usuarios WHERE id = ?";
+    // 1. Ensure column and get base user info
+    $chkCol = $conn->query("SHOW COLUMNS FROM usuarios LIKE 'club_guide_seen'");
+    if ($chkCol && $chkCol->num_rows == 0) {
+        $conn->query("ALTER TABLE usuarios ADD club_guide_seen TINYINT(1) DEFAULT 0");
+    }
+
+    $sql = "SELECT id, nombre, rol, foto_perfil, club_guide_seen FROM usuarios WHERE id = ?";
     $stmt = $conn->prepare($sql);
     
     if (!$stmt) {
