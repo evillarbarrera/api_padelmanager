@@ -1,10 +1,14 @@
 <?php
+ob_start();
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type");
-header("Content-Type: application/json");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Headers: Authorization, x-authorization, X-Authorization, Content-Type, Accept, Origin, X-Requested-With");
+header("Content-Type: application/json; charset=UTF-8");
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { exit(0); }
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
 require_once "../db.php";
 
 $input = json_decode(file_get_contents("php://input"), true);
@@ -327,7 +331,7 @@ try {
                 ]);
                 exit;
             }
-        }
+
             // 6. Validar si alguno de los jugadores tiene una reserva de cancha activa
             $sql_chk_jres = "SELECT r.id, r.hora_inicio, r.hora_fin, r.usuario_id, r.jugador2_id, r.jugador3_id, r.jugador4_id,
                                     c.nombre as cancha_nom
