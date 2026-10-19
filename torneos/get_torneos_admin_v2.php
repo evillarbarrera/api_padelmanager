@@ -50,6 +50,7 @@ $result = $stmt->get_result();
 
 $torneos = [];
 while ($row = $result->fetch_assoc()) {
+    $row['inscripciones_abiertas'] = (int)($row['inscripciones_abiertas'] ?? 0) === 1 ? 1 : 0;
     $torneos[] = $row;
 }
 

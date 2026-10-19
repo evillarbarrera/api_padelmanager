@@ -45,6 +45,30 @@ function ensureLigasSchemaPublic($conn) {
 }
 ensureLigasSchemaPublic($conn);
 
+// Ensure torneos_v2 schema and resolve orphan club_id
+function ensureTorneosV2SchemaPublic($conn) {
+    $checkT = $conn->query("SHOW TABLES LIKE 'torneos_v2'");
+    if ($checkT && $checkT->num_rows > 0) {
+        $cols = [
+            'inscripciones_abiertas' => "BOOLEAN DEFAULT FALSE",
+            'poster_url' => "VARCHAR(255) DEFAULT NULL",
+            'precio' => "DECIMAL(10,2) DEFAULT 0.00",
+            'estado' => "ENUM('Abierto', 'En Curso', 'Finalizado', 'Cerrado') DEFAULT 'Abierto'",
+            'club_id' => "INT NOT NULL DEFAULT 1"
+        ];
+        foreach ($cols as $col => $def) {
+            $checkC = $conn->query("SHOW COLUMNS FROM torneos_v2 LIKE '$col'");
+            if ($checkC && $checkC->num_rows == 0) {
+                @$conn->query("ALTER TABLE torneos_v2 ADD `$col` $def");
+            }
+        }
+        @$conn->query("UPDATE torneos_v2 t JOIN clubes c ON (c.admin_id = t.creator_id) SET t.club_id = c.id WHERE (t.club_id = 0 OR t.club_id = 1 OR t.club_id IS NULL) AND t.creator_id > 0");
+        @$conn->query("UPDATE torneos_v2 t JOIN clubes c ON (c.nombre LIKE '%PowerPadel%' OR c.nombre LIKE '%Power Padel%') SET t.club_id = c.id WHERE (t.club_id = 0 OR t.club_id = 1 OR t.club_id IS NULL)");
+        @$conn->query("UPDATE torneos_v2 SET club_id = 21 WHERE (club_id = 0 OR club_id = 1 OR club_id IS NULL)");
+    }
+}
+ensureTorneosV2SchemaPublic($conn);
+
 $torneos = [];
 
 // 1. OBTENER TORNEOS AMERICANOS (Solo futuros o activos)
@@ -82,7 +106,7 @@ try {
     }
 } catch (Throwable $eA) {}
 
-// 2. OBTENER TORNEOS V2 (TRADICIONALES - Solo futuros)
+// 2. OBTENER TORNEOS V2 (TRADICIONALES - Activos o con inscripciones abiertas)
 try {
     $tableCheck = $conn->query("SHOW TABLES LIKE 'torneos_v2'");
     if ($tableCheck && $tableCheck->num_rows > 0) {
@@ -91,8 +115,9 @@ try {
                   FROM torneos_v2 t 
                   LEFT JOIN clubes c ON t.club_id = c.id 
                   LEFT JOIN direcciones d ON d.club_id = c.id
-                  WHERE t.inscripciones_abiertas = 1
-                  AND t.fecha_inicio >= '$current_date'";
+                  WHERE (t.inscripciones_abiertas = 1 OR t.estado = 'Abierto' OR t.estado = 'En Curso' OR t.estado IS NULL)
+                    AND (t.estado IS NULL OR (t.estado != 'Cerrado' AND t.estado != 'Finalizado'))
+                    AND (t.fecha_fin >= '$current_date' OR t.fecha_inicio >= '$current_date' OR t.fecha_fin IS NULL OR t.fecha_fin = '0000-00-00')";
 
         if (!empty($region)) $sqlV2 .= " AND (d.region = '" . $conn->real_escape_string($region) . "' OR c.region = '" . $conn->real_escape_string($region) . "')";
         if (!empty($comuna)) $sqlV2 .= " AND (d.comuna = '" . $conn->real_escape_string($comuna) . "' OR c.comuna = '" . $conn->real_escape_string($comuna) . "')";
@@ -102,14 +127,16 @@ try {
             while ($row = $resV2->fetch_assoc()) {
                 $row['table_source'] = 'v2';
                 $row['tipo'] = 'Torneo';
+                $row['club_id'] = (int)($row['club_id'] ?? 0) > 0 ? (int)$row['club_id'] : 21;
                 $row['precio'] = floatval($row['precio'] ?? 0);
                 $row['imagen'] = $row['poster_url'] ?? ''; 
                 $row['imagen_display'] = $row['poster_url'] ?? '';
                 $row['fecha_display'] = $row['fecha_inicio'] ?? '';
                 $row['fecha'] = $row['fecha_inicio'] ?? ''; 
+                $row['inscripciones_abiertas'] = (int)($row['inscripciones_abiertas'] ?? 0) === 1;
 
                 $tId = (int)$row['id'];
-                $resCatV2 = $conn->query("SELECT id, nombre, genero, nivel FROM torneo_categorias WHERE torneo_id = $tId ORDER BY id ASC");
+                $resCatV2 = $conn->query("SELECT id, nombre, genero, nivel, max_parejas, puntos_repartir, estado FROM torneo_categorias WHERE torneo_id = $tId ORDER BY id ASC");
                 $catsV2 = [];
                 if ($resCatV2) {
                     while ($c = $resCatV2->fetch_assoc()) {
@@ -118,7 +145,10 @@ try {
                 }
                 $row['categorias'] = $catsV2;
                 $row['categoria_nombre'] = !empty($catsV2) ? implode(', ', array_column($catsV2, 'nombre')) : '';
-                $row['inscritos'] = 0;
+
+                // Conteo de parejas inscritas en el torneo
+                $resInsCount = $conn->query("SELECT COUNT(*) as cant FROM torneo_inscripciones ti JOIN torneo_categorias tc ON ti.categoria_id = tc.id WHERE tc.torneo_id = $tId");
+                $row['inscritos'] = ($resInsCount && $rIns = $resInsCount->fetch_assoc()) ? (int)$rIns['cant'] : 0;
                 $torneos[] = $row;
             }
         }
