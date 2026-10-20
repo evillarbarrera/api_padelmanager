@@ -431,17 +431,6 @@ try {
 
     $conn->commit();
 
-    echo json_encode([
-        "ok" => true,
-        "message" => "Reserva realizada con éxito",
-        "reservas" => $reservas_creadas
-    ]);
-
-    // Background notifications
-    if (function_exists('fastcgi_finish_request')) {
-        fastcgi_finish_request();
-    }
-
     // Notificaciones...
     require_once "../notifications/whatsapp_service.php";
     require_once "../system/mail_service.php";
@@ -464,17 +453,21 @@ try {
         }
     }
 
-    $checkEmailCol = @$conn->query("SHOW COLUMNS FROM usuarios LIKE 'email'");
-    $hasEmailField = ($checkEmailCol && $checkEmailCol->num_rows > 0);
-    $sqlData = $hasEmailField 
-        ? "SELECT id, nombre, apellido, usuario, email, telefono FROM usuarios WHERE id = ?" 
-        : "SELECT id, nombre, apellido, usuario, telefono FROM usuarios WHERE id = ?";
-    $stmtU = $conn->prepare($sqlData);
+    $fnObtenerUsuario = function($conn, $uid) {
+        $uid = intval($uid);
+        if ($uid <= 0) return null;
+        $st = $conn->prepare("SELECT id, nombre, apellido, usuario, email, telefono FROM usuarios WHERE id = ?");
+        if (!$st) return null;
+        $st->bind_param("i", $uid);
+        $st->execute();
+        $res = $st->get_result();
+        $u = $res ? $res->fetch_assoc() : null;
+        $st->close();
+        return $u;
+    };
 
     // Entrenador
-    $stmtU->bind_param("i", $data['entrenador_id']);
-    $stmtU->execute();
-    $uEntr = $stmtU->get_result()->fetch_assoc();
+    $uEntr = $fnObtenerUsuario($conn, $data['entrenador_id']);
 
     if ($uEntr) {
         $fechaFmt = date("d/m/Y", strtotime($data['fecha']));
@@ -485,9 +478,7 @@ try {
         foreach ($jugadoresAInsertar as $idActual) {
             if (empty($idActual)) continue;
 
-            $stmtU->bind_param("i", $idActual);
-            $stmtU->execute();
-            $uAlum = $stmtU->get_result()->fetch_assoc();
+            $uAlum = $fnObtenerUsuario($conn, $idActual);
 
             if ($uAlum) {
                 $nomJugador = trim($uAlum['nombre'] . ' ' . ($uAlum['apellido'] ?? ''));
@@ -506,74 +497,100 @@ try {
                 }
 
                 // 1. Notificación App (Push e Interna en base de datos)
-                $msg = "Tu clase con $nomEntrenador$lugarTxt el $fechaFmt a las $horaFmt ha sido confirmada.";
-                notifyUser($conn, $idActual, "🎾 Clase Agendada", $msg, 'clase_agendada', $data['fecha'] . ' ' . $data['hora_inicio'], [
-                    'reserva_id' => (string)$new_reserva_id,
-                    'entrenador_id' => (string)$data['entrenador_id'],
-                    'club' => (string)($nomClub ?? ''),
-                    'cancha' => (string)($nomCancha ?? '')
-                ]);
+                try {
+                    $msg = "Tu clase con $nomEntrenador$lugarTxt el $fechaFmt a las $horaFmt ha sido confirmada.";
+                    notifyUser($conn, $idActual, "🎾 Clase Agendada", $msg, 'clase_agendada', $data['fecha'] . ' ' . $data['hora_inicio'], [
+                        'reserva_id' => (string)$new_reserva_id,
+                        'entrenador_id' => (string)$data['entrenador_id'],
+                        'club' => (string)($nomClub ?? ''),
+                        'cancha' => (string)($nomCancha ?? '')
+                    ]);
+                } catch (Throwable $ePushAlum) {
+                    error_log("Error Push Alumno: " . $ePushAlum->getMessage());
+                }
 
                 // 2. WhatsApp Alumno
-                if (!empty($uAlum['telefono'])) {
-                    $detLugar = !empty($nomClub) ? " ($nomClub)" : "";
-                    enviarWhatsApp($uAlum['telefono'], 'reserva_confirmada', 'es_CL', [$fechaFmt, $horaFmt, $nomEntrenador . $detLugar]);
+                try {
+                    if (!empty($uAlum['telefono'])) {
+                        $detLugar = !empty($nomClub) ? " ($nomClub)" : "";
+                        enviarWhatsApp($uAlum['telefono'], 'reserva_confirmada', 'es_CL', [$fechaFmt, $horaFmt, $nomEntrenador . $detLugar]);
+                    }
+                } catch (Throwable $eWaAlum) {
+                    error_log("Error WhatsApp Alumno: " . $eWaAlum->getMessage());
                 }
 
                 // 3. Email Alumno
-                if (!empty($emailJugador)) {
-                    $subject = "🎾 Clase Confirmada - $fechaFmt $horaFmt" . (!empty($nomClub) ? " ($nomClub)" : "");
-                    $clubHtml = !empty($nomClub) ? "<p style='margin: 0 0 12px; font-size: 15px;'><strong>Sede / Club:</strong> $nomClub</p>" : "";
-                    $canchaHtml = !empty($nomCancha) ? "<p style='margin: 0 0 12px; font-size: 15px;'><strong>Cancha / Pista:</strong> $nomCancha</p>" : "";
+                try {
+                    if (!empty($emailJugador)) {
+                        $subject = "🎾 Clase Confirmada - $fechaFmt $horaFmt" . (!empty($nomClub) ? " ($nomClub)" : "");
+                        $clubHtml = !empty($nomClub) ? "<p style='margin: 0 0 12px; font-size: 15px;'><strong>Sede / Club:</strong> $nomClub</p>" : "";
+                        $canchaHtml = !empty($nomCancha) ? "<p style='margin: 0 0 12px; font-size: 15px;'><strong>Cancha / Pista:</strong> $nomCancha</p>" : "";
 
-                    $body = "
-                    <html>
-                    <body style='margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif;'>
-                      <table width='100%' border='0' cellspacing='0' cellpadding='0' style='background-color: #f1f5f9; padding: 40px 20px;'>
-                        <tr>
-                          <td align='center'>
-                            <div style='max-width: 500px; width: 100%; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 1px solid #e2e8f0;'>
-                              <div style='background-color: #ccff00; padding: 40px; text-align: center; color: #000000;'>
-                                <div style='display: inline-block; background-color: #0f172a; border: 2px solid #ccff00; padding: 12px 28px; border-radius: 16px; margin-bottom: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.25);'>
-                                  <span style='font-size: 26px; font-weight: 900; color: #ffffff; letter-spacing: -0.5px;'>Padel</span><span style='font-size: 26px; font-weight: 900; color: #ccff00; letter-spacing: -0.5px;'>Blox</span>
+                        $body = "
+                        <html>
+                        <body style='margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif;'>
+                          <table width='100%' border='0' cellspacing='0' cellpadding='0' style='background-color: #f1f5f9; padding: 40px 20px;'>
+                            <tr>
+                              <td align='center'>
+                                <div style='max-width: 500px; width: 100%; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 1px solid #e2e8f0;'>
+                                  <div style='background-color: #ccff00; padding: 40px; text-align: center; color: #000000;'>
+                                    <div style='display: inline-block; background-color: #0f172a; border: 2px solid #ccff00; padding: 12px 28px; border-radius: 16px; margin-bottom: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.25);'>
+                                      <span style='font-size: 26px; font-weight: 900; color: #ffffff; letter-spacing: -0.5px;'>Padel</span><span style='font-size: 26px; font-weight: 900; color: #ccff00; letter-spacing: -0.5px;'>Blox</span>
+                                    </div>
+                                    <h1 style='margin: 15px 0 0; font-size: 24px; font-weight: 900; text-transform: uppercase;'>¡CLASE CONFIRMADA!</h1>
+                                    <p style='margin: 5px 0 0; font-size: 14px; font-weight: 700; opacity: 0.8;'>Tu entrenamiento ha sido agendado con éxito.</p>
+                                  </div>
+                                  <div style='padding: 40px 30px; text-align: left; color: #1e293b;'>
+                                    <h2 style='margin: 0 0 20px; font-size: 20px; font-weight: 800; color: #000;'>¡Hola, $nomJugador!</h2>
+                                    <div style='background-color: #f8fafc; border-left: 5px solid #ccff00; padding: 25px; margin-bottom: 30px; border-radius: 8px;'>
+                                      <p style='margin: 0 0 12px; font-size: 15px;'><strong>Entrenador:</strong> $nomEntrenador</p>
+                                      $clubHtml
+                                      $canchaHtml
+                                      <p style='margin: 0 0 12px; font-size: 15px;'><strong>Fecha:</strong> $fechaFmt</p>
+                                      <p style='margin: 0; font-size: 15px;'><strong>Hora:</strong> $horaFmt hrs</p>
+                                    </div>
+                                    <p style='font-size: 15px; color: #475569;'>¡Nos vemos en la pista para darlo todo!</p>
+                                    <div style='text-align: center; margin-bottom: 20px;'>
+                                      <a href='https://www.padelblox.cl' style='display: inline-block; background-color: #000; color: #ccff00; padding: 18px 40px; text-decoration: none; font-weight: 900; font-size: 16px; border-radius: 12px;'>INGRESAR A LA APP</a>
+                                    </div>
+                                  </div>
+                                  <div style='background-color: #f8fafc; padding: 25px; text-align: center; border-top: 1px solid #e2e8f0;'>
+                                    <p style='margin: 0; font-size: 12px; color: #94a3b8;'>&copy; " . date('Y') . " PadelBlox. Todos los derechos reservados.</p>
+                                  </div>
                                 </div>
-                                <h1 style='margin: 15px 0 0; font-size: 24px; font-weight: 900; text-transform: uppercase;'>¡CLASE CONFIRMADA!</h1>
-                                <p style='margin: 5px 0 0; font-size: 14px; font-weight: 700; opacity: 0.8;'>Tu entrenamiento ha sido agendado con éxito.</p>
-                              </div>
-                              <div style='padding: 40px 30px; text-align: left; color: #1e293b;'>
-                                <h2 style='margin: 0 0 20px; font-size: 20px; font-weight: 800; color: #000;'>¡Hola, $nomJugador!</h2>
-                                <div style='background-color: #f8fafc; border-left: 5px solid #ccff00; padding: 25px; margin-bottom: 30px; border-radius: 8px;'>
-                                  <p style='margin: 0 0 12px; font-size: 15px;'><strong>Entrenador:</strong> $nomEntrenador</p>
-                                  $clubHtml
-                                  $canchaHtml
-                                  <p style='margin: 0 0 12px; font-size: 15px;'><strong>Fecha:</strong> $fechaFmt</p>
-                                  <p style='margin: 0; font-size: 15px;'><strong>Hora:</strong> $horaFmt hrs</p>
-                                </div>
-                                <p style='font-size: 15px; color: #475569;'>¡Nos vemos en la pista para darlo todo!</p>
-                                <div style='text-align: center; margin-bottom: 20px;'>
-                                  <a href='https://www.padelblox.cl' style='display: inline-block; background-color: #000; color: #ccff00; padding: 18px 40px; text-decoration: none; font-weight: 900; font-size: 16px; border-radius: 12px;'>INGRESAR A LA APP</a>
-                                </div>
-                              </div>
-                              <div style='background-color: #f8fafc; padding: 25px; text-align: center; border-top: 1px solid #e2e8f0;'>
-                                <p style='margin: 0; font-size: 12px; color: #94a3b8;'>&copy; " . date('Y') . " PadelBlox. Todos los derechos reservados.</p>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      </table>
-                    </body>
-                    </html>";
-                    enviarCorreoSMTP($emailJugador, $subject, $body);
+                              </td>
+                            </tr>
+                          </table>
+                        </body>
+                        </html>";
+                        enviarCorreoSMTP($emailJugador, $subject, $body);
+                    }
+                } catch (Throwable $eMailAlum) {
+                    error_log("Error Email Alumno: " . $eMailAlum->getMessage());
                 }
             }
         }
 
-        // 4. Notificar al Entrenador (Confirmación)
-        $msgEntr = "Nueva reserva de " . (count($jugadoresAInsertar) > 1 ? count($jugadoresAInsertar) . " personas " : "1 persona ") . (!empty($nomClub) ? "en $nomClub " : "") . "el $fechaFmt a las $horaFmt.";
-        notifyUser($conn, $data['entrenador_id'], "🎾 Nueva Reserva Confirmada", $msgEntr, 'nueva_reserva', $data['fecha'] . ' ' . $data['hora_inicio']);
-        if (!empty($uEntr['telefono'])) {
-            $nombreGrupo = count($jugadoresAInsertar) > 1 ? "Clase Grupal" : (isset($uAlum['nombre']) ? $uAlum['nombre'] : "Clase Abierta");
-            enviarWhatsApp($uEntr['telefono'], 'nueva_reserva', 'es_CL', [$nombreGrupo, $fechaFmt, $horaFmt]);
+        // 4. Notificar al Entrenador (Push App y WhatsApp)
+        try {
+            $msgEntr = "Nueva reserva de " . (count($jugadoresAInsertar) > 1 ? count($jugadoresAInsertar) . " personas " : "1 persona ") . (!empty($nomClub) ? "en $nomClub " : "") . "el $fechaFmt a las $horaFmt.";
+            notifyUser($conn, $data['entrenador_id'], "🎾 Nueva Reserva Confirmada", $msgEntr, 'nueva_reserva', $data['fecha'] . ' ' . $data['hora_inicio'], [
+                'reserva_id' => (string)$new_reserva_id,
+                'entrenador_id' => (string)$data['entrenador_id'],
+                'club' => (string)($nomClub ?? ''),
+                'cancha' => (string)($nomCancha ?? '')
+            ]);
+        } catch (Throwable $ePushEntr) {
+            error_log("Error Push Entrenador: " . $ePushEntr->getMessage());
+        }
+
+        try {
+            if (!empty($uEntr['telefono'])) {
+                $nombreGrupo = count($jugadoresAInsertar) > 1 ? "Clase Grupal" : (isset($uAlum['nombre']) ? $uAlum['nombre'] : "Clase Abierta");
+                enviarWhatsApp($uEntr['telefono'], 'nueva_reserva', 'es_CL', [$nombreGrupo, $fechaFmt, $horaFmt]);
+            }
+        } catch (Throwable $eWaEntr) {
+            error_log("Error WhatsApp Entrenador: " . $eWaEntr->getMessage());
         }
 
         // 5. Notificar al Club (si se reservó una cancha de club)
@@ -595,10 +612,13 @@ try {
                         $stAdm = $conn->prepare("
                             SELECT u.id FROM usuarios u 
                             JOIN clubes c ON c.admin_id = u.id 
-                            WHERE c.id = ?
+                            LEFT JOIN usuarios_clubes uc_owner ON uc_owner.club_id = c.id AND uc_owner.usuario_id = u.id
+                            WHERE c.id = ? AND (uc_owner.activo = 1 OR uc_owner.activo IS NULL)
                             UNION
                             SELECT uc.usuario_id as id FROM usuarios_clubes uc 
-                            WHERE uc.club_id = ? AND (uc.rol IN ('administrador_club', 'administrador') OR uc.activo = 1)
+                            WHERE uc.club_id = ? 
+                              AND (uc.rol IN ('administrador_club', 'administrador'))
+                              AND (uc.activo = 1 OR uc.activo IS NULL)
                         ");
                         if ($stAdm) {
                             $stAdm->bind_param("ii", $cClubId, $cClubId);
@@ -626,6 +646,12 @@ try {
             }
         }
     }
+
+    echo json_encode([
+        "ok" => true,
+        "message" => "Reserva realizada con éxito",
+        "reservas" => $reservas_creadas
+    ]);
 } catch (Throwable $e) {
     if (isset($conn)) $conn->rollback();
     http_response_code(400);
