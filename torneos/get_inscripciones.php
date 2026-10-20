@@ -12,26 +12,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once "../db.php";
 
-$categoria_id = $_GET['categoria_id'] ?? 0;
+$categoria_id = isset($_GET['categoria_id']) ? intval($_GET['categoria_id']) : 0;
+$torneo_id = isset($_GET['torneo_id']) ? intval($_GET['torneo_id']) : 0;
 
-if (!$categoria_id) {
+if (!$categoria_id && !$torneo_id) {
     echo json_encode([]);
     exit;
 }
 
-$sql = "SELECT i.*, p.nombre_pareja, p.jugador1_id, p.jugador2_id,
-        i.es_semilla, i.nro_siembra, i.ranking_puntos,
-        COALESCE(u1.nombre, p.jugador1_nombre_manual) as nombre_jugador_1, 
-        COALESCE(u2.nombre, p.jugador2_nombre_manual) as nombre_jugador_2
-        FROM torneo_inscripciones i 
-        JOIN torneo_parejas p ON i.pareja_id = p.id
-        LEFT JOIN usuarios u1 ON p.jugador1_id = u1.id
-        LEFT JOIN usuarios u2 ON p.jugador2_id = u2.id
-        WHERE i.categoria_id = ?
-        ORDER BY i.created_at DESC";
+if ($categoria_id > 0) {
+    $sql = "SELECT i.*, p.nombre_pareja, p.jugador1_id, p.jugador2_id,
+            i.es_semilla, i.nro_siembra, i.ranking_puntos,
+            c.nombre as categoria_nombre,
+            COALESCE(u1.nombre, p.jugador1_nombre_manual) as nombre_jugador_1, 
+            COALESCE(u2.nombre, p.jugador2_nombre_manual) as nombre_jugador_2
+            FROM torneo_inscripciones i 
+            JOIN torneo_parejas p ON i.pareja_id = p.id
+            JOIN torneo_categorias c ON i.categoria_id = c.id
+            LEFT JOIN usuarios u1 ON p.jugador1_id = u1.id
+            LEFT JOIN usuarios u2 ON p.jugador2_id = u2.id
+            WHERE i.categoria_id = ?
+            ORDER BY i.created_at DESC";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $categoria_id);
+} else {
+    $sql = "SELECT i.*, p.nombre_pareja, p.jugador1_id, p.jugador2_id,
+            i.es_semilla, i.nro_siembra, i.ranking_puntos,
+            c.nombre as categoria_nombre,
+            COALESCE(u1.nombre, p.jugador1_nombre_manual) as nombre_jugador_1, 
+            COALESCE(u2.nombre, p.jugador2_nombre_manual) as nombre_jugador_2
+            FROM torneo_inscripciones i 
+            JOIN torneo_parejas p ON i.pareja_id = p.id
+            JOIN torneo_categorias c ON i.categoria_id = c.id
+            LEFT JOIN usuarios u1 ON p.jugador1_id = u1.id
+            LEFT JOIN usuarios u2 ON p.jugador2_id = u2.id
+            WHERE c.torneo_id = ?
+            ORDER BY i.created_at DESC";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $torneo_id);
+}
 
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("i", $categoria_id);
 $stmt->execute();
 $result = $stmt->get_result();
 
