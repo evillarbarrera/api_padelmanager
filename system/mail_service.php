@@ -132,7 +132,8 @@ function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = [])
         try {
             $ownerRes = $conn->query("SELECT u.$userFields FROM clubes c 
                                       JOIN usuarios u ON c.admin_id = u.id 
-                                      WHERE c.id = $club_id");
+                                      LEFT JOIN usuarios_clubes uc ON uc.club_id = c.id AND uc.usuario_id = u.id
+                                      WHERE c.id = $club_id AND (uc.activo = 1 OR uc.activo IS NULL)");
             if ($ownerRes && $ownerRes instanceof mysqli_result && $owner = $ownerRes->fetch_assoc()) {
                 $mail = $getMail($owner);
                 if ($mail) {
@@ -145,7 +146,9 @@ function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = [])
         try {
             $adminUsers = $conn->query("SELECT u.$userFields FROM usuarios u 
                                          JOIN usuarios_clubes uc ON u.id = uc.usuario_id 
-                                         WHERE uc.club_id = $club_id AND (uc.rol IN ('administrador_club', 'administrador') OR u.rol IN ('administrador_club', 'administrador'))");
+                                         WHERE uc.club_id = $club_id 
+                                           AND (uc.activo = 1 OR uc.activo IS NULL)
+                                           AND (uc.rol IN ('administrador_club', 'administrador') OR u.rol IN ('administrador_club', 'administrador'))");
             if ($adminUsers && $adminUsers instanceof mysqli_result) {
                 while ($adm = $adminUsers->fetch_assoc()) {
                     $mail = $getMail($adm);
@@ -227,7 +230,8 @@ function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = [])
         try {
             $ownerRes = $conn->query("SELECT u.$userFields FROM clubes c 
                                       JOIN usuarios u ON c.admin_id = u.id 
-                                      WHERE c.id = $club_id");
+                                      LEFT JOIN usuarios_clubes uc ON uc.club_id = c.id AND uc.usuario_id = u.id
+                                      WHERE c.id = $club_id AND (uc.activo = 1 OR uc.activo IS NULL)");
             if ($ownerRes && $ownerRes instanceof mysqli_result && $owner = $ownerRes->fetch_assoc()) {
                 $mail = $getMail($owner);
                 if ($mail) {
@@ -240,7 +244,9 @@ function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = [])
         try {
             $adminUsers = $conn->query("SELECT u.$userFields FROM usuarios u 
                                          JOIN usuarios_clubes uc ON u.id = uc.usuario_id 
-                                         WHERE uc.club_id = $club_id AND (uc.rol IN ('administrador_club', 'administrador') OR u.rol IN ('administrador_club', 'administrador'))");
+                                         WHERE uc.club_id = $club_id 
+                                           AND (uc.activo = 1 OR uc.activo IS NULL)
+                                           AND (uc.rol IN ('administrador_club', 'administrador') OR u.rol IN ('administrador_club', 'administrador'))");
             if ($adminUsers && $adminUsers instanceof mysqli_result) {
                 while ($adm = $adminUsers->fetch_assoc()) {
                     $mail = $getMail($adm);

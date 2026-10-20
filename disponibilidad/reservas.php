@@ -612,10 +612,13 @@ try {
                         $stAdm = $conn->prepare("
                             SELECT u.id FROM usuarios u 
                             JOIN clubes c ON c.admin_id = u.id 
-                            WHERE c.id = ?
+                            LEFT JOIN usuarios_clubes uc_owner ON uc_owner.club_id = c.id AND uc_owner.usuario_id = u.id
+                            WHERE c.id = ? AND (uc_owner.activo = 1 OR uc_owner.activo IS NULL)
                             UNION
                             SELECT uc.usuario_id as id FROM usuarios_clubes uc 
-                            WHERE uc.club_id = ? AND (uc.rol IN ('administrador_club', 'administrador') OR uc.activo = 1)
+                            WHERE uc.club_id = ? 
+                              AND (uc.rol IN ('administrador_club', 'administrador'))
+                              AND (uc.activo = 1 OR uc.activo IS NULL)
                         ");
                         if ($stAdm) {
                             $stAdm->bind_param("ii", $cClubId, $cClubId);
