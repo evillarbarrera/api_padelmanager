@@ -456,13 +456,16 @@ try {
     $fnObtenerUsuario = function($conn, $uid) {
         $uid = intval($uid);
         if ($uid <= 0) return null;
-        $st = $conn->prepare("SELECT id, nombre, apellido, usuario, email, telefono FROM usuarios WHERE id = ?");
+        $st = $conn->prepare("SELECT id, nombre, apellido, usuario, telefono FROM usuarios WHERE id = ?");
         if (!$st) return null;
         $st->bind_param("i", $uid);
         $st->execute();
         $res = $st->get_result();
         $u = $res ? $res->fetch_assoc() : null;
         $st->close();
+        if ($u) {
+            $u['email'] = $u['usuario'] ?? null;
+        }
         return $u;
     };
 
