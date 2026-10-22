@@ -4,7 +4,7 @@ header("Content-Type: application/json");
 
 $coach_id = 9; // Entrenador a consultar
 
-$sql = "SELECT id, nombre, email, plan_id, subscription_status, mp_preapproval_id, paypal_sub_id, created_at FROM usuarios WHERE id = ?";
+$sql = "SELECT id, nombre, usuario as email, plan_id, subscription_status, mp_preapproval_id, paypal_sub_id, created_at FROM usuarios WHERE id = ?";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("i", $coach_id);
 $stmt->execute();

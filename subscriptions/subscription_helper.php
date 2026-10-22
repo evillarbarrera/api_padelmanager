@@ -117,16 +117,13 @@ function isPowerPadelUser($conn, $user_id = 0, $target_user = null, $club_id = 0
 
     // 4. Si target_user no traía usuario/email, consultarlo en usuarios
     if (empty($target_user['usuario'])) {
-        $stmtU = $conn->prepare("SELECT usuario, email FROM usuarios WHERE id = ? LIMIT 1");
+        $stmtU = $conn->prepare("SELECT usuario FROM usuarios WHERE id = ? LIMIT 1");
         if ($stmtU) {
             $stmtU->bind_param("i", $uid);
             $stmtU->execute();
             $uRow = $stmtU->get_result()->fetch_assoc();
             if ($uRow) {
                 if (stripos($uRow['usuario'] ?? '', 'powerpadel') !== false || stripos($uRow['usuario'] ?? '', 'power padel') !== false) {
-                    return true;
-                }
-                if (stripos($uRow['email'] ?? '', 'powerpadel') !== false || stripos($uRow['email'] ?? '', 'power padel') !== false) {
                     return true;
                 }
             }

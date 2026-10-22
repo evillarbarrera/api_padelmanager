@@ -32,8 +32,8 @@ $db->set_charset("utf8mb4");
 */
 
 // Búsqueda del usuario en la tabla 'usuarios'
-$stmt = $db->prepare("SELECT id, nombre, apellido, usuario, password, rol, club_id, foto_perfil, subscription_status FROM usuarios WHERE usuario = ? OR email = ? LIMIT 1");
-$stmt->bind_param("ss", $usuario, $usuario);
+$stmt = $db->prepare("SELECT id, nombre, apellido, usuario, password, rol, club_id, foto_perfil, subscription_status FROM usuarios WHERE usuario = ? LIMIT 1");
+$stmt->bind_param("s", $usuario);
 $stmt->execute();
 $result = $stmt->get_result();
 

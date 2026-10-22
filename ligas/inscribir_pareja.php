@@ -102,7 +102,7 @@ try {
     // Calcular nombres reales para nombre_pareja si corresponde
     $nom1 = '';
     if ($jugador1_id) {
-        $u1_res = $conn->query("SELECT nombre, apellido, usuario, email FROM usuarios WHERE id = $jugador1_id");
+        $u1_res = $conn->query("SELECT nombre, apellido, usuario, usuario as email FROM usuarios WHERE id = $jugador1_id");
         if ($u1_res && $u1 = $u1_res->fetch_assoc()) {
             $nom1 = trim(($u1['nombre'] ?? '') . ' ' . ($u1['apellido'] ?? ''));
             if (empty($nom1)) $nom1 = $u1['usuario'] ?? $u1['email'] ?? 'Jugador 1';
@@ -112,7 +112,7 @@ try {
 
     $nom2 = '';
     if ($jugador2_id) {
-        $u2_res = $conn->query("SELECT nombre, apellido, usuario, email FROM usuarios WHERE id = $jugador2_id");
+        $u2_res = $conn->query("SELECT nombre, apellido, usuario, usuario as email FROM usuarios WHERE id = $jugador2_id");
         if ($u2_res && $u2 = $u2_res->fetch_assoc()) {
             $nom2 = trim(($u2['nombre'] ?? '') . ' ' . ($u2['apellido'] ?? ''));
             if (empty($nom2)) $nom2 = $u2['usuario'] ?? $u2['email'] ?? 'Jugador 2';

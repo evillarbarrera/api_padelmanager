@@ -26,7 +26,7 @@ if (!$pack_id) {
 require_once "../db.php";
 
 // Obtener todas las inscripciones activas del pack
-$sql = "SELECT ig.*, u.nombre, u.email 
+$sql = "SELECT ig.*, u.nombre, u.usuario as email 
         FROM inscripciones_grupales ig
         JOIN usuarios u ON u.id = ig.jugador_id
         WHERE ig.pack_id = ? AND ig.estado = 'activo'
