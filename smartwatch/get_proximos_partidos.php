@@ -48,6 +48,7 @@ try {
                     LEFT JOIN usuarios u4 ON r.jugador4_id = u4.id
                     WHERE (r.usuario_id = ? OR r.jugador2_id = ? OR r.jugador3_id = ? OR r.jugador4_id = ?)
                       AND (r.fecha >= DATE_SUB(CURDATE(), INTERVAL 1 DAY))
+                      AND LOWER(TRIM(COALESCE(r.estado, ''))) NOT IN ('cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'rechazado', 'eliminada', 'eliminado')
                     ORDER BY r.fecha ASC, r.hora_inicio ASC
                     LIMIT 10";
 
@@ -58,30 +59,53 @@ try {
         $resR = $stmtR->get_result();
 
         while ($r = $resR->fetch_assoc()) {
-            $p1 = trim(($r['j1_nombre'] ?? 'Jugador 1') . ' ' . ($r['j1_ape'] ?? ''));
-            if (!empty($r['j2_nombre'])) {
-                $p1 .= ' / ' . trim($r['j2_nombre'] . ' ' . ($r['j2_ape'] ?? ''));
-            } else {
-                $p1 .= ' / Pareja';
-            }
+            // Nombres reales o externos de los 4 jugadores
+            $n1 = trim(($r['j1_nombre'] ?? '') . ' ' . ($r['j1_ape'] ?? ''));
+            if (empty($n1)) $n1 = trim($r['nombre_externo'] ?? '');
+            if (empty($n1)) $n1 = 'Jugador 1';
 
-            $p2 = !empty($r['j3_nombre']) ? trim($r['j3_nombre'] . ' ' . ($r['j3_ape'] ?? '')) : 'Rival 1';
-            if (!empty($r['j4_nombre'])) {
-                $p2 .= ' / ' . trim($r['j4_nombre'] . ' ' . ($r['j4_ape'] ?? ''));
+            $n2 = trim(($r['j2_nombre'] ?? '') . ' ' . ($r['j2_ape'] ?? ''));
+            if (empty($n2)) $n2 = trim($r['nombre_externo2'] ?? '');
+
+            $n3 = trim(($r['j3_nombre'] ?? '') . ' ' . ($r['j3_ape'] ?? ''));
+            if (empty($n3)) $n3 = trim($r['nombre_externo3'] ?? '');
+
+            $n4 = trim(($r['j4_nombre'] ?? '') . ' ' . ($r['j4_ape'] ?? ''));
+            if (empty($n4)) $n4 = trim($r['nombre_externo4'] ?? '');
+
+            $esClase = (!empty($r['reserva_entrenador_id']) || (!empty($r['tipo_reserva']) && $r['tipo_reserva'] === 'entrenamiento') || (strpos($n1, '🎾 Clase') !== false));
+
+            if ($esClase) {
+                $p1 = $n1;
+                $p2 = !empty($n3) ? $n3 : 'Sesión Técnica';
+                $tipoLabel = 'Clase / Entrenamiento';
+                $tipoActividad = 'entrenamiento';
             } else {
-                $p2 .= ' / Rival 2';
+                $p1 = !empty($n2) ? "$n1 / $n2" : $n1;
+                if (!empty($n3) && !empty($n4)) {
+                    $p2 = "$n3 / $n4";
+                } elseif (!empty($n3)) {
+                    $p2 = $n3;
+                } else {
+                    $p2 = 'Pareja Rival';
+                }
+                $tipoLabel = 'Cancha Reservada';
+                $tipoActividad = 'partido';
             }
 
             $hIni = !empty($r['hora_inicio']) ? substr($r['hora_inicio'], 0, 5) : '19:00';
             $hFin = !empty($r['hora_fin']) ? substr($r['hora_fin'], 0, 5) : '20:30';
+
+            $esHoy = ($r['fecha'] === $hoy);
+            $horarioTexto = $esHoy ? "Hoy $hIni - $hFin hrs" : (date('d/m', strtotime($r['fecha'])) . " $hIni - $hFin hrs");
 
             $proximos_partidos[] = [
                 "id" => "res_" . $r['id'],
                 "reserva_id" => (int)$r['id'],
                 "liga_partido_id" => null,
                 "tipo_origen" => "reserva",
-                "tipo_label" => "Cancha Reservada",
-                "tipo_actividad" => "partido",
+                "tipo_label" => $tipoLabel,
+                "tipo_actividad" => $tipoActividad,
                 "club_id" => (int)$r['club_id'],
                 "club_nombre" => $r['club_nombre'],
                 "cancha_nombre" => $r['cancha_nombre'],
@@ -90,12 +114,12 @@ try {
                 "fecha_formateada" => date('d/m/Y', strtotime($r['fecha'])),
                 "hora_inicio" => $hIni,
                 "hora_fin" => $hFin,
-                "horario_texto" => "$hIni - $hFin hrs",
+                "horario_texto" => $horarioTexto,
                 "pareja1" => $p1,
                 "pareja2" => $p2,
                 "punto_oro" => true,
                 "sets" => 3,
-                "es_hoy" => ($r['fecha'] === $hoy)
+                "es_hoy" => $esHoy
             ];
         }
     }
@@ -109,18 +133,18 @@ try {
                               u_e.nombre as entrenador_nombre, u_e.apellido as entrenador_ape,
                               c.id as club_id, c.nombre as club_nombre
                        FROM reservas r
-                       INNER JOIN reserva_jugadores rj ON rj.reserva_id = r.id
+                       LEFT JOIN reserva_jugadores rj ON rj.reserva_id = r.id
                        LEFT JOIN packs p ON p.id = r.pack_id
                        LEFT JOIN clubes c ON c.id = r.club_id
                        LEFT JOIN usuarios u_e ON u_e.id = r.entrenador_id
-                       WHERE rj.jugador_id = ?
-                         AND r.estado = 'reservado'
+                       WHERE (rj.jugador_id = ? OR r.entrenador_id = ?)
+                         AND LOWER(TRIM(r.estado)) = 'reservado'
                          AND (r.fecha >= DATE_SUB(CURDATE(), INTERVAL 1 DAY))
                        ORDER BY r.fecha ASC, r.hora_inicio ASC
                        LIMIT 10";
         $stmtE = $conn->prepare($sqlEntrena);
         if ($stmtE) {
-            $stmtE->bind_param("i", $userId);
+            $stmtE->bind_param("ii", $userId, $userId);
             $stmtE->execute();
             $resE = $stmtE->get_result();
             while ($ent = $resE->fetch_assoc()) {
@@ -128,6 +152,8 @@ try {
                 $hFin = !empty($ent['hora_fin']) ? substr($ent['hora_fin'], 0, 5) : '19:00';
                 $coachName = trim(($ent['entrenador_nombre'] ?? 'Coach') . ' ' . ($ent['entrenador_ape'] ?? ''));
                 $tipoLabel = ($ent['tipo'] === 'grupal') ? 'Clase Grupal' : 'Entrenamiento';
+                $esHoy = ($ent['fecha'] === $hoy);
+                $horarioTexto = $esHoy ? "Hoy $hIni - $hFin hrs" : (date('d/m', strtotime($ent['fecha'])) . " $hIni - $hFin hrs");
 
                 $proximos_partidos[] = [
                     "id" => "entrena_" . $ent['reserva_id'],
@@ -145,12 +171,12 @@ try {
                     "fecha_formateada" => date('d/m/Y', strtotime($ent['fecha'])),
                     "hora_inicio" => $hIni,
                     "hora_fin" => $hFin,
-                    "horario_texto" => "$hIni - $hFin hrs",
+                    "horario_texto" => $horarioTexto,
                     "pareja1" => "Coach: $coachName",
                     "pareja2" => "Sesión Técnica",
                     "punto_oro" => false,
                     "sets" => 1,
-                    "es_hoy" => ($ent['fecha'] === $hoy)
+                    "es_hoy" => $esHoy
                 ];
             }
         }
@@ -187,7 +213,8 @@ try {
 
             while ($lp = $resL->fetch_assoc()) {
                 $hIni = !empty($lp['hora_inicio']) ? substr($lp['hora_inicio'], 0, 5) : '20:00';
-                $fec = !empty($lp['fecha']) ? $lp['fecha'] : $hoy;
+                $esHoy = ($fec === $hoy);
+                $horarioTexto = $esHoy ? "Hoy $hIni hrs" : (date('d/m', strtotime($fec)) . " $hIni hrs");
 
                 $proximos_partidos[] = [
                     "id" => "liga_" . $lp['id'],
@@ -204,12 +231,12 @@ try {
                     "fecha_formateada" => date('d/m/Y', strtotime($fec)),
                     "hora_inicio" => $hIni,
                     "hora_fin" => date('H:i', strtotime("$hIni +90 minutes")),
-                    "horario_texto" => "$hIni hrs",
+                    "horario_texto" => $horarioTexto,
                     "pareja1" => $lp['pareja1_nombre'] ?? 'Mi Pareja',
                     "pareja2" => $lp['pareja2_nombre'] ?? 'Pareja Rival',
                     "punto_oro" => true,
                     "sets" => 3,
-                    "es_hoy" => ($fec === $hoy)
+                    "es_hoy" => $esHoy
                 ];
             }
         }
