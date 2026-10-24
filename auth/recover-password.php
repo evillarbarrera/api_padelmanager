@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 require_once "../db.php";
 
 $data = json_decode(file_get_contents("php://input"), true);
-$email = $data['email'] ?? '';
+$email = trim($data['email'] ?? '');
 
 if (empty($email)) {
     http_response_code(400);
@@ -23,13 +23,15 @@ if (empty($email)) {
     exit;
 }
 
-// Check if user exists
-// Note: In register.php, 'usuario' column stores the email
-$sql = "SELECT id, nombre, usuario FROM usuarios WHERE usuario = ?";
+// Búsqueda insensible a mayúsculas/minúsculas para el email
+$sql = "SELECT id, nombre, usuario FROM usuarios WHERE LOWER(TRIM(usuario)) = LOWER(?) LIMIT 1";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("s", $email);
 $stmt->execute();
 $result = $stmt->get_result();
+
+$mail_sent = false;
+$resMail = null;
 
 if ($user = $result->fetch_assoc()) {
     require_once "../system/mail_service.php";
@@ -40,53 +42,98 @@ if ($user = $result->fetch_assoc()) {
     $user_id = $user['id'];
 
     // 2. Guardar token en BD
-    $stmtToken = $conn->prepare("UPDATE usuarios SET reset_token = ?, reset_expires = ? WHERE id = ?");
-    $stmtToken->bind_param("ssi", $token, $expires, $user_id);
-    $stmtToken->execute();
+    try {
+        $stmtToken = $conn->prepare("UPDATE usuarios SET reset_token = ?, reset_expires = ? WHERE id = ?");
+        if ($stmtToken) {
+            $stmtToken->bind_param("ssi", $token, $expires, $user_id);
+            $stmtToken->execute();
+            $stmtToken->close();
+        }
+    } catch (Throwable $eToken) {
+        error_log("Error actualizando reset_token: " . $eToken->getMessage());
+    }
 
     // 3. Preparar Link (Apunta al frontend - Versión con Hash para asegurar compatibilidad en todos los servers)
     $resetLink = "https://padelblox.cl/#/reset-password?token=" . $token;
     
-    $to = $email;
-    $subject = "NUEVO: Restablecer tu contraseña - Padel Manager";
+    $to = $user['usuario'] ?: $email;
+    $subject = "Restablecer tu contraseña - PadelBlox";
+    $nombreUser = !empty($user['nombre']) ? htmlspecialchars($user['nombre']) : 'Jugador';
     
     $message = "
+    <!DOCTYPE html>
     <html>
     <head>
-      <title>Restablecer Contraseña</title>
+      <meta charset='UTF-8'>
+      <title>Restablecer Contraseña - PadelBlox</title>
     </head>
-    <body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333;'>
-      <div style='max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;'>
-        <div style='text-align: center; margin-bottom: 20px;'>
-          <img src='https://api.padelmanager.cl/assets/images/logo-padelblox.png' alt='PadelBlox' style='width: 80px; height: 80px; border-radius: 12px;' />
-        </div>
-        <h2 style='color: #111; border-bottom: 2px solid #ccff00; padding-bottom: 10px;'>PADELBLOX</h2>
-        <p>Hola <strong>" . htmlspecialchars($user['nombre']) . "</strong>,</p>
-        <p>Hemos recibido una solicitud para restablecer tu contraseña. Haz clic en el botón de abajo para elegir una nueva:</p>
-        
-        <div style='text-align: center; margin: 30px 0;'>
-          <a href='$resetLink' style='background-color: #ccff00; color: #000; padding: 12px 25px; text-decoration: none; font-weight: bold; border-radius: 5px; display: inline-block;'>RESTABLECER CONTRASEÑA</a>
-        </div>
+    <body style='margin: 0; padding: 0; background-color: #080C14; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; color: #FFFFFF;'>
+      <table width='100%' border='0' cellspacing='0' cellpadding='0' style='background-color: #080C14; padding: 40px 15px;'>
+        <tr>
+          <td align='center'>
+            <div style='max-width: 560px; background: #0E131F; border: 1px solid #1E293B; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.6);'>
+              <!-- Header con Logo -->
+              <div style='background: #080C14; padding: 30px 20px; text-align: center; border-bottom: 1px solid #1E293B;'>
+                <div style='display: inline-block; background: #161D2E; border: 1px solid #2A364F; border-radius: 12px; padding: 8px 18px;'>
+                  <span style='color: #CCFF00; font-size: 16px; font-weight: 900; letter-spacing: 2px;'>🎾 PADELBLOX</span>
+                </div>
+              </div>
 
-        <p>Este enlace expirará en 1 hora por seguridad.</p>
-        <p>Si no realizaste esta solicitud, puedes ignorar este correo.</p>
-        
-        <p style='font-size: 12px; color: #888; border-top: 1px solid #eee; margin-top: 30px; padding-top: 10px;'>
-          Si el botón no funciona, copia y pega este link en tu navegador:<br>
-          <span style='color: #0066cc;'>$resetLink</span>
-        </p>
-      </div>
+              <!-- Contenido Principal -->
+              <div style='padding: 35px 30px; text-align: left;'>
+                <h1 style='color: #FFFFFF; font-size: 22px; font-weight: 900; margin: 0 0 15px; letter-spacing: -0.5px;'>
+                  Recuperación de Contraseña
+                </h1>
+                <p style='color: #94A3B8; font-size: 15px; line-height: 1.6; margin: 0 0 20px;'>
+                  Hola <strong style='color: #FFFFFF;'>$nombreUser</strong>,
+                </p>
+                <p style='color: #94A3B8; font-size: 14px; line-height: 1.6; margin: 0 0 30px;'>
+                  Recibimos una solicitud para restablecer la contraseña de tu cuenta de PadelBlox. Para crear una nueva contraseña, haz clic en el siguiente botón:
+                </p>
+                
+                <!-- Botón CTA Volt -->
+                <div style='text-align: center; margin: 35px 0;'>
+                  <a href='$resetLink' style='background-color: #CCFF00; color: #080C14; padding: 15px 35px; text-decoration: none; font-weight: 900; font-size: 14px; letter-spacing: 0.5px; border-radius: 12px; display: inline-block; box-shadow: 0 6px 20px rgba(204, 255, 0, 0.3);'>
+                    RESTABLECER MI CONTRASEÑA
+                  </a>
+                </div>
+
+                <div style='background: rgba(204, 255, 0, 0.05); border: 1px dashed rgba(204, 255, 0, 0.3); border-radius: 12px; padding: 14px; margin: 25px 0;'>
+                  <p style='color: #E2E8F0; font-size: 12.5px; margin: 0; line-height: 1.5;'>
+                    ⏱️ Por seguridad, este enlace tiene una validez de <strong>1 hora</strong>. Si no solicitaste este cambio, puedes ignorar este correo; tu contraseña actual continuará siendo segura.
+                  </p>
+                </div>
+                
+                <p style='font-size: 12px; color: #64748B; border-top: 1px solid #1E293B; margin-top: 30px; padding-top: 15px; word-break: break-all;'>
+                  Si el botón no funciona, copia y pega este enlace en tu navegador:<br>
+                  <a href='$resetLink' style='color: #38BDF8; text-decoration: none;'>$resetLink</a>
+                </p>
+              </div>
+
+              <!-- Footer -->
+              <div style='background: #080C14; padding: 20px; text-align: center; border-top: 1px solid #1E293B;'>
+                <p style='color: #475569; font-size: 11.5px; margin: 0;'>
+                  © " . date('Y') . " PadelBlox. Todos los derechos reservados.
+                </p>
+              </div>
+            </div>
+          </td>
+        </tr>
+      </table>
     </body>
     </html>
     ";
     
     $resMail = enviarCorreoSMTP($to, $subject, $message);
-    $mail_sent = $resMail['success'];
+    $mail_sent = !empty($resMail['success']);
 }
 
-// Siempre retornamos true al cliente por seguridad
+// Retornamos respuesta JSON
 echo json_encode([
     "success" => true,
-    "internal_debug" => isset($mail_sent) ? ($mail_sent ? "Sent via SMTP" : "Failed SMTP: " . ($resMail['error'] ?? 'Unknown')) : "UserNotFound",
+    "mail_sent" => $mail_sent,
+    "internal_debug" => isset($user) 
+        ? ($mail_sent ? "Sent successfully" : "Delivery failed: " . ($resMail['error'] ?? 'Unknown error'))
+        : "UserNotFound",
     "message" => "Si el correo está registrado, recibirás instrucciones en unos minutos."
 ]);

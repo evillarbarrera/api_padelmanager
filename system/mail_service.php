@@ -1,12 +1,15 @@
 <?php
 /**
- * Servicio de envío de correos vía API Transaccional Oficial de RESEND.COM
+ * Servicio de envío de correos Padelblox
+ * Motor Híbrido: Resend API Oficial (Principal) + PHPMailer SMTP (Fallback)
  */
+
+require_once __DIR__ . '/mail_config.php';
 
 function enviarCorreoSMTP($to, $subject, $bodyHTML) {
     @set_time_limit(300);
-    $apiKey = getenv('RESEND_API_KEY') ?: '';
     $logFile = __DIR__ . '/mail_debug.log';
+    
     $recipients = is_array($to) ? $to : [$to];
     $cleanRecipients = [];
     foreach ($recipients as $r) {
@@ -17,55 +20,164 @@ function enviarCorreoSMTP($to, $subject, $bodyHTML) {
     }
 
     if (empty($cleanRecipients)) {
-        file_put_contents($logFile, date('[Y-m-d H:i:s]') . " [RESEND CANCELADO] No hay destinatarios válidos recibidos.\n", FILE_APPEND);
-        return ['success' => false, 'error' => 'No valid recipients'];
+        file_put_contents($logFile, date('[Y-m-d H:i:s]') . " [MAIL CANCELADO] No hay destinatarios válidos recibidos.\n", FILE_APPEND);
+        return ['success' => false, 'error' => 'No valid recipients', 'errors' => ['No valid recipients']];
     }
 
     $errors = [];
     $successes = 0;
     $totalRecipients = count($cleanRecipients);
+    $apiKey = defined('RESEND_API_KEY') ? RESEND_API_KEY : (getenv('RESEND_API_KEY') ?: '');
+    $fromEmail = defined('MAIL_FROM_EMAIL') ? MAIL_FROM_EMAIL : 'no_reply@padelmanager.cl';
+    $fromName  = defined('MAIL_FROM_NAME') ? MAIL_FROM_NAME : 'PADELBLOX';
+    $replyTo   = defined('MAIL_REPLY_TO') ? MAIL_REPLY_TO : $fromEmail;
 
-    file_put_contents($logFile, date('[Y-m-d H:i:s]') . " [RESEND API INICIO] Despachando a $totalRecipients cuentas vía API Transaccional Resend.com...\n", FILE_APPEND);
+    file_put_contents($logFile, date('[Y-m-d H:i:s]') . " [MAIL INICIO] Despachando a $totalRecipients cuentas...\n", FILE_APPEND);
 
     foreach ($cleanRecipients as $index => $singleTo) {
         $startTime = microtime(true);
-        $payload = [
-            "from" => "PADELBLOX <no_reply@padelmanager.cl>",
-            "to" => [$singleTo],
-            "subject" => $subject,
-            "html" => $bodyHTML
-        ];
+        $sentOk = false;
 
-        $ch = curl_init("https://api.resend.com/emails");
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            "Authorization: Bearer $apiKey",
-            "Content-Type: application/json"
-        ]);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 12);
+        // =========================================================================
+        // 1. INTENTO VÍA RESEND API (Alta entregabilidad con SPF/DKIM oficial)
+        // =========================================================================
+        if (!empty($apiKey)) {
+            $payload = [
+                "from" => "$fromName <$fromEmail>",
+                "to" => [$singleTo],
+                "reply_to" => $replyTo,
+                "subject" => $subject,
+                "html" => $bodyHTML
+            ];
 
-        $response = curl_exec($ch);
-        $error = curl_error($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+            $ch = curl_init("https://api.resend.com/emails");
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                "Authorization: Bearer $apiKey",
+                "Content-Type: application/json",
+                "User-Agent: Padelblox-Mailer/2.0"
+            ]);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 15);
 
-        $duration = round(microtime(true) - $startTime, 3);
+            $response = curl_exec($ch);
+            $error = curl_error($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
 
-        if ($httpCode >= 200 && $httpCode < 300) {
-            $successes++;
-            $logMsg = date('[Y-m-d H:i:s]') . " [RESEND API OK " . ($index+1) . "/$totalRecipients] -> <$singleTo> (Tiempo: {$duration}s, Resend: $response)\n";
-        } else {
-            $errors[] = "$singleTo: HTTP $httpCode - $response - $error";
-            $logMsg = date('[Y-m-d H:i:s]') . " [RESEND API ERROR " . ($index+1) . "/$totalRecipients] -> <$singleTo>: Code $httpCode - $response ($error)\n";
+            $duration = round(microtime(true) - $startTime, 3);
+
+            if ($httpCode >= 200 && $httpCode < 300) {
+                $successes++;
+                $sentOk = true;
+                $logMsg = date('[Y-m-d H:i:s]') . " [RESEND API OK " . ($index+1) . "/$totalRecipients] -> <$singleTo> (Tiempo: {$duration}s, Resend: $response)\n";
+                file_put_contents($logFile, $logMsg, FILE_APPEND);
+            } else {
+                $logMsg = date('[Y-m-d H:i:s]') . " [RESEND API FAIL " . ($index+1) . "/$totalRecipients] -> <$singleTo>: Code $httpCode - $response ($error). Activando fallback SMTP PHPMailer...\n";
+                file_put_contents($logFile, $logMsg, FILE_APPEND);
+            }
         }
-        file_put_contents($logFile, $logMsg, FILE_APPEND);
+
+        // =========================================================================
+        // 2. FALLBACK VÍA PHPMAILER SMTP (Autenticación directa con Ferozo / servidor)
+        // =========================================================================
+        if (!$sentOk) {
+            $phpmailerClass = __DIR__ . '/PHPMailer/PHPMailer.php';
+            if (file_exists($phpmailerClass)) {
+                require_once __DIR__ . '/PHPMailer/PHPMailer.php';
+                require_once __DIR__ . '/PHPMailer/SMTP.php';
+                require_once __DIR__ . '/PHPMailer/Exception.php';
+
+                // Intentar primero con SSL (465) y si falla reintentar con TLS (587)
+                $smtpConfigs = [
+                    ['host' => defined('SMTP_HOST') ? SMTP_HOST : 'c2632100.ferozo.com', 'port' => defined('SMTP_PORT') ? SMTP_PORT : 465, 'secure' => defined('SMTP_SECURE') ? SMTP_SECURE : 'ssl'],
+                    ['host' => defined('SMTP_HOST') ? SMTP_HOST : 'c2632100.ferozo.com', 'port' => defined('SMTP_FALLBACK_PORT') ? SMTP_FALLBACK_PORT : 587, 'secure' => defined('SMTP_FALLBACK_SECURE') ? SMTP_FALLBACK_SECURE : 'tls']
+                ];
+
+                foreach ($smtpConfigs as $cfg) {
+                    try {
+                        $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+                        $mail->isSMTP();
+                        $mail->Host       = $cfg['host'];
+                        $mail->SMTPAuth   = true;
+                        $mail->Username   = defined('SMTP_USER') ? SMTP_USER : 'no_reply@padelmanager.cl';
+                        $mail->Password   = defined('SMTP_PASS') ? SMTP_PASS : 'H@kgrp6B';
+                        $mail->SMTPSecure = ($cfg['secure'] === 'ssl') ? PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS : PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+                        $mail->Port       = $cfg['port'];
+                        $mail->CharSet    = 'UTF-8';
+                        $mail->Timeout    = 15;
+
+                        // Opciones de SSL flexibles para servidores compartidos
+                        $mail->SMTPOptions = [
+                            'ssl' => [
+                                'verify_peer' => false,
+                                'verify_peer_name' => false,
+                                'allow_self_signed' => true
+                            ]
+                        ];
+
+                        $mail->setFrom($fromEmail, $fromName);
+                        $mail->addAddress($singleTo);
+                        if (!empty($replyTo)) {
+                            $mail->addReplyTo($replyTo, $fromName);
+                        }
+
+                        $mail->isHTML(true);
+                        $mail->Subject = $subject;
+                        $mail->Body    = $bodyHTML;
+                        $mail->AltBody = strip_tags(str_replace(['<br>', '<br/>', '</p>'], "\n", $bodyHTML));
+
+                        $mail->send();
+                        $successes++;
+                        $sentOk = true;
+                        $duration = round(microtime(true) - $startTime, 3);
+                        $logMsg = date('[Y-m-d H:i:s]') . " [PHPMAILER SMTP OK " . ($index+1) . "/$totalRecipients] -> <$singleTo> via {$cfg['host']}:{$cfg['port']} (Tiempo: {$duration}s)\n";
+                        file_put_contents($logFile, $logMsg, FILE_APPEND);
+                        break; // Envío exitoso, salir del loop de puertos SMTP
+                    } catch (Throwable $eSmtp) {
+                        $logMsg = date('[Y-m-d H:i:s]') . " [PHPMAILER SMTP FAIL port {$cfg['port']}] -> <$singleTo>: " . $eSmtp->getMessage() . "\n";
+                        file_put_contents($logFile, $logMsg, FILE_APPEND);
+                    }
+                }
+            }
+        }
+
+        // =========================================================================
+        // 3. FALLBACK FINAL: PHP MAIL() NATIVO
+        // =========================================================================
+        if (!$sentOk) {
+            $headers = "From: $fromName <$fromEmail>\r\n";
+            $headers .= "Reply-To: $replyTo\r\n";
+            $headers .= "MIME-Version: 1.0\r\n";
+            $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
+            $headers .= "X-Mailer: PHP/" . phpversion() . "\r\n";
+
+            $encodedSubject = "=?UTF-8?B?" . base64_encode($subject) . "?=";
+            $mailSent = @mail($singleTo, $encodedSubject, $bodyHTML, $headers);
+
+            if ($mailSent) {
+                $successes++;
+                $sentOk = true;
+                $logMsg = date('[Y-m-d H:i:s]') . " [PHP MAIL OK " . ($index+1) . "/$totalRecipients] -> <$singleTo> (Servidor nativo)\n";
+                file_put_contents($logFile, $logMsg, FILE_APPEND);
+            } else {
+                $lastErr = error_get_last();
+                $errMsg = $lastErr['message'] ?? 'Error desconocido en mail()';
+                $errors[] = "$singleTo: $errMsg";
+                $logMsg = date('[Y-m-d H:i:s]') . " [PHP MAIL ERROR " . ($index+1) . "/$totalRecipients] -> <$singleTo>: $errMsg\n";
+                file_put_contents($logFile, $logMsg, FILE_APPEND);
+            }
+        }
     }
 
-    return ['success' => ($successes > 0), 'errors' => $errors];
+    return [
+        'success' => ($successes > 0),
+        'errors' => $errors,
+        'error' => !empty($errors) ? implode('; ', $errors) : null
+    ];
 }
 
 function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = []) {
@@ -268,11 +380,23 @@ function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = [])
         try {
             $clubNotifRes = $conn->query("SELECT email, email_notificaciones FROM clubes WHERE id = $club_id");
             if ($clubNotifRes && $cRow = $clubNotifRes->fetch_assoc()) {
-                if (!empty($cRow['email_notificaciones']) && strpos($cRow['email_notificaciones'], '@') !== false) {
-                    $targets[trim($cRow['email_notificaciones'])] = "Notificaciones " . $reserva['club_nombre'];
+                if (!empty($cRow['email_notificaciones'])) {
+                    $parts = preg_split('/[,;\s]+/', $cRow['email_notificaciones']);
+                    foreach ($parts as $pMail) {
+                        $pMail = trim($pMail);
+                        if (!empty($pMail) && strpos($pMail, '@') !== false) {
+                            $targets[$pMail] = "Notificaciones " . $reserva['club_nombre'];
+                        }
+                    }
                 }
-                if (!empty($cRow['email']) && strpos($cRow['email'], '@') !== false) {
-                    $targets[trim($cRow['email'])] = "Administración " . $reserva['club_nombre'];
+                if (!empty($cRow['email'])) {
+                    $parts = preg_split('/[,;\s]+/', $cRow['email']);
+                    foreach ($parts as $pMail) {
+                        $pMail = trim($pMail);
+                        if (!empty($pMail) && strpos($pMail, '@') !== false) {
+                            $targets[$pMail] = "Administración " . $reserva['club_nombre'];
+                        }
+                    }
                 }
             }
         } catch (Throwable $eNotif) {}
