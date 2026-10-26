@@ -283,21 +283,35 @@ function getUserProfiles($conn, $user) {
         }
     }
 
-    // 5. SIEMPRE asegurar que exista un perfil de jugador (todo admin o entrenador también puede jugar/reservar)
-    $hasJugador = false;
-    foreach ($perfiles as $p) {
-        if ($p['rol'] === 'jugador') {
-            $hasJugador = true;
-            break;
+    // 5. Si el rol base en usuarios es jugador
+    if ($baseRole === 'jugador') {
+        $hasJugador = false;
+        foreach ($perfiles as $p) {
+            if ($p['rol'] === 'jugador') {
+                $hasJugador = true;
+                break;
+            }
+        }
+        if (!$hasJugador) {
+            $perfiles[] = [
+                "id" => 0,
+                "club_id" => null,
+                "rol" => "jugador",
+                "nivel" => $user['nivel'] ?? null,
+                "club_nombre" => "Perfil Jugador",
+                "admin_id" => null
+            ];
         }
     }
-    if (!$hasJugador) {
+
+    // 6. Si por algún motivo perfiles quedó vacío, asignar su rol base
+    if (count($perfiles) === 0) {
         $perfiles[] = [
             "id" => 0,
             "club_id" => null,
-            "rol" => "jugador",
+            "rol" => $baseRole,
             "nivel" => $user['nivel'] ?? null,
-            "club_nombre" => "Perfil Jugador",
+            "club_nombre" => "Perfil " . ucfirst(str_replace('_', ' ', $baseRole)),
             "admin_id" => null
         ];
     }

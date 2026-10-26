@@ -69,7 +69,17 @@ try {
                     $needsRehash = true;
                 }
             } 
-            // 2. Fallback: verificar texto plano (Legacy migration)
+            // 2. Fallback: verificar MD5 (Legacy migration)
+            elseif (md5($password) === $passwordStored) {
+                $loginSuccess = true;
+                $needsRehash = true;
+            }
+            // 3. Fallback: verificar SHA1 (Legacy migration)
+            elseif (sha1($password) === $passwordStored) {
+                $loginSuccess = true;
+                $needsRehash = true;
+            }
+            // 4. Fallback: verificar texto plano (Legacy migration)
             elseif ($password === $passwordStored) {
                 $loginSuccess = true;
                 $needsRehash = true; // Convertir a hash
