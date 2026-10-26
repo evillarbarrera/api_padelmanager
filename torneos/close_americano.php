@@ -17,8 +17,10 @@ if (!$userId) {
 
 require_once "../db.php";
 
-$data = json_decode(file_get_contents("php://input"), true);
-$torneo_id = (int)($data['torneo_id'] ?? 0);
+$rawInput = file_get_contents("php://input");
+$data = json_decode($rawInput, true) ?: [];
+
+$torneo_id = (int)($data['torneo_id'] ?? $data['id'] ?? $_POST['torneo_id'] ?? $_POST['id'] ?? $_GET['torneo_id'] ?? $_GET['id'] ?? 0);
 
 if (!$torneo_id) {
     http_response_code(400);
@@ -32,19 +34,20 @@ if (!$torneo_id) {
 function ensureColumn($conn, $table, $column, $definition) {
     $check = $conn->query("SHOW COLUMNS FROM `$table` LIKE '$column'");
     if ($check && $check->num_rows == 0) {
-        $conn->query("ALTER TABLE `$table` ADD `$column` $definition");
+        @$conn->query("ALTER TABLE `$table` ADD `$column` $definition");
     }
 }
 
 ensureColumn($conn, 'usuarios', 'puntos_ranking', "INT DEFAULT 0");
-ensureColumn($conn, 'torneos_americanos', 'estado', "ENUM('Abierto', 'Cerrado') DEFAULT 'Abierto'");
+ensureColumn($conn, 'torneos_americanos', 'estado', "VARCHAR(50) DEFAULT 'Abierto'");
+@$conn->query("ALTER TABLE torneos_americanos MODIFY COLUMN estado VARCHAR(50) DEFAULT 'Abierto'");
 ensureColumn($conn, 'torneos_americanos', 'puntos_1er_lugar', "INT DEFAULT 100");
 ensureColumn($conn, 'torneos_americanos', 'puntos_2do_lugar', "INT DEFAULT 60");
 ensureColumn($conn, 'torneos_americanos', 'puntos_3er_lugar', "INT DEFAULT 40");
 ensureColumn($conn, 'torneos_americanos', 'puntos_4to_lugar', "INT DEFAULT 20");
 ensureColumn($conn, 'torneos_americanos', 'puntos_participacion', "INT DEFAULT 5");
 ensureColumn($conn, 'torneos_americanos', 'categoria', "VARCHAR(50) DEFAULT 'Cuarta'");
-$conn->query("CREATE TABLE IF NOT EXISTS ranking_categorias (
+@$conn->query("CREATE TABLE IF NOT EXISTS ranking_categorias (
     id INT AUTO_INCREMENT PRIMARY KEY,
     usuario_id INT NOT NULL,
     categoria VARCHAR(50) NOT NULL,
@@ -61,15 +64,20 @@ if (!function_exists('asignarPuntosAmericano')) {
         foreach ($jugadores as $uid) {
             $uid = (int)$uid;
             if ($uid > 0) {
-                // Update global
-                $conn->query("UPDATE usuarios SET puntos_ranking = puntos_ranking + $puntos WHERE id = $uid");
-                // Update categoria
-                $stmt = $conn->prepare("INSERT INTO ranking_categorias (usuario_id, categoria, puntos) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE puntos = puntos + VALUES(puntos)");
-                if ($stmt) {
-                    $stmt->bind_param("isi", $uid, $cat, $puntos);
-                    $stmt->execute();
-                    $stmt->close();
-                }
+                try {
+                    // Update global
+                    $conn->query("UPDATE usuarios SET puntos_ranking = puntos_ranking + $puntos WHERE id = $uid");
+                } catch (Throwable $e) {}
+
+                try {
+                    // Update categoria
+                    $stmt = $conn->prepare("INSERT INTO ranking_categorias (usuario_id, categoria, puntos) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE puntos = puntos + VALUES(puntos)");
+                    if ($stmt) {
+                        $stmt->bind_param("isi", $uid, $cat, $puntos);
+                        $stmt->execute();
+                        $stmt->close();
+                    }
+                } catch (Throwable $e) {}
             }
         }
     }
