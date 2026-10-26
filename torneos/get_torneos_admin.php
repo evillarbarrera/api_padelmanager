@@ -45,10 +45,17 @@ if ($checkEstado && $checkEstado->num_rows == 0) {
     @$conn->query("ALTER TABLE torneos_americanos MODIFY COLUMN estado VARCHAR(50) DEFAULT 'Abierto'");
 }
 
+// Auto-cerrar torneos en base de datos cuya fecha ya pasó
+$today = date('Y-m-d');
+@$conn->query("UPDATE torneos_americanos SET estado = 'Cerrado' WHERE (estado = 'Abierto' OR estado IS NULL OR estado = '') AND fecha < '$today'");
+
 // Get tournaments for clubs managed by this admin or where they are staff
 if ($club_id) {
     $sql = "SELECT t.*, 
-                   COALESCE(NULLIF(TRIM(t.estado), ''), 'Abierto') AS estado,
+                   CASE 
+                       WHEN t.fecha < CURDATE() THEN 'Cerrado'
+                       ELSE COALESCE(NULLIF(TRIM(t.estado), ''), 'Abierto')
+                   END AS estado,
                    c.nombre as club_nombre 
             FROM torneos_americanos t 
             LEFT JOIN clubes c ON t.club_id = c.id 
@@ -58,7 +65,10 @@ if ($club_id) {
     $stmt->bind_param("i", $club_id);
 } else {
     $sql = "SELECT t.*, 
-                   COALESCE(NULLIF(TRIM(t.estado), ''), 'Abierto') AS estado,
+                   CASE 
+                       WHEN t.fecha < CURDATE() THEN 'Cerrado'
+                       ELSE COALESCE(NULLIF(TRIM(t.estado), ''), 'Abierto')
+                   END AS estado,
                    c.nombre as club_nombre 
             FROM torneos_americanos t 
             LEFT JOIN clubes c ON t.club_id = c.id 
@@ -73,7 +83,9 @@ $result = $stmt->get_result();
 
 $torneos = [];
 while ($row = $result->fetch_assoc()) {
-    if (empty($row['estado'])) {
+    if (!empty($row['fecha']) && $row['fecha'] < $today) {
+        $row['estado'] = 'Cerrado';
+    } elseif (empty($row['estado'])) {
         $row['estado'] = 'Abierto';
     }
     $torneos[] = $row;
