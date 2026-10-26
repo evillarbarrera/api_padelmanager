@@ -42,9 +42,11 @@ if ($user = $result->fetch_assoc()) {
     $token = base64_encode($user['id'] . "|padel_academy|" . bin2hex(random_bytes(16)));
     require_once __DIR__ . '/auth_helper.php';
     registerUserSessionToken($conn, $user['id'], $token);
+    $perfiles = getUserProfiles($conn, $user);
     echo json_encode([
         "success" => true, "exists" => true, "token" => $token, 
-        "rol" => $user['rol'], "id" => $user['id'], "nombre" => $user['nombre']
+        "rol" => $user['rol'], "id" => $user['id'], "nombre" => $user['nombre'],
+        "perfiles" => $perfiles
     ]);
     exit;
 }
@@ -68,10 +70,12 @@ if (!empty($email)) {
 
         require_once __DIR__ . '/auth_helper.php';
         registerUserSessionToken($conn, $user['id'], $token);
+        $perfiles = getUserProfiles($conn, $user);
 
         echo json_encode([
             "success" => true, "exists" => true, "token" => $token, 
-            "rol" => $user['rol'], "id" => $user['id'], "nombre" => $user['nombre']
+            "rol" => $user['rol'], "id" => $user['id'], "nombre" => $user['nombre'],
+            "perfiles" => $perfiles
         ]);
         exit;
     }
@@ -95,9 +99,12 @@ if ($stmtIns->execute()) {
     $token = base64_encode($newId . "|padel_academy|" . bin2hex(random_bytes(16)));
     require_once __DIR__ . '/auth_helper.php';
     registerUserSessionToken($conn, $newId, $token);
+    $newUserObj = ['id' => $newId, 'rol' => $rol, 'nombre' => $nombre];
+    $perfiles = getUserProfiles($conn, $newUserObj);
     echo json_encode([
         "success" => true, "exists" => true, "token" => $token, 
-        "rol" => $rol, "id" => $newId, "nombre" => $nombre
+        "rol" => $rol, "id" => $newId, "nombre" => $nombre,
+        "perfiles" => $perfiles
     ]);
 } else {
     // Si falla el insert por duplicado de email (raro si es apple_<id>), intentamos buscarlo una vez más

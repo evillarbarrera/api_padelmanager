@@ -32,25 +32,48 @@ if (!$admin_id) {
     exit;
 }
 
-// SILENT SCHEMA FIX - Ensure creator_id exists
+// SILENT SCHEMA FIX - Ensure creator_id and estado exist
 $check = $conn->query("SHOW COLUMNS FROM torneos_americanos LIKE 'creator_id'");
 if ($check && $check->num_rows == 0) {
-    $conn->query("ALTER TABLE torneos_americanos ADD creator_id INT DEFAULT NULL AFTER club_id");
+    @$conn->query("ALTER TABLE torneos_americanos ADD creator_id INT DEFAULT NULL AFTER club_id");
 }
+
+$checkEstado = $conn->query("SHOW COLUMNS FROM torneos_americanos LIKE 'estado'");
+if ($checkEstado && $checkEstado->num_rows == 0) {
+    @$conn->query("ALTER TABLE torneos_americanos ADD estado VARCHAR(50) DEFAULT 'Abierto'");
+} else {
+    @$conn->query("ALTER TABLE torneos_americanos MODIFY COLUMN estado VARCHAR(50) DEFAULT 'Abierto'");
+}
+
+// Auto-cerrar torneos en base de datos cuya fecha ya pasó SOLO si no tienen estado explícito
+$today = date('Y-m-d');
+@$conn->query("UPDATE torneos_americanos SET estado = 'Cerrado' WHERE (estado IS NULL OR estado = '') AND fecha < '$today'");
 
 // Get tournaments for clubs managed by this admin or where they are staff
 if ($club_id) {
-    $sql = "SELECT t.*, c.nombre as club_nombre 
+    $sql = "SELECT t.*, 
+                   CASE 
+                       WHEN t.estado IS NOT NULL AND TRIM(t.estado) != '' THEN t.estado
+                       WHEN t.fecha < CURDATE() THEN 'Cerrado'
+                       ELSE 'Abierto'
+                   END AS estado,
+                   c.nombre as club_nombre 
             FROM torneos_americanos t 
-            JOIN clubes c ON t.club_id = c.id 
+            LEFT JOIN clubes c ON t.club_id = c.id 
             WHERE t.club_id = ?
             ORDER BY t.fecha DESC, t.hora_inicio DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("i", $club_id);
 } else {
-    $sql = "SELECT t.*, c.nombre as club_nombre 
+    $sql = "SELECT t.*, 
+                   CASE 
+                       WHEN t.estado IS NOT NULL AND TRIM(t.estado) != '' THEN t.estado
+                       WHEN t.fecha < CURDATE() THEN 'Cerrado'
+                       ELSE 'Abierto'
+                   END AS estado,
+                   c.nombre as club_nombre 
             FROM torneos_americanos t 
-            JOIN clubes c ON t.club_id = c.id 
+            LEFT JOIN clubes c ON t.club_id = c.id 
             WHERE (c.admin_id = ? OR c.id IN (SELECT club_id FROM usuarios_clubes WHERE usuario_id = ? AND activo = 1))
             ORDER BY t.fecha DESC, t.hora_inicio DESC";
     $stmt = $conn->prepare($sql);
@@ -62,6 +85,9 @@ $result = $stmt->get_result();
 
 $torneos = [];
 while ($row = $result->fetch_assoc()) {
+    if (empty($row['estado'])) {
+        $row['estado'] = (!empty($row['fecha']) && $row['fecha'] < $today) ? 'Cerrado' : 'Abierto';
+    }
     $torneos[] = $row;
 }
 

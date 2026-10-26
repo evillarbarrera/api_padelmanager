@@ -45,6 +45,7 @@ if ($user = $result->fetch_assoc()) {
     $token = base64_encode($user['id'] . "|padel_academy|" . bin2hex(random_bytes(16)));
     require_once __DIR__ . '/auth_helper.php';
     registerUserSessionToken($conn, $user['id'], $token);
+    $perfiles = getUserProfiles($conn, $user);
     
     echo json_encode([
         "success" => true,
@@ -53,7 +54,8 @@ if ($user = $result->fetch_assoc()) {
         "rol" => $user['rol'],
         "id" => $user['id'],
         "nombre" => $user['nombre'],
-        "club_guide_seen" => (int)($user['club_guide_seen'] ?? 0)
+        "club_guide_seen" => (int)($user['club_guide_seen'] ?? 0),
+        "perfiles" => $perfiles
     ]);
 } else {
     // Usuario NO EXISTE -> Requiere registro (selección de rol)
