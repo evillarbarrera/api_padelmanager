@@ -287,12 +287,23 @@ while ($row = $result->fetch_assoc()) {
         }
     }
 
+    $isRowAmericano = (
+        !empty($row['torneo_id']) ||
+        ($row['tipo_reserva'] ?? '') === 'americano' ||
+        ($row['estado'] ?? '') === 'Americano' ||
+        stripos($row['nombre_externo'] ?? '', 'americano') !== false
+    );
+
     if (!empty($row['torneo_id'])) {
         if (!empty($row['torneo_nombre'])) {
             $row['nombre_externo'] = $row['torneo_nombre'];
         }
         $row['tipo_reserva'] = 'americano';
         $row['estado'] = 'Americano';
+    }
+
+    if ($isRowAmericano) {
+        $row['pagado'] = 1;
     }
 
     $reservas[] = $row;
