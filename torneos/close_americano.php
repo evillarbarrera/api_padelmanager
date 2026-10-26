@@ -237,6 +237,30 @@ try {
         throw new Exception("Error al actualizar estado: " . $conn->error);
     }
     $stClose->close();
+
+    // 7. Liberar / eliminar las reservas de cancha asociadas a este torneo
+    $conn->query("DELETE FROM reservas_cancha WHERE torneo_id = " . (int)$torneo_id);
+
+    if ($torneo && !empty($torneo['club_id']) && !empty($torneo['fecha'])) {
+        $cid = (int)$torneo['club_id'];
+        $fec = $conn->real_escape_string($torneo['fecha']);
+        $nomEsc = !empty($torneo['nombre']) ? $conn->real_escape_string($torneo['nombre']) : '';
+
+        if (!empty($nomEsc)) {
+            $conn->query("DELETE r FROM reservas_cancha r 
+                          JOIN canchas c ON r.cancha_id = c.id 
+                          WHERE c.club_id = $cid 
+                            AND r.fecha = '$fec' 
+                            AND r.nombre_externo = '$nomEsc'");
+        }
+
+        $conn->query("DELETE r FROM reservas_cancha r 
+                      JOIN canchas c ON r.cancha_id = c.id 
+                      WHERE c.club_id = $cid 
+                        AND r.fecha = '$fec' 
+                        AND (r.tipo_reserva = 'americano' OR r.estado = 'Americano' OR LOWER(r.nombre_externo) LIKE '%americano%') 
+                        AND (r.torneo_id = " . (int)$torneo_id . " OR r.torneo_id IS NULL OR r.torneo_id = 0)");
+    }
     
     $conn->commit();
     echo json_encode(["success" => true, "mensaje" => "Torneo cerrado exitosamente. Puntos distribuidos en categoría " . $cat]);

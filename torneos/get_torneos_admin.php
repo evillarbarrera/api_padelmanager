@@ -45,16 +45,17 @@ if ($checkEstado && $checkEstado->num_rows == 0) {
     @$conn->query("ALTER TABLE torneos_americanos MODIFY COLUMN estado VARCHAR(50) DEFAULT 'Abierto'");
 }
 
-// Auto-cerrar torneos en base de datos cuya fecha ya pasó
+// Auto-cerrar torneos en base de datos cuya fecha ya pasó SOLO si no tienen estado explícito
 $today = date('Y-m-d');
-@$conn->query("UPDATE torneos_americanos SET estado = 'Cerrado' WHERE (estado = 'Abierto' OR estado IS NULL OR estado = '') AND fecha < '$today'");
+@$conn->query("UPDATE torneos_americanos SET estado = 'Cerrado' WHERE (estado IS NULL OR estado = '') AND fecha < '$today'");
 
 // Get tournaments for clubs managed by this admin or where they are staff
 if ($club_id) {
     $sql = "SELECT t.*, 
                    CASE 
+                       WHEN t.estado IS NOT NULL AND TRIM(t.estado) != '' THEN t.estado
                        WHEN t.fecha < CURDATE() THEN 'Cerrado'
-                       ELSE COALESCE(NULLIF(TRIM(t.estado), ''), 'Abierto')
+                       ELSE 'Abierto'
                    END AS estado,
                    c.nombre as club_nombre 
             FROM torneos_americanos t 
@@ -66,8 +67,9 @@ if ($club_id) {
 } else {
     $sql = "SELECT t.*, 
                    CASE 
+                       WHEN t.estado IS NOT NULL AND TRIM(t.estado) != '' THEN t.estado
                        WHEN t.fecha < CURDATE() THEN 'Cerrado'
-                       ELSE COALESCE(NULLIF(TRIM(t.estado), ''), 'Abierto')
+                       ELSE 'Abierto'
                    END AS estado,
                    c.nombre as club_nombre 
             FROM torneos_americanos t 
@@ -83,10 +85,8 @@ $result = $stmt->get_result();
 
 $torneos = [];
 while ($row = $result->fetch_assoc()) {
-    if (!empty($row['fecha']) && $row['fecha'] < $today) {
-        $row['estado'] = 'Cerrado';
-    } elseif (empty($row['estado'])) {
-        $row['estado'] = 'Abierto';
+    if (empty($row['estado'])) {
+        $row['estado'] = (!empty($row['fecha']) && $row['fecha'] < $today) ? 'Cerrado' : 'Abierto';
     }
     $torneos[] = $row;
 }

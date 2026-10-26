@@ -79,14 +79,36 @@ $conn->query("INSERT INTO reservas_cancha (cancha_id, fecha, hora_inicio, hora_f
                 AND lp.estado != 'Suspendido'
                 AND r.id IS NULL");
 
-// 2. Clean up any stale/desynchronized americano reservations where tournament has a different date or is closed
+// 2. Limpieza de reservas de torneos americanos desincronizados o cerrados
+// 2.1 Con torneo_id explícito: si el torneo no existe, cambió de fecha, o está Cerrado/Finalizado/Cancelado
 $conn->query("DELETE r FROM reservas_cancha r 
               LEFT JOIN torneos_americanos ta ON r.torneo_id = ta.id 
               WHERE r.torneo_id IS NOT NULL 
                 AND r.torneo_id > 0 
-                AND (ta.id IS NULL OR ta.estado = 'Cerrado' OR r.fecha != ta.fecha)");
+                AND (ta.id IS NULL 
+                     OR LOWER(TRIM(ta.estado)) IN ('cerrado', 'finalizado', 'terminado', 'cancelado') 
+                     OR r.fecha != ta.fecha)");
 
-// 3. Clean up legacy/unlinked americano reservations matching by name with a different date in the same club
+// 2.2 Sin torneo_id o huérfanas: reservas marcadas como 'americano' en este club y fecha donde el torneo en esa fecha esté Cerrado/Cancelado
+$conn->query("DELETE r FROM reservas_cancha r
+              JOIN canchas c ON r.cancha_id = c.id
+              JOIN torneos_americanos ta ON ta.club_id = c.club_id AND ta.fecha = r.fecha
+              WHERE c.club_id = $club_id AND r.fecha = '$fecha'
+                AND (r.torneo_id IS NULL OR r.torneo_id = 0 OR r.torneo_id = ta.id)
+                AND (r.tipo_reserva = 'americano' OR r.estado = 'Americano' OR LOWER(r.nombre_externo) LIKE '%americano%')
+                AND LOWER(TRIM(ta.estado)) IN ('cerrado', 'finalizado', 'terminado', 'cancelado')");
+
+// 2.3 Reservas marcadas como americano en este club y fecha cuando NO existe ningún torneo americano Abierto en este club en esta fecha
+$checkOpenAm = $conn->query("SELECT id FROM torneos_americanos WHERE club_id = $club_id AND fecha = '$fecha' AND LOWER(TRIM(estado)) = 'abierto' LIMIT 1");
+if (!$checkOpenAm || $checkOpenAm->num_rows == 0) {
+    // Si no hay torneo abierto hoy en este club, cualquier reserva de tipo americano huérfana en esta fecha se elimina
+    $conn->query("DELETE r FROM reservas_cancha r 
+                  JOIN canchas c ON r.cancha_id = c.id 
+                  WHERE c.club_id = $club_id AND r.fecha = '$fecha' 
+                    AND (r.tipo_reserva = 'americano' OR r.estado = 'Americano' OR LOWER(r.nombre_externo) LIKE '%americano%')");
+}
+
+// 3. Limpiar reservas desincronizadas con fecha diferente por nombre
 $conn->query("DELETE r FROM reservas_cancha r
               JOIN canchas c ON r.cancha_id = c.id
               JOIN torneos_americanos ta ON ta.club_id = c.club_id AND ta.nombre = r.nombre_externo
@@ -219,6 +241,7 @@ $sql = "SELECT r.*, c.nombre as cancha_nombre, c.tipo as cancha_tipo, c.categori
         LEFT JOIN torneos_americanos ta ON r.torneo_id = ta.id
         WHERE c.club_id = ? AND r.fecha = ?
           AND (r.liga_partido_id IS NULL OR r.liga_partido_id = 0 OR (lp.id IS NOT NULL AND lp.fecha_hora IS NOT NULL AND lp.fecha_hora NOT LIKE '0000%' AND lp.cancha_id IS NOT NULL))
+          AND LOWER(COALESCE(r.estado, '')) NOT IN ('cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'eliminada')
         ORDER BY r.hora_inicio ASC";
 
 $stmt = $conn->prepare($sql);
