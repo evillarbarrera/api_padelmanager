@@ -74,62 +74,8 @@ try {
           require_once __DIR__ . '/auth_helper.php';
           registerUserSessionToken($conn, $user['id'], $token);
 
-          // 3. Buscar Perfiles Activos en Clubes
-          $perfiles = [];
-          $sqlP = "SELECT uc.id, uc.club_id, uc.rol, uc.nivel, c.nombre as club_nombre, c.admin_id 
-                   FROM usuarios_clubes uc
-                   JOIN clubes c ON uc.club_id = c.id
-                   WHERE uc.usuario_id = ? AND uc.activo = 1";
-          $stmtP = $conn->prepare($sqlP);
-          if (!$stmtP) {
-              error_log("Login Error (stmtP): " . $conn->error);
-          } else {
-              $stmtP->bind_param("i", $user['id']);
-              $stmtP->execute();
-              $resP = $stmtP->get_result();
-              $perfiles = [];
-              
-              // 2.1 Club Profiles
-              if ($resP) {
-                  while ($p = $resP->fetch_assoc()) {
-                      $dbRol = $p['rol'] ?? 'jugador';
-                      
-                      // Si el rol es 'entrenador' o 'jugador', lo respetamos
-                      if ($dbRol === 'entrenador' || $dbRol === 'jugador') {
-                        // Keep the role from the database
-                      } else {
-                        // SEGURIDAD para perfiles de gestión: 
-                        // Si el usuario NO es el dueño (admin_id), forzar rol staff_club 
-                        if ($p['admin_id'] != $user['id']) {
-                            $p['rol'] = 'staff_club';
-                        } else {
-                            $p['rol'] = 'administrador_club';
-                        }
-                      }
-                      $perfiles[] = $p;
-                  }
-              }
-          }
-          
-          // 2.2 Base Identity Profile (perfil global del usuario)
-          $userRole = $user['rol'] ?? 'jugador';
-          $isManagementRole = (in_array($userRole, ['staff_club', 'administrador_club']));
-          $hasClubProfiles = (count($perfiles) > 0);
-          
-          if (!$isManagementRole || !$hasClubProfiles) {
-              $label = "Perfil " . ucfirst(str_replace('_', ' ', $userRole));
-              if ($userRole === 'staff_club') $label = "Perfil Personal";
-              if ($userRole === 'administrador_club') $label = "Perfil Administrador";
-              if ($userRole === 'jugador') $label = "Perfil Jugador";
-
-              $perfiles[] = [
-                  "id" => 0,
-                  "club_id" => null,
-                  "rol" => $user['rol'] ?? 'jugador',
-                  "nivel" => null,
-                  "club_nombre" => $label
-              ];
-          }
+          // 3. Buscar Perfiles Activos (Club Admin, Staff, Entrenador, Jugador)
+          $perfiles = getUserProfiles($conn, $user);
 
         ob_clean(); // Clean any buffer to avoid unwanted output
         echo json_encode([

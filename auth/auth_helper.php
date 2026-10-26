@@ -153,4 +153,136 @@ function sendUnauthorized($details = "Token mismatch or missing") {
     ]);
     exit;
 }
+
+/**
+ * Obtiene todos los perfiles de acceso (Club Admin, Staff, Entrenador, Jugador) para un usuario.
+ */
+function getUserProfiles($conn, $user) {
+    if (!$conn || !isset($user['id'])) return [];
+    
+    $userId = (int)$user['id'];
+    $perfiles = [];
+    
+    // 1. Perfiles registrados en la tabla usuarios_clubes
+    $sqlP = "SELECT uc.id, uc.club_id, uc.rol, uc.nivel, c.nombre as club_nombre, c.admin_id 
+             FROM usuarios_clubes uc
+             JOIN clubes c ON uc.club_id = c.id
+             WHERE uc.usuario_id = ? AND uc.activo = 1";
+    $stmtP = $conn->prepare($sqlP);
+    if ($stmtP) {
+        $stmtP->bind_param("i", $userId);
+        $stmtP->execute();
+        $resP = $stmtP->get_result();
+        if ($resP) {
+            while ($p = $resP->fetch_assoc()) {
+                $dbRol = $p['rol'] ?? 'jugador';
+                if ($dbRol === 'entrenador' || $dbRol === 'jugador') {
+                    // Mantener rol
+                } else {
+                    if ($p['admin_id'] != $userId) {
+                        $p['rol'] = 'staff_club';
+                    } else {
+                        $p['rol'] = 'administrador_club';
+                    }
+                }
+                $perfiles[] = $p;
+            }
+        }
+    }
+
+    $baseRole = $user['rol'] ?? 'jugador';
+
+    // 2. Comprobar si el usuario es dueño directo de algún club (clubes.admin_id)
+    $sqlOwn = "SELECT id as club_id, nombre as club_nombre FROM clubes WHERE admin_id = ? AND activo = 1";
+    $stmtOwn = $conn->prepare($sqlOwn);
+    if ($stmtOwn) {
+        $stmtOwn->bind_param("i", $userId);
+        $stmtOwn->execute();
+        $resOwn = $stmtOwn->get_result();
+        if ($resOwn) {
+            while ($c = $resOwn->fetch_assoc()) {
+                $alreadyAdded = false;
+                foreach ($perfiles as $existing) {
+                    if ($existing['club_id'] == $c['club_id'] && $existing['rol'] === 'administrador_club') {
+                        $alreadyAdded = true;
+                        break;
+                    }
+                }
+                if (!$alreadyAdded) {
+                    $perfiles[] = [
+                        "id" => 0,
+                        "club_id" => (int)$c['club_id'],
+                        "rol" => "administrador_club",
+                        "nivel" => null,
+                        "club_nombre" => $c['club_nombre'],
+                        "admin_id" => $userId
+                    ];
+                }
+            }
+        }
+    }
+
+    // 3. Si el rol base en usuarios es administrador o staff de club y no tiene perfil en perfiles
+    if (in_array($baseRole, ['administrador_club', 'staff_club', 'administrador'])) {
+        $hasAdmin = false;
+        foreach ($perfiles as $p) {
+            if (in_array($p['rol'], ['administrador_club', 'staff_club', 'administrador'])) {
+                $hasAdmin = true;
+                break;
+            }
+        }
+        if (!$hasAdmin) {
+            $perfiles[] = [
+                "id" => 0,
+                "club_id" => null,
+                "rol" => $baseRole,
+                "nivel" => null,
+                "club_nombre" => "Administrador de Club",
+                "admin_id" => $userId
+            ];
+        }
+    }
+
+    // 4. Si el rol base en usuarios es entrenador
+    if ($baseRole === 'entrenador') {
+        $hasCoach = false;
+        foreach ($perfiles as $p) {
+            if ($p['rol'] === 'entrenador') {
+                $hasCoach = true;
+                break;
+            }
+        }
+        if (!$hasCoach) {
+            $perfiles[] = [
+                "id" => 0,
+                "club_id" => null,
+                "rol" => "entrenador",
+                "nivel" => null,
+                "club_nombre" => "Perfil Entrenador",
+                "admin_id" => null
+            ];
+        }
+    }
+
+    // 5. SIEMPRE asegurar que exista un perfil de jugador (todo admin o entrenador también puede jugar/reservar)
+    $hasJugador = false;
+    foreach ($perfiles as $p) {
+        if ($p['rol'] === 'jugador') {
+            $hasJugador = true;
+            break;
+        }
+    }
+    if (!$hasJugador) {
+        $perfiles[] = [
+            "id" => 0,
+            "club_id" => null,
+            "rol" => "jugador",
+            "nivel" => $user['nivel'] ?? null,
+            "club_nombre" => "Perfil Jugador",
+            "admin_id" => null
+        ];
+    }
+
+    return $perfiles;
+}
 ?>

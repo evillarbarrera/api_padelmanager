@@ -55,8 +55,11 @@ $stmtAddr->execute();
 $resAddr = $stmtAddr->get_result();
 $addrData = $resAddr->fetch_assoc();
 
+$perfiles = getUserProfiles($conn, $userData);
+
 echo json_encode([
     "success" => true,
     "user" => $userData,
-    "direccion" => $addrData ?? null
+    "direccion" => $addrData ?? null,
+    "perfiles" => $perfiles
 ]);
