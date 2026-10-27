@@ -299,9 +299,10 @@ function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null,
     $is_blocked = false;
     $status = 'active';
     $message = 'Suscripción activa';
+    $db_sub_status = strtolower(trim($target_user['subscription_status'] ?? ''));
 
     if ($is_club) {
-        if ($is_expired) {
+        if ($is_expired || $days_remaining <= 0 || in_array($db_sub_status, ['inactive', 'blocked', 'past_due', 'cancelled'])) {
             $is_blocked = true;
             $status = 'blocked';
             $days_remaining = 0;
@@ -316,23 +317,15 @@ function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null,
             }
         }
     } else {
-        // Entrenador
-        if ($is_expired) {
-            if ($plan_id == 1) {
-                // Plan Emprendedor ($0) nunca se bloquea
-                $status = 'active';
-                $is_blocked = false;
-                $message = "Plan Emprendedor activo (Sin costo fijo mensual).";
-            } elseif ($plan_id == 0) {
-                $is_blocked = true;
-                $status = 'blocked';
-                $days_remaining = 0;
+        // Entrenador: Si está vencido o en 0 días restantes, debe bloquearse siempre
+        if ($is_expired || $days_remaining <= 0 || in_array($db_sub_status, ['inactive', 'blocked', 'past_due', 'cancelled'])) {
+            $is_blocked = true;
+            $status = 'blocked';
+            $days_remaining = 0;
+            if ($plan_id == 0) {
                 $message = "Tu periodo de prueba de 90 días ha finalizado. Debes seleccionar un plan para continuar con los servicios de tu academia.";
             } else {
-                $is_blocked = true;
-                $status = 'blocked';
-                $days_remaining = 0;
-                $message = "Tu mensualidad ha finalizado. Para seguir utilizando tu calendario, agendar alumnos y gestionar tu academia, renueva tu plan mensual ($" . number_format($price_clp, 0, '', '.') . " CLP).";
+                $message = "Tu periodo de prueba o mensualidad ha finalizado (0 días restantes). Para seguir utilizando tu calendario, agendar alumnos y gestionar tu academia, debes activar o renovar tu plan mensual.";
             }
         } else {
             $status = 'active';
