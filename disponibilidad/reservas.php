@@ -390,7 +390,43 @@ try {
 
                 $usuarioIdPrincipal = intval($data['jugador_id'] ?? 0);
                 if ($usuarioIdPrincipal <= 0 && !empty($jugadoresAInsertar)) {
-                    $usuarioIdPrincipal = intval($jugadoresAInsertar[0]);
+                    foreach ($jugadoresAInsertar as $candId) {
+                        if (intval($candId) > 0) {
+                            $usuarioIdPrincipal = intval($candId);
+                            break;
+                        }
+                    }
+                }
+
+                // Resolver usuario válido en usuarios para respetar la FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+                $usuarioIdValido = null;
+                if ($usuarioIdPrincipal > 0) {
+                    $chkU = $conn->prepare("SELECT id FROM usuarios WHERE id = ? LIMIT 1");
+                    $chkU->bind_param("i", $usuarioIdPrincipal);
+                    $chkU->execute();
+                    if ($chkU->get_result()->num_rows > 0) {
+                        $usuarioIdValido = $usuarioIdPrincipal;
+                    }
+                    $chkU->close();
+                }
+
+                // Si no hay alumno registrado aún (ej. clase grupal o abierta), el usuario responsable es el entrenador
+                if (!$usuarioIdValido) {
+                    $eId = intval($data['entrenador_id'] ?? 0);
+                    if ($eId > 0) {
+                        $chkCoach = $conn->prepare("SELECT id FROM usuarios WHERE id = ? LIMIT 1");
+                        $chkCoach->bind_param("i", $eId);
+                        $chkCoach->execute();
+                        if ($chkCoach->get_result()->num_rows > 0) {
+                            $usuarioIdValido = $eId;
+                        }
+                        $chkCoach->close();
+                    }
+                }
+
+                // Si aún así no tenemos usuario válido, intentar con el usuario autenticado
+                if (!$usuarioIdValido && $authUserId > 0) {
+                    $usuarioIdValido = $authUserId;
                 }
 
                 // Validar que no haya conflicto en reservas_cancha antes de insertar
@@ -408,7 +444,7 @@ try {
                         (cancha_id, usuario_id, nombre_externo, fecha, hora_inicio, hora_fin, precio, precio_total, pagado, estado, tipo_reserva, reserva_entrenador_id, entrenador_id)
                         VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1, 'Confirmada', 'entrenamiento', ?, ?)
                     ");
-                    $insRC->bind_param("iissssii", $canchaId, $usuarioIdPrincipal, $nombreExterno, $currentDate, $data['hora_inicio'], $data['hora_fin'], $new_reserva_id, $data['entrenador_id']);
+                    $insRC->bind_param("iissssii", $canchaId, $usuarioIdValido, $nombreExterno, $currentDate, $data['hora_inicio'], $data['hora_fin'], $new_reserva_id, $data['entrenador_id']);
                     if ($insRC->execute()) {
                         $rcInsertedId = $conn->insert_id;
                         if ($rcInsertedId > 0) {
