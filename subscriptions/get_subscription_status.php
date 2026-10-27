@@ -86,7 +86,7 @@ try {
     $response = evaluateSubscriptionStatus($target_user, $effective_role, $conn, $club_id);
     echo json_encode($response);
 
-} catch (Exception $e) {
+} catch (\Throwable $e) {
     http_response_code(500);
     echo json_encode(["status" => "error", "message" => $e->getMessage()]);
 }

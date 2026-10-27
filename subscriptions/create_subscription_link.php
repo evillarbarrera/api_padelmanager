@@ -43,19 +43,18 @@ try {
         exit;
     }
 
-    // Si es usuario o club de PowerPadel: Servicio gratuito sin cobros
-    if (isPowerPadelUser($conn, $user_id, $coach, $club_id)) {
+    $user_role = strtolower($coach['rol'] ?? '');
+    $is_club = (strpos($user_role, 'club') !== false || $user_role === 'administrador_club' || $user_role === 'admin_club');
+
+    // 1. Si es club de PowerPadel o es Nico Ruiz: Servicio ilimitado bonificado sin cobros
+    if (($is_club && isPowerPadelClub($conn, $club_id, $user_id, $coach, $user_role)) || (!$is_club && isNicoRuizUser($conn, $user_id, $coach))) {
         echo json_encode([
             "status" => "success",
             "is_free" => true,
-            "message" => "PowerPadel es el club de prueba oficial. Cuenta con servicio gratuito permanente sin cobros."
+            "message" => "Cuenta con suscripción ilimitada bonificada oficial permanente sin cobros."
         ]);
         exit;
     }
-
-    // 3. Diccionario de Planes
-    $user_role = strtolower($coach['rol'] ?? '');
-    $is_club = (strpos($user_role, 'club') !== false);
 
     $plans = [
         1 => ["name" => "EMPRENDEDOR", "price" => 0],
@@ -73,30 +72,39 @@ try {
 
     // 4. Calcular días transcurridos de prueba y vencimiento efectivo
     $now = new DateTime();
-    $has_explicit_end = !empty($coach['subscription_end_date']);
-    if ($has_explicit_end) {
-        $expiration = new DateTime($coach['subscription_end_date']);
+    $created_at = $coach['created_at'] ?? date('Y-m-d H:i:s');
+    $created = new DateTime($created_at);
+    $trial_expiration = clone $created;
+    $trial_expiration->modify('+90 days');
+
+    $raw_end = trim($coach['subscription_end_date'] ?? '');
+    $paid_expiration = null;
+    if (!empty($raw_end) && $raw_end !== '0000-00-00 00:00:00' && $raw_end !== '0000-00-00' && strpos($raw_end, '1970') === false) {
+        try {
+            $paid_expiration = new DateTime($raw_end);
+        } catch (\Throwable $e) {}
+    }
+
+    if ($paid_expiration && $paid_expiration > $trial_expiration) {
+        $expiration = $paid_expiration;
     } else {
-        $created_at = $coach['created_at'] ?? date('Y-m-d H:i:s');
-        $created = new DateTime($created_at);
-        $expiration = clone $created;
-        $expiration->modify('+90 days');
+        $expiration = $trial_expiration;
     }
 
     $is_expired = ($now > $expiration);
     $days_remaining = $is_expired ? 0 : (int)$now->diff($expiration)->days;
     $force_payment = !empty($input['force_payment']) || !empty($input['renew']);
 
-    // 5. Plan Emprendedor ($0) siempre es gratuito sin cobro
-    if ($plan_id == 1) {
-        $stmtUpd = $conn->prepare("UPDATE usuarios SET plan_id = 1, subscription_status = 'active' WHERE id = ?");
-        $stmtUpd->bind_param("i", $user_id);
+    // 5. Plan Emprendedor ($0) o planes de costo cero siempre son gratuitos sin cobro
+    if ($plan_id == 1 || (float)($plan['price'] ?? 0) <= 0) {
+        $stmtUpd = $conn->prepare("UPDATE usuarios SET plan_id = ?, subscription_status = 'active' WHERE id = ?");
+        $stmtUpd->bind_param("ii", $plan_id, $user_id);
         $stmtUpd->execute();
 
         echo json_encode([
             "success" => true,
             "redirect" => false,
-            "message" => "Plan EMPRENDEDOR ($0 CLP) activado con éxito."
+            "message" => "Plan " . $plan['name'] . " ($0 CLP) activado con éxito."
         ]);
         exit;
     }
@@ -117,7 +125,13 @@ try {
 
     // 6. Si el periodo venció o requiere pago para renovar +1 mes:
     // Generar Checkout Pro de Mercado Pago (Permite Webpay Plus, Redcompra, Débito, Crédito y saldo MP)
-    $clientOrigin = !empty($input['origin']) ? $input['origin'] : "https://padelblox.cl/mi-plan";
+    $rawOrigin = !empty($input['origin']) ? $input['origin'] : "https://padelblox.cl/mi-plan";
+    if (empty($rawOrigin) || strpos($rawOrigin, 'localhost') !== false || strpos($rawOrigin, '127.0.0.1') !== false || strpos($rawOrigin, 'https://') !== 0) {
+        $clientOrigin = "https://padelblox.cl/mi-plan";
+    } else {
+        $clientOrigin = $rawOrigin;
+    }
+
     $subData = [
         "payer_email" => $coach['usuario'] ?? ($coach['email'] ?? 'contacto@padelblox.cl'),
         "plan_name" => $plan['name'],

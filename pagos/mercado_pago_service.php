@@ -182,8 +182,16 @@ class MercadoPagoService {
         $userId = (int)($data['user_id'] ?? ($data['coach_id'] ?? 0));
         $planId = (int)($data['plan_id'] ?? 0);
         $planName = $data['plan_name'] ?? 'Membresía Mensual Padelblox';
-        $amount = (float)($data['amount'] ?? 0);
-        $origin = rtrim($data['origin'] ?? 'https://padelblox.cl', '/');
+        $amount = (float)($data['amount'] ?? ($data['price'] ?? 0));
+        $rawOrigin = rtrim($data['origin'] ?? 'https://padelblox.cl/mi-plan', '/');
+        // Mercado Pago exige HTTPS y no acepta localhost cuando auto_return está activo
+        if (empty($rawOrigin) || strpos($rawOrigin, 'localhost') !== false || strpos($rawOrigin, '127.0.0.1') !== false || strpos($rawOrigin, 'https://') !== 0) {
+            $origin = "https://padelblox.cl/mi-plan";
+        } else {
+            $origin = $rawOrigin;
+        }
+
+        $sep = (strpos($origin, '?') !== false) ? '&' : '?';
 
         $preference = [
             "items" => [
@@ -199,9 +207,9 @@ class MercadoPagoService {
                 "email" => !empty($data['payer_email']) ? $data['payer_email'] : "contacto@padelblox.cl"
             ],
             "back_urls" => [
-                "success" => $origin . "?payment_status=success&payment_type=sub_renewal&plan_id=" . $planId . "&user_id=" . $userId,
-                "failure" => $origin . "?payment_status=failure&payment_type=sub_renewal&plan_id=" . $planId . "&user_id=" . $userId,
-                "pending" => $origin . "?payment_status=pending&payment_type=sub_renewal&plan_id=" . $planId . "&user_id=" . $userId
+                "success" => $origin . $sep . "payment_status=success&payment_type=sub_renewal&plan_id=" . $planId . "&user_id=" . $userId,
+                "failure" => $origin . $sep . "payment_status=failure&payment_type=sub_renewal&plan_id=" . $planId . "&user_id=" . $userId,
+                "pending" => $origin . $sep . "payment_status=pending&payment_type=sub_renewal&plan_id=" . $planId . "&user_id=" . $userId
             ],
             "auto_return" => "approved",
             "external_reference" => json_encode([
