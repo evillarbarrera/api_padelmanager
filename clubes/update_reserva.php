@@ -212,13 +212,16 @@ try {
     }
 
     // Obtener datos actuales de la reserva antes de actualizar
-    $currResStmt = $conn->prepare("SELECT id, cancha_id, fecha, hora_inicio, hora_fin, torneo_id, liga_partido_id, usuario_id, jugador2_id, jugador3_id, jugador4_id FROM reservas_cancha WHERE id = ?");
+    $currResStmt = $conn->prepare("SELECT id, cancha_id, fecha, hora_inicio, hora_fin, torneo_id, liga_partido_id, usuario_id, jugador2_id, jugador3_id, jugador4_id, reserva_entrenador_id, entrenador_id, tipo_reserva FROM reservas_cancha WHERE id = ?");
     $currTorneoId = 0;
     $currLigaPartidoId = 0;
     $currCanchaId = 0;
     $currFecha = '';
     $currHoraInicio = '';
     $currHoraFin = '';
+    $currReservaEntrenadorId = 0;
+    $currEntrenadorId = 0;
+    $currTipoReserva = '';
     $oldPlayerIds = [];
     if ($currResStmt) {
         $currResStmt->bind_param("i", $id);
@@ -232,6 +235,9 @@ try {
             $currHoraFin = trim($currRes['hora_fin'] ?? '');
             $currTorneoId = intval($currRes['torneo_id'] ?? 0);
             $currLigaPartidoId = intval($currRes['liga_partido_id'] ?? 0);
+            $currReservaEntrenadorId = intval($currRes['reserva_entrenador_id'] ?? 0);
+            $currEntrenadorId = intval($currRes['entrenador_id'] ?? 0);
+            $currTipoReserva = trim($currRes['tipo_reserva'] ?? '');
             if (!empty($currRes['usuario_id'])) $oldPlayerIds[] = intval($currRes['usuario_id']);
             if (!empty($currRes['jugador2_id'])) $oldPlayerIds[] = intval($currRes['jugador2_id']);
             if (!empty($currRes['jugador3_id'])) $oldPlayerIds[] = intval($currRes['jugador3_id']);
@@ -320,6 +326,55 @@ if ($stmt->execute()) {
                 $conn->query("UPDATE liga_partidos SET cancha_id = NULL, fecha_hora = NULL WHERE id = $lpId");
             } else {
                 $conn->query("UPDATE liga_partidos SET cancha_id = $cancha_id, fecha_hora = '$fechaHoraNueva' WHERE id = $lpId");
+            }
+        }
+    }
+
+    // --- SINCRONIZACIÓN BIDIRECCIONAL CON ENTRENADOR / CLASES ---
+    $resEntrenador = $conn->query("SELECT reserva_entrenador_id, entrenador_id, tipo_reserva, nombre_externo FROM reservas_cancha WHERE id = $id");
+    if ($resEntrenador && $rowE = $resEntrenador->fetch_assoc()) {
+        $reservaEntrenadorId = intval($rowE['reserva_entrenador_id'] ?? 0);
+        if ($reservaEntrenadorId <= 0 && $currReservaEntrenadorId > 0) {
+            $reservaEntrenadorId = $currReservaEntrenadorId;
+        }
+        $eId = intval($rowE['entrenador_id'] ?? 0);
+        if ($eId <= 0 && $currEntrenadorId > 0) {
+            $eId = $currEntrenadorId;
+        }
+        $tReserva = strtolower(trim($rowE['tipo_reserva'] ?? ''));
+        $nExterno = strtolower(trim($rowE['nombre_externo'] ?? ''));
+        $isClase = ($reservaEntrenadorId > 0 || $tReserva === 'entrenamiento' || strpos($nExterno, 'clase') !== false || strpos($nExterno, 'entrenador') !== false);
+
+        if ($isClase) {
+            if ($estado === 'Cancelada') {
+                if ($reservaEntrenadorId > 0) {
+                    $conn->query("UPDATE reservas SET cancha_id = NULL WHERE id = $reservaEntrenadorId");
+                }
+            } else {
+                $targetCanchaSql = ($cancha_id > 0) ? intval($cancha_id) : "NULL";
+                if ($reservaEntrenadorId > 0) {
+                    $stmtCheckP = $conn->query("SELECT pack_id, entrenador_id, fecha, hora_inicio FROM reservas WHERE id = $reservaEntrenadorId");
+                    if ($stmtCheckP && $packRow = $stmtCheckP->fetch_assoc()) {
+                        $pId = intval($packRow['pack_id'] ?? 0);
+                        $coachId = intval($packRow['entrenador_id'] ?? 0);
+                        $oldFecha = $packRow['fecha'];
+                        $oldHora = $packRow['hora_inicio'];
+
+                        // Actualizar reserva principal
+                        $conn->query("UPDATE reservas SET cancha_id = $targetCanchaSql, fecha = '$fecha', hora_inicio = '$hora_inicio', hora_fin = '$hora_fin' WHERE id = $reservaEntrenadorId");
+
+                        // Sincronizar reservas hermanas del mismo pack grupal
+                        if ($pId > 0 && $coachId > 0) {
+                            $conn->query("UPDATE reservas SET cancha_id = $targetCanchaSql, fecha = '$fecha', hora_inicio = '$hora_inicio', hora_fin = '$hora_fin' WHERE pack_id = $pId AND entrenador_id = $coachId AND fecha = '$oldFecha' AND hora_inicio = '$oldHora'");
+                        }
+                    } else {
+                        $conn->query("UPDATE reservas SET cancha_id = $targetCanchaSql, fecha = '$fecha', hora_inicio = '$hora_inicio', hora_fin = '$hora_fin' WHERE id = $reservaEntrenadorId");
+                    }
+                } else if ($eId > 0) {
+                    $oldF = !empty($currFecha) ? $currFecha : $fecha;
+                    $oldH = !empty($currHoraInicio) ? $currHoraInicio : $hora_inicio;
+                    $conn->query("UPDATE reservas SET cancha_id = $targetCanchaSql, fecha = '$fecha', hora_inicio = '$hora_inicio', hora_fin = '$hora_fin' WHERE entrenador_id = $eId AND fecha = '$oldF' AND hora_inicio = '$oldH'");
+                }
             }
         }
     }

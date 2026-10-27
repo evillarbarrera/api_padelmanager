@@ -51,15 +51,15 @@ SELECT
     MAX(p.duracion_sesion_min) as duracion_original,
     COALESCE(r.tipo, p.tipo, 'individual') as tipo_real,
     MIN(r.estado) as reserva_estado,
-    COALESCE(MIN(r.club_id), MIN(p.club_id), 0) as club_id,
-    COALESCE(MIN(c.nombre), MIN(p_c.nombre), '') as club_nombre,
-    MIN(r.cancha_id) as cancha_id,
+    COALESCE(MIN(r.club_id), MIN(p.club_id), MIN(can.club_id), 0) as club_id,
+    COALESCE(MIN(c.nombre), MIN(p_c.nombre), MIN(can_club.nombre), '') as club_nombre,
+    COALESCE(MIN(rc.cancha_id), MIN(r.cancha_id)) as cancha_id,
     COALESCE(MIN(can.nombre), '') as cancha_nombre,
     COALESCE(MIN(c.reservas_activas), MIN(p_c.reservas_activas), 1) as club_reservas_activas,
     (
         SELECT COUNT(*) 
         FROM canchas can_count 
-        WHERE can_count.club_id = COALESCE(MIN(r.club_id), MIN(p.club_id), 0)
+        WHERE can_count.club_id = COALESCE(MIN(r.club_id), MIN(p.club_id), MIN(can.club_id), 0)
           AND (can_count.activa = 1 OR can_count.activa IS NULL)
     ) as club_total_canchas,
     MIN(r.malla_id) as malla_id,
@@ -77,11 +77,22 @@ LEFT JOIN usuarios u_j ON u_j.id = rj.jugador_id
 LEFT JOIN packs p ON p.id = r.pack_id
 LEFT JOIN clubes c ON c.id = r.club_id
 LEFT JOIN clubes p_c ON p_c.id = p.club_id
-LEFT JOIN canchas can ON can.id = r.cancha_id
+LEFT JOIN reservas_cancha rc ON (
+    (rc.reserva_entrenador_id IS NOT NULL AND rc.reserva_entrenador_id = r.id)
+    OR (
+        (rc.reserva_entrenador_id IS NULL OR rc.reserva_entrenador_id = 0)
+        AND rc.entrenador_id = r.entrenador_id
+        AND rc.fecha = r.fecha
+        AND rc.hora_inicio = r.hora_inicio
+        AND rc.tipo_reserva = 'entrenamiento'
+    )
+) AND LOWER(TRIM(rc.estado)) NOT IN ('cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'eliminada')
+LEFT JOIN canchas can ON can.id = COALESCE(rc.cancha_id, r.cancha_id)
+LEFT JOIN clubes can_club ON can_club.id = can.club_id
 LEFT JOIN mallas m ON m.id = r.malla_id
 LEFT JOIN clases_malla cm ON cm.id = r.clase_id
 WHERE r.entrenador_id = ?
-  AND r.fecha >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+  AND r.fecha >= DATE_SUB(CURDATE(), INTERVAL 60 DAY)
   AND r.fecha <= DATE_ADD(CURDATE(), INTERVAL 35 DAY)
   AND r.estado != 'cancelado'
 GROUP BY r.fecha, r.hora_inicio, r.entrenador_id, COALESCE(r.tipo, p.tipo, 'individual'), p.id
@@ -139,6 +150,12 @@ while ($row = $result->fetch_assoc()) {
     $cancha_nombre = trim($row['cancha_nombre'] ?? '');
     $club_total_canchas = intval($row['club_total_canchas'] ?? 0);
     $club_reservas_activas = intval($row['club_reservas_activas'] ?? 1);
+
+    // Auto-curar sincronización en reservas si reservas_cancha tenía una pista actualizada
+    if ($cancha_id > 0 && !empty($row['reserva_id'])) {
+        $resIdCurar = intval($row['reserva_id']);
+        @$conn->query("UPDATE reservas SET cancha_id = $cancha_id WHERE id = $resIdCurar AND (cancha_id IS NULL OR cancha_id != $cancha_id)");
+    }
     
     // El club tiene disponible la opción de reserva de pistas si tiene canchas activas y reservas activas
     $club_permite_canchas = ($club_id > 0 && $club_total_canchas > 0 && $club_reservas_activas === 1);

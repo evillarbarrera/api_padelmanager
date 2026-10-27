@@ -149,6 +149,22 @@ if ($success) {
         $conn->query("UPDATE liga_partidos SET cancha_id = NULL, fecha_hora = NULL WHERE id = $lpId");
     }
 
+    // Sincronización bidireccional con Entrenador / Clases
+    if (!empty($reserva['reserva_entrenador_id'])) {
+        $rEntrenadorId = intval($reserva['reserva_entrenador_id']);
+        $checkP = $conn->query("SELECT pack_id, entrenador_id, fecha, hora_inicio FROM reservas WHERE id = $rEntrenadorId");
+        if ($checkP && $pRow = $checkP->fetch_assoc()) {
+            $pId = intval($pRow['pack_id'] ?? 0);
+            $cId = intval($pRow['entrenador_id'] ?? 0);
+            $fec = $pRow['fecha'];
+            $hor = $pRow['hora_inicio'];
+            if ($pId > 0 && $cId > 0) {
+                $conn->query("UPDATE reservas SET cancha_id = NULL WHERE pack_id = $pId AND entrenador_id = $cId AND fecha = '$fec' AND hora_inicio = '$hor'");
+            }
+        }
+        $conn->query("UPDATE reservas SET cancha_id = NULL WHERE id = $rEntrenadorId");
+    }
+
     // 1. Devolver respuesta JSON de inmediato (0.1s)
     @ob_clean();
     $jsonResponse = json_encode(["success" => true]);
