@@ -45,13 +45,23 @@ SELECT
     GROUP_CONCAT(COALESCE(u_j.id, '') SEPARATOR '||') AS jugador_ids,
     GROUP_CONCAT(COALESCE(u_j.nombre, '') SEPARATOR '||') AS jugador_nombre,
     GROUP_CONCAT(COALESCE(u_j.usuario, '') SEPARATOR '||') AS jugador_emails,
-    GROUP_CONCAT(COALESCE(u_j.foto_perfil, u_j.foto, '') SEPARATOR '||') AS jugador_fotos,
+    GROUP_CONCAT(COALESCE(NULLIF(u_j.foto_perfil, ''), NULLIF(u_j.foto, ''), '') SEPARATOR '||') AS jugador_fotos,
     COALESCE(p.capacidad_minima, 2) as capacidad_minima,
     COALESCE(p.capacidad_maxima, 6) as capacidad_maxima,
     MAX(p.duracion_sesion_min) as duracion_original,
     COALESCE(r.tipo, p.tipo, 'individual') as tipo_real,
     MIN(r.estado) as reserva_estado,
+    COALESCE(MIN(r.club_id), MIN(p.club_id), 0) as club_id,
     COALESCE(MIN(c.nombre), MIN(p_c.nombre), '') as club_nombre,
+    MIN(r.cancha_id) as cancha_id,
+    COALESCE(MIN(can.nombre), '') as cancha_nombre,
+    COALESCE(MIN(c.reservas_activas), MIN(p_c.reservas_activas), 1) as club_reservas_activas,
+    (
+        SELECT COUNT(*) 
+        FROM canchas can_count 
+        WHERE can_count.club_id = COALESCE(MIN(r.club_id), MIN(p.club_id), 0)
+          AND (can_count.activa = 1 OR can_count.activa IS NULL)
+    ) as club_total_canchas,
     MIN(r.malla_id) as malla_id,
     MIN(r.clase_id) as clase_id,
     MIN(r.clase_titulo) as clase_titulo,
@@ -67,6 +77,7 @@ LEFT JOIN usuarios u_j ON u_j.id = rj.jugador_id
 LEFT JOIN packs p ON p.id = r.pack_id
 LEFT JOIN clubes c ON c.id = r.club_id
 LEFT JOIN clubes p_c ON p_c.id = p.club_id
+LEFT JOIN canchas can ON can.id = r.cancha_id
 LEFT JOIN mallas m ON m.id = r.malla_id
 LEFT JOIN clases_malla cm ON cm.id = r.clase_id
 WHERE r.entrenador_id = ?
@@ -90,11 +101,13 @@ while ($row = $result->fetch_assoc()) {
         $fotos = explode('||', $row['jugador_fotos']);
         $ids = explode('||', $row['jugador_ids']);
         for ($i = 0; $i < count($names); $i++) {
+            $f = trim($fotos[$i] ?? '');
             $inscritos_final[] = [
                 "id" => trim($ids[$i] ?? ''),
                 "nombre" => trim($names[$i]),
                 "email" => trim($emails[$i] ?? ''),
-                "foto" => trim($fotos[$i] ?? '')
+                "foto" => $f,
+                "foto_perfil" => $f
             ];
         }
     }
@@ -120,6 +133,17 @@ while ($row = $result->fetch_assoc()) {
         $estado_final = ($total_inscritos >= $cap_min) ? 'activo' : 'pendiente';
     }
 
+    $club_id = intval($row['club_id'] ?? 0);
+    $cancha_id = intval($row['cancha_id'] ?? 0);
+    $cancha_nombre = trim($row['cancha_nombre'] ?? '');
+    $club_total_canchas = intval($row['club_total_canchas'] ?? 0);
+    $club_reservas_activas = intval($row['club_reservas_activas'] ?? 1);
+    
+    // El club tiene disponible la opción de reserva de pistas si tiene canchas activas y reservas activas
+    $club_permite_canchas = ($club_id > 0 && $club_total_canchas > 0 && $club_reservas_activas === 1);
+    // Requiere cancha si el club ofrece reservas de pistas pero la reserva aún no tiene una cancha asignada
+    $requiere_cancha = ($club_permite_canchas && $cancha_id <= 0);
+
     $data["reservas_tradicionales"][] = [
         "reserva_id" => $row['reserva_id'],
         "fecha" => $row['fecha'],
@@ -135,7 +159,12 @@ while ($row = $result->fetch_assoc()) {
         "duracion_calculada" => $duracion,
         "tipo" => ($row['tipo_real'] === 'grupal' ? 'pack_grupal' : 'reserva_individual'),
         "jugador_nombre" => implode(', ', array_column($inscritos_final, 'nombre')),
+        "club_id" => $club_id,
         "club_nombre" => $row['club_nombre'],
+        "cancha_id" => ($cancha_id > 0 ? $cancha_id : null),
+        "cancha_nombre" => $cancha_nombre,
+        "club_permite_canchas" => $club_permite_canchas,
+        "requiere_cancha" => $requiere_cancha,
         "malla_id" => $row['malla_id'],
         "clase_id" => $row['clase_id'],
         "clase_titulo" => $row['clase_titulo'],

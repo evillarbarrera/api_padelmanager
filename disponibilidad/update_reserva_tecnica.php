@@ -48,6 +48,37 @@ try {
     $stmt->bind_param("iisis", $malla_id, $clase_id, $clase_titulo, $pack_id, $reserva_id);
     
     if ($stmt->execute()) {
+        // 2.5 Actualizar cancha_id si viene en el payload
+        if (isset($data['cancha_id'])) {
+            $new_cancha_id = intval($data['cancha_id']);
+            if ($new_cancha_id > 0) {
+                $conn->query("UPDATE reservas SET cancha_id = $new_cancha_id WHERE id = $reserva_id");
+                
+                // Sincronizar reservas_cancha
+                $rInfo = $conn->query("SELECT fecha, hora_inicio, hora_fin, club_id FROM reservas WHERE id = $reserva_id")->fetch_assoc();
+                if ($rInfo) {
+                    $cDate = $rInfo['fecha'];
+                    $hIni = $rInfo['hora_inicio'];
+                    $hFin = $rInfo['hora_fin'];
+                    
+                    $chkRC = $conn->query("SELECT id FROM reservas_cancha WHERE reserva_entrenador_id = $reserva_id LIMIT 1");
+                    if ($chkRC && $rcRow = $chkRC->fetch_assoc()) {
+                        $rcId = $rcRow['id'];
+                        $conn->query("UPDATE reservas_cancha SET cancha_id = $new_cancha_id, fecha = '$cDate', hora_inicio = '$hIni', hora_fin = '$hFin', estado = 'Confirmada' WHERE id = $rcId");
+                    } else {
+                        $insRC = $conn->prepare("INSERT INTO reservas_cancha 
+                            (cancha_id, usuario_id, nombre_externo, fecha, hora_inicio, hora_fin, precio, precio_total, pagado, estado, tipo_reserva, reserva_entrenador_id, entrenador_id)
+                            VALUES (?, ?, '🎾 Clase de Entrenamiento', ?, ?, ?, 0, 0, 1, 'Confirmada', 'entrenamiento', ?, ?)");
+                        $insRC->bind_param("iisssii", $new_cancha_id, $entrenador_id, $cDate, $hIni, $hFin, $reserva_id, $entrenador_id);
+                        $insRC->execute();
+                    }
+                }
+            } else {
+                $conn->query("UPDATE reservas SET cancha_id = NULL WHERE id = $reserva_id");
+                $conn->query("UPDATE reservas_cancha SET estado = 'Cancelada' WHERE reserva_entrenador_id = $reserva_id");
+            }
+        }
+
         // 3. AUTO-ACTIVATE RoadMap if mesh provided
         if ($malla_id > 0 && $pack_id > 0 && $jugador_id > 0) {
             $checkM = $conn->prepare("SELECT id FROM alumno_malla_seguimiento WHERE jugador_id = ? AND entrenador_id = ? AND pack_id = ? AND estado = 'activo' LIMIT 1");
