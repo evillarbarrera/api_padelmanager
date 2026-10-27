@@ -33,6 +33,7 @@ $sql = "
         d.id,
         d.fecha_inicio,
         d.fecha_fin,
+        IF(p.id IS NOT NULL, 'grupal', 'individual') as tipo,
         IF(p.id IS NOT NULL, 'grupal', 'individual') as tipo_real,
         IF(EXISTS(
             SELECT 1 FROM reservas r2 
@@ -72,6 +73,7 @@ UNION ALL
         r.id as id,
         CONCAT(r.fecha, ' ', r.hora_inicio) as fecha_inicio,
         CONCAT(r.fecha, ' ', r.hora_fin) as fecha_fin,
+        'grupal' as tipo,
         'grupal' as tipo_real,
         IF((SELECT COUNT(*) FROM reserva_jugadores rj2 WHERE rj2.reserva_id = r.id) >= COALESCE(p.capacidad_maxima, r.cantidad_personas, 6), 1, 0) as ocupado,
         r.pack_id as pack_id,
