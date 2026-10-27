@@ -43,19 +43,18 @@ try {
         exit;
     }
 
-    // Si es usuario o club de PowerPadel: Servicio gratuito sin cobros
-    if (isPowerPadelUser($conn, $user_id, $coach, $club_id)) {
+    $user_role = strtolower($coach['rol'] ?? '');
+    $is_club = (strpos($user_role, 'club') !== false || $user_role === 'administrador_club' || $user_role === 'admin_club');
+
+    // 1. Si es club de PowerPadel o es Nico Ruiz: Servicio ilimitado bonificado sin cobros
+    if (($is_club && isPowerPadelClub($conn, $club_id, $user_id, $coach, $user_role)) || (!$is_club && isNicoRuizUser($conn, $user_id, $coach))) {
         echo json_encode([
             "status" => "success",
             "is_free" => true,
-            "message" => "PowerPadel es el club de prueba oficial. Cuenta con servicio gratuito permanente sin cobros."
+            "message" => "Cuenta con suscripción ilimitada bonificada oficial permanente sin cobros."
         ]);
         exit;
     }
-
-    // 3. Diccionario de Planes
-    $user_role = strtolower($coach['rol'] ?? '');
-    $is_club = (strpos($user_role, 'club') !== false);
 
     $plans = [
         1 => ["name" => "EMPRENDEDOR", "price" => 0],

@@ -15,21 +15,24 @@ require_once "subscription_helper.php";
 $role = strtolower($_GET['role'] ?? ($_GET['user_role'] ?? ''));
 $club_id = intval($_GET['club_id'] ?? 0);
 
+$target_user = null;
 // Si se pasa coach_id o user_id, obtenemos el rol del usuario desde la BD
 $user_id = intval($_GET['coach_id'] ?? ($_GET['user_id'] ?? 0));
 if ($user_id > 0) {
-    $stmt = $conn->prepare("SELECT rol, club_id FROM usuarios WHERE id = ?");
+    $stmt = $conn->prepare("SELECT * FROM usuarios WHERE id = ?");
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
-    $res = $stmt->get_result()->fetch_assoc();
-    if ($res) {
-        if (!empty($res['rol'])) $role = strtolower($res['rol']);
-        if (!$club_id && !empty($res['club_id'])) $club_id = intval($res['club_id']);
+    $target_user = $stmt->get_result()->fetch_assoc();
+    if ($target_user) {
+        if (!empty($target_user['rol'])) $role = strtolower($target_user['rol']);
+        if (!$club_id && !empty($target_user['club_id'])) $club_id = intval($target_user['club_id']);
     }
 }
 
-// Para usuarios de PowerPadel: Servicio 100% gratuito (Club de prueba oficial)
-if (isPowerPadelUser($conn, $user_id, null, $club_id)) {
+$is_club = (strpos($role, 'club') !== false || $role === 'administrador_club' || $role === 'admin_club');
+
+// 1. Caso Club de Prueba Oficial: PowerPadel (Solo para gestión de club)
+if ($is_club && isPowerPadelClub($conn, $club_id, $user_id, $target_user, $role)) {
     echo json_encode([
         [
             "id" => 4,
@@ -43,8 +46,23 @@ if (isPowerPadelUser($conn, $user_id, null, $club_id)) {
     exit;
 }
 
-// Para Clubes (administrador_club, club, staff_club): Plan Único "GESTIÓN DE CLUB" $49.990 CLP / mes
-if (strpos($role, 'club') !== false || $role === 'administrador_club') {
+// 2. Caso Entrenador Ilimitado: Nico Ruiz
+if (!$is_club && isNicoRuizUser($conn, $user_id, $target_user)) {
+    echo json_encode([
+        [
+            "id" => 4,
+            "name" => "ELITE ILIMITADO (NICO RUIZ)",
+            "price_clp" => 0,
+            "description" => "Suscripción Ilimitada Bonificada Oficial (Academia Nico Ruiz).",
+            "type" => "fixed",
+            "is_free" => true
+        ]
+    ]);
+    exit;
+}
+
+// 3. Para Clubes estándar
+if ($is_club) {
     $plans = [
         [
             "id" => 4,
@@ -55,7 +73,7 @@ if (strpos($role, 'club') !== false || $role === 'administrador_club') {
         ]
     ];
 } else {
-    // Para Entrenadores / Coached
+    // 4. Para Entrenadores normales
     $plans = [
         ["id" => 1, "name" => "EMPRENDEDOR", "price_clp" => 0, "description" => "Hasta 5 alumnos, con comisión", "type" => "commission"],
         ["id" => 2, "name" => "INICIAL 20", "price_clp" => 19990, "description" => "Hasta 20 alumnos, sin comisión", "type" => "fixed"],

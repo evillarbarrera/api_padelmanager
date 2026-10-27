@@ -64,26 +64,100 @@ function ensureSubscriptionTablesAndColumns($conn) {
     }
 }
 
-function isPowerPadelUser($conn, $user_id = 0, $target_user = null, $club_id = 0) {
+function isNicoRuizUser($conn, $user_id = 0, $target_user = null) {
     $uid = $user_id ? intval($user_id) : intval($target_user['id'] ?? 0);
 
-    // 0. Si se especificó club_id explícito
-    if ($club_id == 17 || $club_id == 21) {
+    // 1. Revisar target_user en memoria
+    if ($target_user) {
+        $nombreCompleto = strtolower(trim(($target_user['nombre'] ?? '') . ' ' . ($target_user['apellido'] ?? '')));
+        if (
+            strpos($nombreCompleto, 'nico ruiz') !== false || 
+            strpos($nombreCompleto, 'nicolas ruiz') !== false ||
+            strpos($nombreCompleto, 'nicolás ruiz') !== false
+        ) {
+            return true;
+        }
+
+        $usuario = strtolower(trim($target_user['usuario'] ?? ''));
+        if (
+            strpos($usuario, 'nicoruiz') !== false || 
+            strpos($usuario, 'nico.ruiz') !== false || 
+            strpos($usuario, 'nico_ruiz') !== false ||
+            strpos($usuario, 'nicolasruiz') !== false ||
+            strpos($usuario, 'nicolas.ruiz') !== false ||
+            strpos($usuario, 'nicolas_ruiz') !== false
+        ) {
+            return true;
+        }
+
+        $email = strtolower(trim($target_user['email'] ?? ''));
+        if (
+            strpos($email, 'nicoruiz') !== false || 
+            strpos($email, 'nico.ruiz') !== false || 
+            strpos($email, 'nicolasruiz') !== false ||
+            strpos($email, 'nicolas.ruiz') !== false
+        ) {
+            return true;
+        }
+    }
+
+    if (!$conn || $uid <= 0) {
+        return false;
+    }
+
+    // 2. Revisar en la BD
+    $stmt = $conn->prepare("
+        SELECT id, nombre, apellido, usuario, email 
+        FROM usuarios 
+        WHERE id = ? 
+          AND (
+            LOWER(CONCAT(COALESCE(nombre, ''), ' ', COALESCE(apellido, ''))) LIKE '%nico%ruiz%' OR
+            LOWER(CONCAT(COALESCE(nombre, ''), ' ', COALESCE(apellido, ''))) LIKE '%nicolas%ruiz%' OR
+            LOWER(CONCAT(COALESCE(nombre, ''), ' ', COALESCE(apellido, ''))) LIKE '%nicolás%ruiz%' OR
+            LOWER(usuario) LIKE '%nicoruiz%' OR
+            LOWER(usuario) LIKE '%nico.ruiz%' OR
+            LOWER(usuario) LIKE '%nico_ruiz%' OR
+            LOWER(usuario) LIKE '%nicolas%ruiz%' OR
+            LOWER(email) LIKE '%nicoruiz%' OR
+            LOWER(email) LIKE '%nico.ruiz%' OR
+            LOWER(email) LIKE '%nicolas%ruiz%'
+          )
+        LIMIT 1
+    ");
+    if ($stmt) {
+        $stmt->bind_param("i", $uid);
+        $stmt->execute();
+        if ($stmt->get_result()->num_rows > 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function isPowerPadelClub($conn, $club_id = 0, $user_id = 0, $target_user = null, $role = '') {
+    $r = strtolower(trim($role ?: ($target_user['rol'] ?? '')));
+    
+    // Si el rol es exclusivamente de entrenador o jugador, NO es la entidad club PowerPadel
+    if ($r === 'entrenador' || $r === 'coach' || $r === 'jugador' || $r === 'alumno') {
+        return false;
+    }
+
+    $cid = intval($club_id ?: ($target_user['club_id'] ?? 0));
+    if ($cid == 17 || $cid == 21) {
         return true;
     }
 
-    // 1. Revisar nombre de club en el array de target_user o parámetros
     if (!empty($target_user['club_nombre'])) {
         $cn = strtolower($target_user['club_nombre']);
         if (strpos($cn, 'powerpadel') !== false || strpos($cn, 'power padel') !== false) {
             return true;
         }
     }
-    if (!empty($target_user['club_id']) && ($target_user['club_id'] == 17 || $target_user['club_id'] == 21)) {
-        return true;
-    }
 
-    // 2. Revisar si el email o usuario contiene "powerpadel"
+    $uid = $user_id ? intval($user_id) : intval($target_user['id'] ?? 0);
+
+    // Revisar usuario / email del club
     if (!empty($target_user['usuario']) && (stripos($target_user['usuario'], 'powerpadel') !== false || stripos($target_user['usuario'], 'power padel') !== false)) {
         return true;
     }
@@ -91,15 +165,12 @@ function isPowerPadelUser($conn, $user_id = 0, $target_user = null, $club_id = 0
         return true;
     }
 
-    if (!$conn) {
-        return false;
-    }
+    if (!$conn) return false;
 
-    // 3. Si se pasó club_id > 0, verificar el nombre del club en la BD
-    if ($club_id > 0) {
+    if ($cid > 0) {
         $stmtCId = $conn->prepare("SELECT nombre FROM clubes WHERE id = ? LIMIT 1");
         if ($stmtCId) {
-            $stmtCId->bind_param("i", $club_id);
+            $stmtCId->bind_param("i", $cid);
             $stmtCId->execute();
             $cRow = $stmtCId->get_result()->fetch_assoc();
             if ($cRow) {
@@ -111,64 +182,34 @@ function isPowerPadelUser($conn, $user_id = 0, $target_user = null, $club_id = 0
         }
     }
 
-    if ($uid <= 0) {
-        return false;
-    }
-
-    // 4. Si target_user no traía usuario/email, consultarlo en usuarios
-    if (empty($target_user['usuario'])) {
-        $stmtU = $conn->prepare("SELECT usuario FROM usuarios WHERE id = ? LIMIT 1");
-        if ($stmtU) {
-            $stmtU->bind_param("i", $uid);
-            $stmtU->execute();
-            $uRow = $stmtU->get_result()->fetch_assoc();
-            if ($uRow) {
-                if (stripos($uRow['usuario'] ?? '', 'powerpadel') !== false || stripos($uRow['usuario'] ?? '', 'power padel') !== false) {
-                    return true;
-                }
+    if ($uid > 0) {
+        $stmtAdmin = $conn->prepare("
+            SELECT id FROM clubes 
+            WHERE admin_id = ? 
+              AND (LOWER(nombre) LIKE '%power%padel%' OR LOWER(nombre) LIKE '%powerpadel%' OR id IN (17, 21))
+            LIMIT 1
+        ");
+        if ($stmtAdmin) {
+            $stmtAdmin->bind_param("i", $uid);
+            $stmtAdmin->execute();
+            if ($stmtAdmin->get_result()->num_rows > 0) {
+                return true;
             }
-        }
-    }
-
-    // 5. Revisar si es dueño/admin de un club PowerPadel (por nombre o IDs conocidos 17, 21)
-    $stmtAdmin = $conn->prepare("
-        SELECT id FROM clubes 
-        WHERE admin_id = ? 
-          AND (LOWER(nombre) LIKE '%power%padel%' OR LOWER(nombre) LIKE '%powerpadel%' OR id IN (17, 21))
-        LIMIT 1
-    ");
-    if ($stmtAdmin) {
-        $stmtAdmin->bind_param("i", $uid);
-        $stmtAdmin->execute();
-        if ($stmtAdmin->get_result()->num_rows > 0) {
-            return true;
-        }
-    }
-
-    // 6. Revisar si pertenece a un club PowerPadel en usuarios_clubes
-    $stmtUC = $conn->prepare("
-        SELECT uc.id FROM usuarios_clubes uc 
-        JOIN clubes c ON uc.club_id = c.id 
-        WHERE uc.usuario_id = ? 
-          AND uc.activo = 1 
-          AND (LOWER(c.nombre) LIKE '%power%padel%' OR LOWER(c.nombre) LIKE '%powerpadel%' OR c.id IN (17, 21))
-        LIMIT 1
-    ");
-    if ($stmtUC) {
-        $stmtUC->bind_param("i", $uid);
-        $stmtUC->execute();
-        if ($stmtUC->get_result()->num_rows > 0) {
-            return true;
         }
     }
 
     return false;
 }
 
+function isPowerPadelUser($conn, $user_id = 0, $target_user = null, $club_id = 0, $role = '') {
+    return isPowerPadelClub($conn, $club_id, $user_id, $target_user, $role) || isNicoRuizUser($conn, $user_id, $target_user);
+}
+
 function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null, $club_id = 0) {
-    // EXCEPCIÓN CLUB DE PRUEBA: POWERPADEL
-    // Los usuarios de PowerPadel cuentan con servicio 100% gratuito sin necesidad de cobrar plan
-    if (isPowerPadelUser($conn, $target_user['id'] ?? 0, $target_user, $club_id)) {
+    $is_club = (strpos($effective_role, 'club') !== false || $effective_role === 'administrador_club' || $effective_role === 'admin_club');
+
+    // EXCEPCIÓN 1: CLUB OFICIAL DE PRUEBA: POWERPADEL (Solo para gestión de club)
+    if ($is_club && isPowerPadelClub($conn, $club_id, $target_user['id'] ?? 0, $target_user, $effective_role)) {
         return [
             "status" => "active",
             "is_blocked" => false,
@@ -185,6 +226,34 @@ function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null,
             "message" => "Servicio gratuito activo (Club de prueba oficial PowerPadel). Sin cobros ni vencimiento.",
             "is_club" => true,
             "is_free_test_club" => true,
+            "is_unlimited_coach" => false,
+            "subscription_end_date" => "2099-12-31 23:59:59",
+            "next_billing_date" => "2099-12-31",
+            "billing_history" => [],
+            "pending_commission" => 0,
+            "recaudo_mp_activo" => true
+        ];
+    }
+
+    // EXCEPCIÓN 2: ENTRENADOR ILIMITADO: NICO RUIZ
+    if (!$is_club && isNicoRuizUser($conn, $target_user['id'] ?? 0, $target_user)) {
+        return [
+            "status" => "active",
+            "is_blocked" => false,
+            "days_remaining" => 9999,
+            "plan_id" => 4,
+            "plan_name" => "Elite Ilimitado (Academia Nico Ruiz)",
+            "price_clp" => 0,
+            "subscription_status" => "active",
+            "has_payment_method" => true,
+            "card_last_four" => "FREE",
+            "card_brand" => "Nico Ruiz",
+            "card_holder" => "Nico Ruiz",
+            "card_expiry" => "2099",
+            "message" => "Suscripción activa permanente (Plan Elite Ilimitado Bonificado).",
+            "is_club" => false,
+            "is_free_test_club" => false,
+            "is_unlimited_coach" => true,
             "subscription_end_date" => "2099-12-31 23:59:59",
             "next_billing_date" => "2099-12-31",
             "billing_history" => [],
@@ -319,6 +388,8 @@ function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null,
         "card_expiry" => $card_expiry,
         "message" => $message,
         "is_club" => $is_club,
+        "is_free_test_club" => false,
+        "is_unlimited_coach" => false,
         "subscription_end_date" => $expiration->format('Y-m-d H:i:s'),
         "next_billing_date" => $expiration->format('Y-m-d'),
         "billing_history" => $billing_history,

@@ -61,9 +61,9 @@ $sql .= "
       WHERE estado = 'activo' 
       GROUP BY pack_id
   ) ig_counts ON ig_counts.pack_id = p.id
-  WHERE p.activo = 1 AND e.rol = 'entrenador'
+  WHERE p.activo = 1 AND (e.rol = 'entrenador' OR e.rol = 'administrador' OR e.rol = 'admin')
     AND (p.fecha IS NULL OR p.fecha >= CURDATE())
-    AND (p.tipo != 'grupal' OR p.permite_inscripcion = 1)
+    AND (p.tipo != 'grupal' OR p.permite_inscripcion = 1 OR p.permite_inscripcion IS NULL)
 ";
 
 if ($entrenador_id) {
