@@ -116,7 +116,13 @@ try {
 
     // 6. Si el periodo venció o requiere pago para renovar +1 mes:
     // Generar Checkout Pro de Mercado Pago (Permite Webpay Plus, Redcompra, Débito, Crédito y saldo MP)
-    $clientOrigin = !empty($input['origin']) ? $input['origin'] : "https://padelblox.cl/mi-plan";
+    $rawOrigin = !empty($input['origin']) ? $input['origin'] : "https://padelblox.cl/mi-plan";
+    if (empty($rawOrigin) || strpos($rawOrigin, 'localhost') !== false || strpos($rawOrigin, '127.0.0.1') !== false || strpos($rawOrigin, 'https://') !== 0) {
+        $clientOrigin = "https://padelblox.cl/mi-plan";
+    } else {
+        $clientOrigin = $rawOrigin;
+    }
+
     $subData = [
         "payer_email" => $coach['usuario'] ?? ($coach['email'] ?? 'contacto@padelblox.cl'),
         "plan_name" => $plan['name'],
