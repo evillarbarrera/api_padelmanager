@@ -45,7 +45,7 @@ SELECT
     GROUP_CONCAT(COALESCE(u_j.id, '') SEPARATOR '||') AS jugador_ids,
     GROUP_CONCAT(COALESCE(u_j.nombre, '') SEPARATOR '||') AS jugador_nombre,
     GROUP_CONCAT(COALESCE(u_j.usuario, '') SEPARATOR '||') AS jugador_emails,
-    GROUP_CONCAT(COALESCE(u_j.foto_perfil, u_j.foto, '') SEPARATOR '||') AS jugador_fotos,
+    GROUP_CONCAT(COALESCE(NULLIF(u_j.foto_perfil, ''), NULLIF(u_j.foto, ''), '') SEPARATOR '||') AS jugador_fotos,
     COALESCE(p.capacidad_minima, 2) as capacidad_minima,
     COALESCE(p.capacidad_maxima, 6) as capacidad_maxima,
     MAX(p.duracion_sesion_min) as duracion_original,
@@ -90,11 +90,13 @@ while ($row = $result->fetch_assoc()) {
         $fotos = explode('||', $row['jugador_fotos']);
         $ids = explode('||', $row['jugador_ids']);
         for ($i = 0; $i < count($names); $i++) {
+            $f = trim($fotos[$i] ?? '');
             $inscritos_final[] = [
                 "id" => trim($ids[$i] ?? ''),
                 "nombre" => trim($names[$i]),
                 "email" => trim($emails[$i] ?? ''),
-                "foto" => trim($fotos[$i] ?? '')
+                "foto" => $f,
+                "foto_perfil" => $f
             ];
         }
     }
@@ -202,7 +204,9 @@ while ($row = $result->fetch_assoc()) {
     // Obtener inscritos actuales para este pack si es por fecha
     $inscritos = [];
     if ($row['fecha']) {
-        $sql_ig = "SELECT u.id, u.nombre, u.usuario as email, u.foto_perfil as foto 
+        $sql_ig = "SELECT u.id, u.nombre, u.usuario as email, 
+                          COALESCE(NULLIF(u.foto_perfil, ''), NULLIF(u.foto, ''), '') as foto,
+                          COALESCE(NULLIF(u.foto_perfil, ''), NULLIF(u.foto, ''), '') as foto_perfil
                    FROM (
                        SELECT jugador_id FROM inscripciones_grupales WHERE pack_id = ? AND estado = 'activo'
                        UNION
@@ -218,7 +222,9 @@ while ($row = $result->fetch_assoc()) {
         }
     } else {
         // Para plantillas sin fecha, contar solo inscripciones fijas
-        $sql_ig = "SELECT u.id, u.nombre, u.usuario as email, u.foto_perfil as foto 
+        $sql_ig = "SELECT u.id, u.nombre, u.usuario as email, 
+                          COALESCE(NULLIF(u.foto_perfil, ''), NULLIF(u.foto, ''), '') as foto,
+                          COALESCE(NULLIF(u.foto_perfil, ''), NULLIF(u.foto, ''), '') as foto_perfil
                    FROM inscripciones_grupales ig 
                    JOIN usuarios u ON u.id = ig.jugador_id 
                    WHERE ig.pack_id = ? AND ig.estado = 'activo'";
