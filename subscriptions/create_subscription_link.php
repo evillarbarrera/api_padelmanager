@@ -72,14 +72,23 @@ try {
 
     // 4. Calcular días transcurridos de prueba y vencimiento efectivo
     $now = new DateTime();
-    $has_explicit_end = !empty($coach['subscription_end_date']);
-    if ($has_explicit_end) {
-        $expiration = new DateTime($coach['subscription_end_date']);
+    $created_at = $coach['created_at'] ?? date('Y-m-d H:i:s');
+    $created = new DateTime($created_at);
+    $trial_expiration = clone $created;
+    $trial_expiration->modify('+90 days');
+
+    $raw_end = trim($coach['subscription_end_date'] ?? '');
+    $paid_expiration = null;
+    if (!empty($raw_end) && $raw_end !== '0000-00-00 00:00:00' && $raw_end !== '0000-00-00' && strpos($raw_end, '1970') === false) {
+        try {
+            $paid_expiration = new DateTime($raw_end);
+        } catch (\Throwable $e) {}
+    }
+
+    if ($paid_expiration && $paid_expiration > $trial_expiration) {
+        $expiration = $paid_expiration;
     } else {
-        $created_at = $coach['created_at'] ?? date('Y-m-d H:i:s');
-        $created = new DateTime($created_at);
-        $expiration = clone $created;
-        $expiration->modify('+90 days');
+        $expiration = $trial_expiration;
     }
 
     $is_expired = ($now > $expiration);

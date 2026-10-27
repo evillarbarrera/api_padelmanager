@@ -279,14 +279,27 @@ function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null,
         $price_clp = $plan_prices[$plan_id] ?? 0;
     }
 
-    // Determinar la fecha de vencimiento efectiva
-    $has_explicit_end = !empty($target_user['subscription_end_date']);
-    if ($has_explicit_end) {
-        $expiration = new DateTime($target_user['subscription_end_date']);
+    // 1. Fecha de vencimiento del período de prueba (90 días desde created_at)
+    $trial_expiration = clone $created;
+    $trial_expiration->modify('+90 days');
+
+    // 2. Fecha de vencimiento de suscripción explícita o pagada
+    $raw_end = trim($target_user['subscription_end_date'] ?? '');
+    $has_explicit_end = false;
+    $paid_expiration = null;
+    if (!empty($raw_end) && $raw_end !== '0000-00-00 00:00:00' && $raw_end !== '0000-00-00' && strpos($raw_end, '1970') === false) {
+        try {
+            $paid_expiration = new DateTime($raw_end);
+            $has_explicit_end = true;
+        } catch (\Throwable $e) {}
+    }
+
+    // 3. La fecha de vencimiento efectiva es la mayor entre el período de prueba y la suscripción pagada
+    // (Si un usuario fue creado hace 2 días, su período de prueba de 90 días está plenamente vigente)
+    if ($paid_expiration && $paid_expiration > $trial_expiration) {
+        $expiration = $paid_expiration;
     } else {
-        // Si no tiene fecha explícita, se calcula periodo inicial de prueba de 90 días desde created_at
-        $expiration = clone $created;
-        $expiration->modify('+90 days');
+        $expiration = $trial_expiration;
     }
 
     $is_expired = ($now > $expiration);
@@ -300,9 +313,10 @@ function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null,
     $status = 'active';
     $message = 'Suscripción activa';
     $db_sub_status = strtolower(trim($target_user['subscription_status'] ?? ''));
+    $is_explicitly_blocked = ($db_sub_status === 'blocked');
 
     if ($is_club) {
-        if ($is_expired || $days_remaining <= 0 || in_array($db_sub_status, ['inactive', 'blocked', 'past_due', 'cancelled'])) {
+        if ($is_expired || $days_remaining <= 0 || $is_explicitly_blocked) {
             $is_blocked = true;
             $status = 'blocked';
             $days_remaining = 0;
@@ -310,7 +324,7 @@ function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null,
         } else {
             $status = 'active';
             $is_blocked = false;
-            if ($has_explicit_end) {
+            if ($has_explicit_end && $expiration === $paid_expiration) {
                 $message = "Suscripción mensual de Club activa ($days_remaining días restantes). Próximo cobro: " . $expiration->format('d/m/Y');
             } else {
                 $message = "Periodo de prueba activo para Club ($days_remaining días restantes).";
@@ -318,7 +332,7 @@ function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null,
         }
     } else {
         // Entrenador: Si está vencido o en 0 días restantes, debe bloquearse siempre
-        if ($is_expired || $days_remaining <= 0 || in_array($db_sub_status, ['inactive', 'blocked', 'past_due', 'cancelled'])) {
+        if ($is_expired || $days_remaining <= 0 || $is_explicitly_blocked) {
             $is_blocked = true;
             $status = 'blocked';
             $days_remaining = 0;
@@ -330,7 +344,7 @@ function evaluateSubscriptionStatus($target_user, $effective_role, $conn = null,
         } else {
             $status = 'active';
             $is_blocked = false;
-            if ($has_explicit_end) {
+            if ($has_explicit_end && $expiration === $paid_expiration) {
                 $message = "Suscripción activa ($days_remaining días restantes). Próximo vencimiento: " . $expiration->format('d/m/Y');
             } else {
                 $message = "Periodo de prueba activo ($days_remaining días restantes).";
