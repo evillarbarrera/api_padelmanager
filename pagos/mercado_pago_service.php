@@ -182,6 +182,7 @@ class MercadoPagoService {
         $userId = (int)($data['user_id'] ?? ($data['coach_id'] ?? 0));
         $planId = (int)($data['plan_id'] ?? 0);
         $planName = $data['plan_name'] ?? 'Membresía Mensual Padelblox';
+        $amount = (float)($data['amount'] ?? ($data['price'] ?? 0));
         $rawOrigin = rtrim($data['origin'] ?? 'https://padelblox.cl/mi-plan', '/');
         // Mercado Pago exige HTTPS y no acepta localhost cuando auto_return está activo
         if (empty($rawOrigin) || strpos($rawOrigin, 'localhost') !== false || strpos($rawOrigin, '127.0.0.1') !== false || strpos($rawOrigin, 'https://') !== 0) {

@@ -86,16 +86,16 @@ try {
     $days_remaining = $is_expired ? 0 : (int)$now->diff($expiration)->days;
     $force_payment = !empty($input['force_payment']) || !empty($input['renew']);
 
-    // 5. Plan Emprendedor ($0) siempre es gratuito sin cobro
-    if ($plan_id == 1) {
-        $stmtUpd = $conn->prepare("UPDATE usuarios SET plan_id = 1, subscription_status = 'active' WHERE id = ?");
-        $stmtUpd->bind_param("i", $user_id);
+    // 5. Plan Emprendedor ($0) o planes de costo cero siempre son gratuitos sin cobro
+    if ($plan_id == 1 || (float)($plan['price'] ?? 0) <= 0) {
+        $stmtUpd = $conn->prepare("UPDATE usuarios SET plan_id = ?, subscription_status = 'active' WHERE id = ?");
+        $stmtUpd->bind_param("ii", $plan_id, $user_id);
         $stmtUpd->execute();
 
         echo json_encode([
             "success" => true,
             "redirect" => false,
-            "message" => "Plan EMPRENDEDOR ($0 CLP) activado con éxito."
+            "message" => "Plan " . $plan['name'] . " ($0 CLP) activado con éxito."
         ]);
         exit;
     }
