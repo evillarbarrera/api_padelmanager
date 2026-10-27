@@ -69,11 +69,11 @@ function isNicoRuizUser($conn, $user_id = 0, $target_user = null) {
 
     // 1. Revisar target_user en memoria
     if ($target_user) {
-        $nombreCompleto = strtolower(trim(($target_user['nombre'] ?? '') . ' ' . ($target_user['apellido'] ?? '')));
+        $nombre = strtolower(trim($target_user['nombre'] ?? ''));
         if (
-            strpos($nombreCompleto, 'nico ruiz') !== false || 
-            strpos($nombreCompleto, 'nicolas ruiz') !== false ||
-            strpos($nombreCompleto, 'nicolás ruiz') !== false
+            strpos($nombre, 'nico ruiz') !== false || 
+            strpos($nombre, 'nicolas ruiz') !== false ||
+            strpos($nombre, 'nicolás ruiz') !== false
         ) {
             return true;
         }
@@ -89,47 +89,38 @@ function isNicoRuizUser($conn, $user_id = 0, $target_user = null) {
         ) {
             return true;
         }
-
-        $email = strtolower(trim($target_user['email'] ?? ''));
-        if (
-            strpos($email, 'nicoruiz') !== false || 
-            strpos($email, 'nico.ruiz') !== false || 
-            strpos($email, 'nicolasruiz') !== false ||
-            strpos($email, 'nicolas.ruiz') !== false
-        ) {
-            return true;
-        }
     }
 
     if (!$conn || $uid <= 0) {
         return false;
     }
 
-    // 2. Revisar en la BD
-    $stmt = $conn->prepare("
-        SELECT id, nombre, apellido, usuario, email 
-        FROM usuarios 
-        WHERE id = ? 
-          AND (
-            LOWER(CONCAT(COALESCE(nombre, ''), ' ', COALESCE(apellido, ''))) LIKE '%nico%ruiz%' OR
-            LOWER(CONCAT(COALESCE(nombre, ''), ' ', COALESCE(apellido, ''))) LIKE '%nicolas%ruiz%' OR
-            LOWER(CONCAT(COALESCE(nombre, ''), ' ', COALESCE(apellido, ''))) LIKE '%nicolás%ruiz%' OR
-            LOWER(usuario) LIKE '%nicoruiz%' OR
-            LOWER(usuario) LIKE '%nico.ruiz%' OR
-            LOWER(usuario) LIKE '%nico_ruiz%' OR
-            LOWER(usuario) LIKE '%nicolas%ruiz%' OR
-            LOWER(email) LIKE '%nicoruiz%' OR
-            LOWER(email) LIKE '%nico.ruiz%' OR
-            LOWER(email) LIKE '%nicolas%ruiz%'
-          )
-        LIMIT 1
-    ");
-    if ($stmt) {
-        $stmt->bind_param("i", $uid);
-        $stmt->execute();
-        if ($stmt->get_result()->num_rows > 0) {
-            return true;
+    // 2. Revisar en la BD sólo con las columnas reales de usuarios: `nombre` y `usuario`
+    try {
+        $stmt = $conn->prepare("
+            SELECT id, nombre, usuario 
+            FROM usuarios 
+            WHERE id = ? 
+              AND (
+                LOWER(nombre) LIKE '%nico%ruiz%' OR
+                LOWER(nombre) LIKE '%nicolas%ruiz%' OR
+                LOWER(nombre) LIKE '%nicolás%ruiz%' OR
+                LOWER(usuario) LIKE '%nicoruiz%' OR
+                LOWER(usuario) LIKE '%nico.ruiz%' OR
+                LOWER(usuario) LIKE '%nico_ruiz%' OR
+                LOWER(usuario) LIKE '%nicolas%ruiz%'
+              )
+            LIMIT 1
+        ");
+        if ($stmt) {
+            $stmt->bind_param("i", $uid);
+            $stmt->execute();
+            if ($stmt->get_result()->num_rows > 0) {
+                return true;
+            }
         }
+    } catch (\Throwable $t) {
+        // En caso de cualquier error de consulta, continuar defensivamente
     }
 
     return false;
@@ -157,45 +148,46 @@ function isPowerPadelClub($conn, $club_id = 0, $user_id = 0, $target_user = null
 
     $uid = $user_id ? intval($user_id) : intval($target_user['id'] ?? 0);
 
-    // Revisar usuario / email del club
+    // Revisar usuario del club (en usuarios la columna es `usuario`)
     if (!empty($target_user['usuario']) && (stripos($target_user['usuario'], 'powerpadel') !== false || stripos($target_user['usuario'], 'power padel') !== false)) {
-        return true;
-    }
-    if (!empty($target_user['email']) && (stripos($target_user['email'], 'powerpadel') !== false || stripos($target_user['email'], 'power padel') !== false)) {
         return true;
     }
 
     if (!$conn) return false;
 
-    if ($cid > 0) {
-        $stmtCId = $conn->prepare("SELECT nombre FROM clubes WHERE id = ? LIMIT 1");
-        if ($stmtCId) {
-            $stmtCId->bind_param("i", $cid);
-            $stmtCId->execute();
-            $cRow = $stmtCId->get_result()->fetch_assoc();
-            if ($cRow) {
-                $cName = strtolower($cRow['nombre'] ?? '');
-                if (strpos($cName, 'powerpadel') !== false || strpos($cName, 'power padel') !== false) {
+    try {
+        if ($cid > 0) {
+            $stmtCId = $conn->prepare("SELECT nombre FROM clubes WHERE id = ? LIMIT 1");
+            if ($stmtCId) {
+                $stmtCId->bind_param("i", $cid);
+                $stmtCId->execute();
+                $cRow = $stmtCId->get_result()->fetch_assoc();
+                if ($cRow) {
+                    $cName = strtolower($cRow['nombre'] ?? '');
+                    if (strpos($cName, 'powerpadel') !== false || strpos($cName, 'power padel') !== false) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if ($uid > 0) {
+            $stmtAdmin = $conn->prepare("
+                SELECT id FROM clubes 
+                WHERE admin_id = ? 
+                  AND (LOWER(nombre) LIKE '%power%padel%' OR LOWER(nombre) LIKE '%powerpadel%' OR id IN (17, 21))
+                LIMIT 1
+            ");
+            if ($stmtAdmin) {
+                $stmtAdmin->bind_param("i", $uid);
+                $stmtAdmin->execute();
+                if ($stmtAdmin->get_result()->num_rows > 0) {
                     return true;
                 }
             }
         }
-    }
-
-    if ($uid > 0) {
-        $stmtAdmin = $conn->prepare("
-            SELECT id FROM clubes 
-            WHERE admin_id = ? 
-              AND (LOWER(nombre) LIKE '%power%padel%' OR LOWER(nombre) LIKE '%powerpadel%' OR id IN (17, 21))
-            LIMIT 1
-        ");
-        if ($stmtAdmin) {
-            $stmtAdmin->bind_param("i", $uid);
-            $stmtAdmin->execute();
-            if ($stmtAdmin->get_result()->num_rows > 0) {
-                return true;
-            }
-        }
+    } catch (\Throwable $t) {
+        // En caso de error, continuar defensivamente
     }
 
     return false;
