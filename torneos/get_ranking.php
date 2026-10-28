@@ -124,17 +124,46 @@ try {
             }
         }
     } else {
-        // Category ranking: Only players with puntos > 0 in this specific category
+        // Category ranking: Only players with puntos > 0 in this specific category (supporting variants)
         $catEscaped = $conn->real_escape_string($categoria);
+        $catVariants = [$catEscaped];
+        $catMap = [
+            'Damas A' => ['Damas A', 'Primera Damas', '1ª Damas', '1ra Damas'],
+            'Damas B' => ['Damas B', 'Segunda Damas', '2ª Damas', '2da Damas'],
+            'Damas C' => ['Damas C', 'Tercera Damas', '3ª Damas', '3ra Damas'],
+            'Damas D' => ['Damas D', 'Cuarta Damas', '4ª Damas', '4ta Damas'],
+            'Damas E' => ['Damas E', 'Quinta Damas', '5ª Damas', '5ta Damas'],
+            'Primera Damas' => ['Damas A', 'Primera Damas', '1ª Damas', '1ra Damas'],
+            'Segunda Damas' => ['Damas B', 'Segunda Damas', '2ª Damas', '2da Damas'],
+            'Tercera Damas' => ['Damas C', 'Tercera Damas', '3ª Damas', '3ra Damas'],
+            'Cuarta Damas'  => ['Damas D', 'Cuarta Damas', '4ª Damas', '4ta Damas'],
+            'Quinta Damas'  => ['Damas E', 'Quinta Damas', '5ª Damas', '5ta Damas'],
+            'Primera' => ['Primera', '1ra', '1ª', '1ra Varones', '1ª Varones'],
+            'Segunda' => ['Segunda', '2da', '2ª', '2da Varones', '2ª Varones'],
+            'Tercera' => ['Tercera', '3ra', '3ª', '3ra Varones', '3ª Varones'],
+            'Cuarta'  => ['Cuarta', '4ta', '4ª', '4ta Varones', '4ª Varones'],
+            'Quinta'  => ['Quinta', '5ta', '5ª', '5ta Varones', '5ª Varones'],
+            'Sexta'   => ['Sexta', '6ta', '6ª', '6ta Varones', '6ª Varones'],
+            'Séptima' => ['Séptima', 'Septima', '7ma', '7ª', '7ma Varones', '7ª Varones']
+        ];
+        if (isset($catMap[$categoria])) {
+            $catVariants = $catMap[$categoria];
+        }
+        $escapedList = [];
+        foreach ($catVariants as $cv) {
+            $escapedList[] = "'" . $conn->real_escape_string($cv) . "'";
+        }
+        $catInClause = implode(", ", $escapedList);
+
         $sql = "SELECT u.id, u.nombre, COALESCE(u.apellido, '') as apellido, u.usuario, 
-                       rc.puntos as puntos_ranking, 
+                       MAX(rc.puntos) as puntos_ranking, 
                        $fotoSelect, 
                        COALESCE(u.rol, 'jugador') as role 
                 FROM ranking_categorias rc
                 JOIN usuarios u ON rc.usuario_id = u.id
-                WHERE rc.categoria = '$catEscaped' AND rc.puntos > 0" . $clubFilterClause;
+                WHERE rc.categoria IN ($catInClause) AND rc.puntos > 0" . $clubFilterClause;
                 
-        $sql .= " ORDER BY rc.puntos DESC, u.nombre ASC";
+        $sql .= " GROUP BY u.id, u.nombre, u.apellido, u.usuario, role ORDER BY puntos_ranking DESC, u.nombre ASC";
         
         $result = $conn->query($sql);
         if ($result) {
