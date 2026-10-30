@@ -25,6 +25,7 @@ $data = json_decode($inputJSON, true) ?? [];
 
 $nombre = $data['nombre'] ?? $_POST['nombre'] ?? '';
 $email = $data['email'] ?? $_POST['email'] ?? '';
+$telefono = trim($data['telefono'] ?? $_POST['telefono'] ?? '');
 
 // 🧠 AUTOCORRECCIÓN: Si el nombre contiene una @ y el email no tiene @ (o está vacío), los intercambiamos.
 if (strpos($nombre, '@') !== false && strpos($email, '@') === false) {
@@ -57,6 +58,7 @@ function ensureColumnUsers($conn, $column, $definition) {
     }
 }
 ensureColumnUsers($conn, 'entrenador_creador_id', "INT NULL DEFAULT NULL AFTER `rol` ");
+ensureColumnUsers($conn, 'telefono', "VARCHAR(50) NULL");
 
 // Ensure bridge table exists
 $conn->query("CREATE TABLE IF NOT EXISTS entrenador_alumno (
@@ -69,7 +71,7 @@ $conn->query("CREATE TABLE IF NOT EXISTS entrenador_alumno (
 )");
 
 // 1. Verificar si el usuario ya existe
-$sqlCheck = "SELECT id, nombre, usuario, entrenador_creador_id FROM usuarios WHERE usuario = ?";
+$sqlCheck = "SELECT id, nombre, usuario, telefono, entrenador_creador_id FROM usuarios WHERE usuario = ?";
 $stmtCheck = $conn->prepare($sqlCheck);
 $stmtCheck->bind_param("s", $email);
 $stmtCheck->execute();
@@ -84,6 +86,13 @@ if ($existingUser) {
     $stmtRel = $conn->prepare($sqlRel);
     $stmtRel->bind_param("ii", $entrenador_id, $existingId);
     $stmtRel->execute();
+
+    // Si viene teléfono y no lo tenía o se desea actualizar
+    if (!empty($telefono)) {
+        $updTel = $conn->prepare("UPDATE usuarios SET telefono = ? WHERE id = ?");
+        $updTel->bind_param("si", $telefono, $existingId);
+        $updTel->execute();
+    }
 
     // Opcional: Si no tiene entrenador creador, se lo asignamos
     if (!$existingUser['entrenador_creador_id']) {
@@ -109,9 +118,9 @@ $passwordHash = password_hash($randomPass, PASSWORD_DEFAULT);
 
 // 3. Insertar nuevo usuario
 $rol = 'alumno';
-$sqlInsert = "INSERT INTO usuarios (usuario, password, rol, nombre, entrenador_creador_id) VALUES (?, ?, ?, ?, ?)";
+$sqlInsert = "INSERT INTO usuarios (usuario, password, rol, nombre, telefono, entrenador_creador_id) VALUES (?, ?, ?, ?, ?, ?)";
 $stmtInsert = $conn->prepare($sqlInsert);
-$stmtInsert->bind_param("ssssi", $email, $passwordHash, $rol, $nombre, $entrenador_id);
+$stmtInsert->bind_param("sssssi", $email, $passwordHash, $rol, $nombre, $telefono, $entrenador_id);
 
 if ($stmtInsert->execute()) {
     $newUserId = $conn->insert_id;
