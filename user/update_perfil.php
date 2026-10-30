@@ -1,6 +1,7 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
+ob_start();
 
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
@@ -17,13 +18,15 @@ require_once "../db.php";
 $headers = getallheaders();
 require_once "../auth/auth_helper.php";
 if (!validateToken()) {
+    ob_end_clean();
     sendUnauthorized();
 }
 
 $data = json_decode(file_get_contents("php://input"), true);
-$user_id = $data['user_id'] ?? 0;
+$user_id = intval($data['user_id'] ?? 0);
 
 if (!$user_id) {
+    ob_end_clean();
     http_response_code(400);
     echo json_encode(["error" => "user_id is required"]);
     exit;
@@ -71,33 +74,54 @@ if (!empty($fields)) {
     $types .= "i";
     
     $stmtUser = $conn->prepare($sqlUser);
-    $stmtUser->bind_param($types, ...$values);
-    $stmtUser->execute();
+    if ($stmtUser) {
+        $stmtUser->bind_param($types, ...$values);
+        $stmtUser->execute();
+        $stmtUser->close();
+    }
 }
 
+// 2. Update or Insert address ONLY if address fields were passed
+$hasAddressFields = isset($data['region']) || isset($data['comuna']) || isset($data['calle']) || isset($data['numero_casa']) || isset($data['referencia']) || isset($data['latitud']) || isset($data['longitud']);
 
-// 2. Update or Insert address
-$sqlCheckAddr = "SELECT id FROM direcciones WHERE usuario_id = ?";
-$stmtCheck = $conn->prepare($sqlCheckAddr);
-$stmtCheck->bind_param("i", $user_id);
-$stmtCheck->execute();
-$resCheck = $stmtCheck->get_result();
+if ($hasAddressFields) {
+    $sqlCheckAddr = "SELECT id FROM direcciones WHERE usuario_id = ?";
+    $stmtCheck = $conn->prepare($sqlCheckAddr);
+    if ($stmtCheck) {
+        $stmtCheck->bind_param("i", $user_id);
+        $stmtCheck->execute();
+        $resCheck = $stmtCheck->get_result();
 
-if ($resCheck->num_rows > 0) {
-    // Update
-    $sqlAddr = "UPDATE direcciones SET region = ?, comuna = ?, calle = ?, numero_casa = ?, referencia = ?, latitud = ?, longitud = ? WHERE usuario_id = ?";
-    $stmtAddr = $conn->prepare($sqlAddr);
-    $lat = $data['latitud'] ?? null; // Allow null
-    $lng = $data['longitud'] ?? null;
-    $stmtAddr->bind_param("sssssddi", $data['region'], $data['comuna'], $data['calle'], $data['numero_casa'], $data['referencia'], $lat, $lng, $user_id);
-} else {
-    // Insert
-    $sqlAddr = "INSERT INTO direcciones (usuario_id, region, comuna, calle, numero_casa, referencia, latitud, longitud) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-    $stmtAddr = $conn->prepare($sqlAddr);
-    $lat = $data['latitud'] ?? null;
-    $lng = $data['longitud'] ?? null;
-    $stmtAddr->bind_param("isssssdd", $user_id, $data['region'], $data['comuna'], $data['calle'], $data['numero_casa'], $data['referencia'], $lat, $lng);
+        $reg = $data['region'] ?? '';
+        $com = $data['comuna'] ?? '';
+        $cal = $data['calle'] ?? '';
+        $num = $data['numero_casa'] ?? '';
+        $ref = $data['referencia'] ?? '';
+        $lat = isset($data['latitud']) && is_numeric($data['latitud']) ? floatval($data['latitud']) : null;
+        $lng = isset($data['longitud']) && is_numeric($data['longitud']) ? floatval($data['longitud']) : null;
+
+        if ($resCheck->num_rows > 0) {
+            // Update
+            $sqlAddr = "UPDATE direcciones SET region = ?, comuna = ?, calle = ?, numero_casa = ?, referencia = ?, latitud = ?, longitud = ? WHERE usuario_id = ?";
+            $stmtAddr = $conn->prepare($sqlAddr);
+            if ($stmtAddr) {
+                $stmtAddr->bind_param("sssssddi", $reg, $com, $cal, $num, $ref, $lat, $lng, $user_id);
+                $stmtAddr->execute();
+                $stmtAddr->close();
+            }
+        } else {
+            // Insert
+            $sqlAddr = "INSERT INTO direcciones (usuario_id, region, comuna, calle, numero_casa, referencia, latitud, longitud) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+            $stmtAddr = $conn->prepare($sqlAddr);
+            if ($stmtAddr) {
+                $stmtAddr->bind_param("isssssdd", $user_id, $reg, $com, $cal, $num, $ref, $lat, $lng);
+                $stmtAddr->execute();
+                $stmtAddr->close();
+            }
+        }
+        $stmtCheck->close();
+    }
 }
-$stmtAddr->execute();
 
+ob_end_clean();
 echo json_encode(["success" => true, "message" => "Profile updated successfully"]);
