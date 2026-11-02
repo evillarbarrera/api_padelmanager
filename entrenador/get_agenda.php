@@ -39,6 +39,7 @@ SELECT
     MIN(r.id) AS reserva_id,
     r.fecha,
     r.hora_inicio,
+    MAX(r.hora_fin) AS hora_fin,
     p.id as pack_id,
     p.nombre AS pack_nombre,
     p.categoria,
@@ -128,13 +129,21 @@ while ($row = $result->fetch_assoc()) {
 
     $total_inscritos = count($inscritos_final);
 
-    $duracion = $row['duracion_original'] > 0 ? $row['duracion_original'] : (
-        $total_inscritos >= 5 ? 120 : ($total_inscritos >= 4 ? 90 : 60)
-    );
-
     $hora_inicio_val = $row['hora_inicio'] ?? '08:00:00';
     $hora_inicio_sec = strtotime($hora_inicio_val);
-    $hora_fin = date("H:i:s", $hora_inicio_sec + ($duracion * 60));
+    $hora_fin_raw = !empty($row['hora_fin']) ? $row['hora_fin'] : null;
+
+    if ($hora_fin_raw) {
+        $hora_fin_sec = strtotime($hora_fin_raw);
+        $diff_min = round(($hora_fin_sec - $hora_inicio_sec) / 60);
+        $duracion = ($diff_min > 0) ? $diff_min : ($row['duracion_original'] > 0 ? (int)$row['duracion_original'] : 60);
+        $hora_fin = date("H:i:s", $hora_inicio_sec + ($duracion * 60));
+    } else {
+        $duracion = $row['duracion_original'] > 0 ? (int)$row['duracion_original'] : (
+            $total_inscritos >= 5 ? 120 : ($total_inscritos >= 4 ? 90 : 60)
+        );
+        $hora_fin = date("H:i:s", $hora_inicio_sec + ($duracion * 60));
+    }
 
     // Forzar capacidad mínima coherente para grupos
     $cap_max = $row['capacidad_maxima'];
