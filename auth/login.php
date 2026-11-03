@@ -43,13 +43,31 @@ try {
         // Ignorar si falla la verificación de columna
     }
 
-    // Búsqueda insensible a mayúsculas/minúsculas para el email o username
-    $sql = "SELECT id, usuario, password, rol, nombre, club_guide_seen FROM usuarios WHERE LOWER(usuario) = LOWER(?) LIMIT 1";
-    $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        throw new Exception("Error al preparar la consulta de usuario: " . $conn->error);
+    // Búsqueda insensible a mayúsculas/minúsculas para el email o username (con soporte para columna email si existe)
+    $hasEmailCol = false;
+    try {
+        $chkCol = @$conn->query("SHOW COLUMNS FROM usuarios LIKE 'email'");
+        if ($chkCol && $chkCol->num_rows > 0) {
+            $hasEmailCol = true;
+        }
+    } catch (Throwable $e) {}
+
+    if ($hasEmailCol) {
+        $sql = "SELECT id, usuario, password, rol, nombre, club_guide_seen FROM usuarios WHERE LOWER(TRIM(usuario)) = LOWER(?) OR LOWER(TRIM(email)) = LOWER(?) LIMIT 1";
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            throw new Exception("Error al preparar la consulta de usuario: " . $conn->error);
+        }
+        $stmt->bind_param("ss", $usuario, $usuario);
+    } else {
+        $sql = "SELECT id, usuario, password, rol, nombre, club_guide_seen FROM usuarios WHERE LOWER(TRIM(usuario)) = LOWER(?) LIMIT 1";
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            throw new Exception("Error al preparar la consulta de usuario: " . $conn->error);
+        }
+        $stmt->bind_param("s", $usuario);
     }
-    $stmt->bind_param("s", $usuario);
+
     $stmt->execute();
     $result = $stmt->get_result();
 
@@ -60,27 +78,28 @@ try {
         $loginSuccess = false;
         $needsRehash = false;
 
+        $pwdTrim = trim($password);
+
         if ($passwordStored !== '') {
             // 1. Intentar verificar hash
-            if (password_verify($password, $passwordStored)) {
+            if (password_verify($password, $passwordStored) || password_verify($pwdTrim, $passwordStored)) {
                 $loginSuccess = true;
-                // Verificar si necesita rehash (ej. si cambió algoritmo)
                 if (password_needs_rehash($passwordStored, PASSWORD_DEFAULT)) {
                     $needsRehash = true;
                 }
             } 
             // 2. Fallback: verificar MD5 (Legacy migration)
-            elseif (md5($password) === $passwordStored) {
+            elseif (md5($password) === $passwordStored || md5($pwdTrim) === $passwordStored) {
                 $loginSuccess = true;
                 $needsRehash = true;
             }
             // 3. Fallback: verificar SHA1 (Legacy migration)
-            elseif (sha1($password) === $passwordStored) {
+            elseif (sha1($password) === $passwordStored || sha1($pwdTrim) === $passwordStored) {
                 $loginSuccess = true;
                 $needsRehash = true;
             }
             // 4. Fallback: verificar texto plano (Legacy migration)
-            elseif ($password === $passwordStored) {
+            elseif ($password === $passwordStored || $pwdTrim === $passwordStored) {
                 $loginSuccess = true;
                 $needsRehash = true; // Convertir a hash
             } else {
