@@ -39,12 +39,14 @@ SELECT
     MIN(r.id) AS reserva_id,
     r.fecha,
     r.hora_inicio,
+    MAX(r.hora_fin) AS hora_fin,
     p.id as pack_id,
     p.nombre AS pack_nombre,
     p.categoria,
     GROUP_CONCAT(COALESCE(u_j.id, '') SEPARATOR '||') AS jugador_ids,
     GROUP_CONCAT(COALESCE(u_j.nombre, '') SEPARATOR '||') AS jugador_nombre,
     GROUP_CONCAT(COALESCE(u_j.usuario, '') SEPARATOR '||') AS jugador_emails,
+    GROUP_CONCAT(COALESCE(u_j.telefono, '') SEPARATOR '||') AS jugador_telefonos,
     GROUP_CONCAT(COALESCE(NULLIF(u_j.foto_perfil, ''), NULLIF(u_j.foto, ''), '') SEPARATOR '||') AS jugador_fotos,
     COALESCE(p.capacidad_minima, 2) as capacidad_minima,
     COALESCE(p.capacidad_maxima, 6) as capacidad_maxima,
@@ -109,6 +111,7 @@ while ($row = $result->fetch_assoc()) {
     if ($row['jugador_nombre']) {
         $names = explode('||', $row['jugador_nombre']);
         $emails = explode('||', $row['jugador_emails']);
+        $telefonos = explode('||', $row['jugador_telefonos'] ?? '');
         $fotos = explode('||', $row['jugador_fotos']);
         $ids = explode('||', $row['jugador_ids']);
         for ($i = 0; $i < count($names); $i++) {
@@ -117,6 +120,7 @@ while ($row = $result->fetch_assoc()) {
                 "id" => trim($ids[$i] ?? ''),
                 "nombre" => trim($names[$i]),
                 "email" => trim($emails[$i] ?? ''),
+                "telefono" => trim($telefonos[$i] ?? ''),
                 "foto" => $f,
                 "foto_perfil" => $f
             ];
@@ -125,13 +129,21 @@ while ($row = $result->fetch_assoc()) {
 
     $total_inscritos = count($inscritos_final);
 
-    $duracion = $row['duracion_original'] > 0 ? $row['duracion_original'] : (
-        $total_inscritos >= 5 ? 120 : ($total_inscritos >= 4 ? 90 : 60)
-    );
-
     $hora_inicio_val = $row['hora_inicio'] ?? '08:00:00';
     $hora_inicio_sec = strtotime($hora_inicio_val);
-    $hora_fin = date("H:i:s", $hora_inicio_sec + ($duracion * 60));
+    $hora_fin_raw = !empty($row['hora_fin']) ? $row['hora_fin'] : null;
+
+    if ($hora_fin_raw) {
+        $hora_fin_sec = strtotime($hora_fin_raw);
+        $diff_min = round(($hora_fin_sec - $hora_inicio_sec) / 60);
+        $duracion = ($diff_min > 0) ? $diff_min : ($row['duracion_original'] > 0 ? (int)$row['duracion_original'] : 60);
+        $hora_fin = date("H:i:s", $hora_inicio_sec + ($duracion * 60));
+    } else {
+        $duracion = $row['duracion_original'] > 0 ? (int)$row['duracion_original'] : (
+            $total_inscritos >= 5 ? 120 : ($total_inscritos >= 4 ? 90 : 60)
+        );
+        $hora_fin = date("H:i:s", $hora_inicio_sec + ($duracion * 60));
+    }
 
     // Forzar capacidad mínima coherente para grupos
     $cap_max = $row['capacidad_maxima'];
@@ -162,6 +174,8 @@ while ($row = $result->fetch_assoc()) {
     // Requiere cancha si el club ofrece reservas de pistas pero la reserva aún no tiene una cancha asignada
     $requiere_cancha = ($club_permite_canchas && $cancha_id <= 0);
 
+    $primJugador = !empty($inscritos_final) ? $inscritos_final[0] : null;
+
     $data["reservas_tradicionales"][] = [
         "reserva_id" => $row['reserva_id'],
         "fecha" => $row['fecha'],
@@ -172,6 +186,9 @@ while ($row = $result->fetch_assoc()) {
         "pack_nombre" => $row['pack_nombre'],
         "categoria" => $row['categoria'],
         "inscritos" => $inscritos_final,
+        "jugador_id" => $primJugador ? $primJugador['id'] : null,
+        "telefono" => $primJugador ? $primJugador['telefono'] : '',
+        "jugador_telefono" => $primJugador ? $primJugador['telefono'] : '',
         "cupos_ocupados" => $total_inscritos,
         "capacidad_maxima" => $cap_max,
         "duracion_calculada" => $duracion,
@@ -248,7 +265,7 @@ while ($row = $result->fetch_assoc()) {
     // Obtener inscritos actuales para este pack si es por fecha
     $inscritos = [];
     if ($row['fecha']) {
-        $sql_ig = "SELECT u.id, u.nombre, u.usuario as email, 
+        $sql_ig = "SELECT u.id, u.nombre, u.usuario as email, COALESCE(u.telefono, '') as telefono,
                           COALESCE(NULLIF(u.foto_perfil, ''), NULLIF(u.foto, ''), '') as foto,
                           COALESCE(NULLIF(u.foto_perfil, ''), NULLIF(u.foto, ''), '') as foto_perfil
                    FROM (
@@ -266,7 +283,7 @@ while ($row = $result->fetch_assoc()) {
         }
     } else {
         // Para plantillas sin fecha, contar solo inscripciones fijas
-        $sql_ig = "SELECT u.id, u.nombre, u.usuario as email, 
+        $sql_ig = "SELECT u.id, u.nombre, u.usuario as email, COALESCE(u.telefono, '') as telefono,
                           COALESCE(NULLIF(u.foto_perfil, ''), NULLIF(u.foto, ''), '') as foto,
                           COALESCE(NULLIF(u.foto_perfil, ''), NULLIF(u.foto, ''), '') as foto_perfil
                    FROM inscripciones_grupales ig 
@@ -280,6 +297,8 @@ while ($row = $result->fetch_assoc()) {
             $inscritos[] = $row_ig;
         }
     }
+
+    $primGrup = !empty($inscritos) ? $inscritos[0] : null;
 
     $data["packs_grupales"][] = [
         "pack_id" => $row['pack_id'],
@@ -295,6 +314,9 @@ while ($row = $result->fetch_assoc()) {
         "duracion_calculada" => $duracion,
         "tipo" => ($row['fecha'] ? "grupal_fecha" : "grupal_template"),
         "inscritos" => $inscritos,
+        "jugador_id" => $primGrup ? $primGrup['id'] : null,
+        "telefono" => $primGrup ? ($primGrup['telefono'] ?? '') : '',
+        "jugador_telefono" => $primGrup ? ($primGrup['telefono'] ?? '') : '',
         "jugador_nombre" => implode(', ', array_column($inscritos, 'nombre')),
         "club_nombre" => $row['club_nombre']
     ];
