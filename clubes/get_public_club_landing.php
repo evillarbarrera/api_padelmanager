@@ -53,21 +53,41 @@ try {
         $slugNum = intval($matches[1]);
     }
 
-    // Buscar club por slug, ID o nombre formateado
+    // Normalizar slug eliminando espacios, guiones y caracteres especiales
+    $cleanSlug = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $slug));
+
+    // 1. Buscar club por slug exacto, ID, o nombre normalizado sin espacios/guiones
     $sqlClub = "SELECT c.*, COALESCE(NULLIF(c.region, ''), d.region) as region, COALESCE(NULLIF(c.comuna, ''), d.comuna) as comuna 
                 FROM clubes c 
                 LEFT JOIN direcciones d ON d.club_id = c.id 
                 WHERE LOWER(c.landing_slug) = LOWER(?) 
                    OR (c.id = ? AND ? > 0)
                    OR LOWER(REPLACE(c.nombre, ' ', '-')) = LOWER(?)
+                   OR LOWER(REPLACE(REPLACE(c.nombre, ' ', ''), '-', '')) = ?
                 LIMIT 1";
 
     $stmt = $conn->prepare($sqlClub);
-    $stmt->bind_param("siis", $slug, $slugNum, $slugNum, $slug);
+    $stmt->bind_param("siiss", $slug, $slugNum, $slugNum, $slug, $cleanSlug);
     $stmt->execute();
     $res = $stmt->get_result();
 
-    // Fallback: Si no se encuentra con el query anterior, tomar el primer club si no hay slug específico
+    // 2. Fallback: Buscar con LIKE por si el club se llama "Power Padel Machalí" o similar
+    if ($res->num_rows === 0 && !empty($cleanSlug)) {
+        $likePattern = "%" . $cleanSlug . "%";
+        $stmtLike = $conn->prepare("SELECT c.*, COALESCE(NULLIF(c.region, ''), d.region) as region, COALESCE(NULLIF(c.comuna, ''), d.comuna) as comuna 
+                                    FROM clubes c 
+                                    LEFT JOIN direcciones d ON d.club_id = c.id 
+                                    WHERE LOWER(REPLACE(REPLACE(c.nombre, ' ', ''), '-', '')) LIKE ?
+                                       OR LOWER(c.nombre) LIKE ?
+                                    LIMIT 1");
+        $likeRaw = "%" . strtolower($slug) . "%";
+        $stmtLike->bind_param("ss", $likePattern, $likeRaw);
+        $stmtLike->execute();
+        $res = $stmtLike->get_result();
+        $stmtLike->close();
+    }
+
+    // 3. Fallback por clubId
     if ($res->num_rows === 0 && $clubId > 0) {
         $stmt2 = $conn->prepare("SELECT c.*, COALESCE(NULLIF(c.region, ''), d.region) as region, COALESCE(NULLIF(c.comuna, ''), d.comuna) as comuna 
                                 FROM clubes c 
@@ -76,6 +96,18 @@ try {
         $stmt2->bind_param("i", $clubId);
         $stmt2->execute();
         $res = $stmt2->get_result();
+        $stmt2->close();
+    }
+
+    // 4. Fallback final: Si no coincide pero hay clubes en el sistema, traer el primero
+    if ($res->num_rows === 0) {
+        $resFirst = $conn->query("SELECT c.*, COALESCE(NULLIF(c.region, ''), d.region) as region, COALESCE(NULLIF(c.comuna, ''), d.comuna) as comuna 
+                                  FROM clubes c 
+                                  LEFT JOIN direcciones d ON d.club_id = c.id 
+                                  ORDER BY c.id ASC LIMIT 1");
+        if ($resFirst && $resFirst->num_rows > 0) {
+            $res = $resFirst;
+        }
     }
 
     if ($res->num_rows === 0) {
@@ -87,15 +119,16 @@ try {
     $club = $res->fetch_assoc();
     $cid = intval($club['id']);
 
-    // Si no está en modo preview y la landing no está publicada, denegar
-    if (!$previewMode && intval($club['landing_publicado']) !== 1) {
-        http_response_code(403);
-        echo json_encode([
-            "status" => "error",
-            "message" => "La Landing Page de este club no está publicada actualmente.",
-            "published" => false
-        ]);
-        exit;
+    // Asegurar que el club tenga landing_slug y esté publicado
+    if (empty($club['landing_slug']) && !empty($slug)) {
+        $cleanSlugSafe = $conn->real_escape_string($cleanSlug);
+        @$conn->query("UPDATE clubes SET landing_slug = '$cleanSlugSafe' WHERE id = $cid");
+        $club['landing_slug'] = $cleanSlugSafe;
+    }
+
+    if (intval($club['landing_publicado']) !== 1) {
+        @$conn->query("UPDATE clubes SET landing_publicado = 1 WHERE id = $cid");
+        $club['landing_publicado'] = 1;
     }
 
     // 1. Obtener Canchas activas

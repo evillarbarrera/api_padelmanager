@@ -78,6 +78,11 @@ function guardarToken($conn, $input) {
         $stCleanOther->close();
     }
 
+    // Desvincular también en la tabla usuarios si existía la columna fcm_token
+    try {
+        $conn->query("UPDATE usuarios SET fcm_token = NULL WHERE fcm_token = '" . $conn->real_escape_string($token) . "' AND id != $userId");
+    } catch (Throwable $e) {}
+
     // 2. Evitar filas duplicadas del mismo token para el mismo usuario
     $stCleanSame = $conn->prepare("DELETE FROM fcm_tokens WHERE token = ? AND user_id = ?");
     if ($stCleanSame) {
@@ -126,54 +131,93 @@ function enviarNotificacion($conn, $input) {
 
 function programarRecordatorio($conn, $input) {
     $userId = intval($input['user_id'] ?? 0);
-    $packNombre = $input['pack_nombre'] ?? '';
+    $packNombre = trim($input['pack_nombre'] ?? 'Entrenamiento');
     $fechaEnt = $input['fecha_entrenamiento'] ?? null;
-    $horaInicio = $input['hora_inicio'] ?? '';
+    $horaInicio = trim($input['hora_inicio'] ?? '');
+    $reservaId = intval($input['reserva_id'] ?? 0);
 
     if ($userId <= 0 || !$fechaEnt) {
         throw new Exception("user_id y fecha_entrenamiento son requeridos");
     }
 
+    // Asegurar compatibilidad de columna reserva_id
+    try {
+        $checkColRes = $conn->query("SHOW COLUMNS FROM recordatorios_programados LIKE 'reserva_id'");
+        if ($checkColRes && $checkColRes->num_rows === 0) {
+            $conn->query("ALTER TABLE recordatorios_programados ADD COLUMN reserva_id INT NULL");
+        }
+    } catch (Throwable $e) {}
+
+    $nowStr = date('Y-m-d H:i:s');
+    $insertedCount = 0;
+
     $stmt = $conn->prepare("
-        INSERT INTO recordatorios_programados (user_id, titulo, mensaje, tipo, fecha_programada, enviado)
-        VALUES (?, ?, ?, ?, ?, 0)
+        INSERT INTO recordatorios_programados (user_id, titulo, mensaje, tipo, fecha_programada, reserva_id, enviado)
+        VALUES (?, ?, ?, ?, ?, ?, 0)
     ");
 
     if (!$stmt) {
-        throw new Exception("Error preparando statement: " . $conn->error);
+        // Fallback si no tiene columna reserva_id
+        $stmt = $conn->prepare("
+            INSERT INTO recordatorios_programados (user_id, titulo, mensaje, tipo, fecha_programada, enviado)
+            VALUES (?, ?, ?, ?, ?, 0)
+        ");
+        $hasResCol = false;
+    } else {
+        $hasResCol = true;
     }
 
-    // 1. Recordatorio 1 día antes (si el entrenamiento no es hoy o mañana muy temprano)
-    // Lo programamos para el día anterior a las 09:00 AM
+    // 1. Recordatorio 1 día antes a las 09:00 AM (SOLO si la fecha futura es posterior al momento actual)
     $fecha1 = new DateTime($fechaEnt);
     $fecha1->modify('-1 day');
     $fechaRec1 = $fecha1->format('Y-m-d') . ' 09:00:00';
     
-    $titulo1 = "🥎 Mañana: Clase de Pádel";
-    $mensaje1 = "Recuerda tu entrenamiento de $packNombre mañana a las $horaInicio. ¡Prepárate!";
-    $tipo1 = 'recordatorio_24h';
+    if ($fechaRec1 > $nowStr) {
+        $titulo1 = "🥎 Mañana: Clase de Pádel";
+        $mensaje1 = "Recuerda tu entrenamiento de $packNombre mañana a las $horaInicio. ¡Prepárate!";
+        $tipo1 = 'recordatorio_24h';
 
-    // 2. Recordatorio 1 hora antes
-    // Combinamos fecha y hora
-    $fecha2 = new DateTime($fechaEnt . ' ' . $horaInicio);
-    $fecha2->modify('-1 hour');
-    $fechaRec2 = $fecha2->format('Y-m-d H:i:s');
-    
-    $titulo2 = "⚡ ¡En 1 hora!";
-    $mensaje2 = "Tu clase de $packNombre comienza a las $horaInicio. ¡Te esperamos!";
-    $tipo2 = 'recordatorio_1h';
+        if ($hasResCol) {
+            $stmt->bind_param('issssi', $userId, $titulo1, $mensaje1, $tipo1, $fechaRec1, $reservaId);
+        } else {
+            $stmt->bind_param('issss', $userId, $titulo1, $mensaje1, $tipo1, $fechaRec1);
+        }
+        $stmt->execute();
+        $insertedCount++;
+    }
 
-    // Insertar el de 24h
-    $stmt->bind_param('issss', $userId, $titulo1, $mensaje1, $tipo1, $fechaRec1);
-    $stmt->execute();
-    
-    // Insertar el de 1h
-    $stmt->bind_param('issss', $userId, $titulo2, $mensaje2, $tipo2, $fechaRec2);
-    $stmt->execute();
-    
-    $stmt->close();
+    // 2. Recordatorio 1 hora antes (SOLO si la hora calculada es en el futuro)
+    if (!empty($horaInicio)) {
+        try {
+            $fecha2 = new DateTime($fechaEnt . ' ' . $horaInicio);
+            $fecha2->modify('-1 hour');
+            $fechaRec2 = $fecha2->format('Y-m-d H:i:s');
+            
+            if ($fechaRec2 > $nowStr) {
+                $titulo2 = "⚡ ¡En 1 hora!";
+                $mensaje2 = "Tu clase de $packNombre comienza a las $horaInicio. ¡Te esperamos!";
+                $tipo2 = 'recordatorio_1h';
 
-    echo json_encode(['success' => true, 'message' => 'Recordatorios programados (24h y 1h)']);
+                if ($hasResCol) {
+                    $stmt->bind_param('issssi', $userId, $titulo2, $mensaje2, $tipo2, $fechaRec2, $reservaId);
+                } else {
+                    $stmt->bind_param('issss', $userId, $titulo2, $mensaje2, $tipo2, $fechaRec2);
+                }
+                $stmt->execute();
+                $insertedCount++;
+            }
+        } catch (Throwable $eTime) {}
+    }
+    
+    if ($stmt) {
+        $stmt->close();
+    }
+
+    echo json_encode([
+        'success' => true, 
+        'message' => "Recordatorios programados (activos: $insertedCount)",
+        'programados' => $insertedCount
+    ]);
 }
 
 function notificarHorariosDisponibles($conn, $input) {

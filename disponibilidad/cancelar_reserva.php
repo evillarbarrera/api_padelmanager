@@ -60,6 +60,9 @@ try {
         $resExec = $stmtDel->execute();
         
         if ($resExec) {
+            // Cancelar recordatorios programados pendientes de este jugador
+            @$conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE (reserva_id = " . intval($reserva_id) . " OR user_id = " . intval($jugador_id_to_remove) . ") AND enviado = 0");
+
             echo json_encode(["success" => true, "message" => "Jugador removido de la clase."]);
             
             if (function_exists('fastcgi_finish_request')) {
@@ -102,6 +105,9 @@ try {
 
         // Liberar la cancha en el club
         @$conn->query("UPDATE reservas_cancha SET estado = 'Cancelada' WHERE reserva_entrenador_id = " . intval($reserva_id));
+
+        // Cancelar recordatorios programados pendientes de esta reserva
+        @$conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE reserva_id = " . intval($reserva_id) . " AND enviado = 0");
 
         if ($resExec) {
             echo json_encode(["success" => true, "message" => "Reserva cancelada correctamente."]);

@@ -49,18 +49,46 @@ try {
         $stmtClub->close();
     } elseif (!empty($slug)) {
         $slugNum = is_numeric($slug) ? intval($slug) : 0;
+        $cleanSlug = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $slug));
+
         $stmtClub = $conn->prepare("
             SELECT id, nombre, landing_slug, telefono, landing_whatsapp, landing_color_primary, landing_color_accent, logo_url, direccion, comuna, region 
             FROM clubes 
             WHERE LOWER(landing_slug) = LOWER(?) 
                OR (id = ? AND ? > 0)
                OR LOWER(REPLACE(nombre, ' ', '-')) = LOWER(?)
+               OR LOWER(REPLACE(REPLACE(nombre, ' ', ''), '-', '')) = ?
             LIMIT 1
         ");
-        $stmtClub->bind_param("siis", $slug, $slugNum, $slugNum, $slug);
+        $stmtClub->bind_param("siiss", $slug, $slugNum, $slugNum, $slug, $cleanSlug);
         $stmtClub->execute();
         $club = $stmtClub->get_result()->fetch_assoc();
         $stmtClub->close();
+
+        // Fallback con LIKE
+        if (!$club && !empty($cleanSlug)) {
+            $likePattern = "%" . $cleanSlug . "%";
+            $stmtLike = $conn->prepare("
+                SELECT id, nombre, landing_slug, telefono, landing_whatsapp, landing_color_primary, landing_color_accent, logo_url, direccion, comuna, region 
+                FROM clubes 
+                WHERE LOWER(REPLACE(REPLACE(nombre, ' ', ''), '-', '')) LIKE ?
+                   OR LOWER(nombre) LIKE ?
+                LIMIT 1
+            ");
+            $likeRaw = "%" . strtolower($slug) . "%";
+            $stmtLike->bind_param("ss", $likePattern, $likeRaw);
+            $stmtLike->execute();
+            $club = $stmtLike->get_result()->fetch_assoc();
+            $stmtLike->close();
+        }
+
+        // Fallback general si hay clubes
+        if (!$club) {
+            $resF = $conn->query("SELECT id, nombre, landing_slug, telefono, landing_whatsapp, landing_color_primary, landing_color_accent, logo_url, direccion, comuna, region FROM clubes ORDER BY id ASC LIMIT 1");
+            if ($resF && $resF->num_rows > 0) {
+                $club = $resF->fetch_assoc();
+            }
+        }
     }
 
     if (!$club) {

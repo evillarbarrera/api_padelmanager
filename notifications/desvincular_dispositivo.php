@@ -39,6 +39,123 @@ try {
 
     $userId = intval($_GET['user_id'] ?? $_POST['user_id'] ?? 0);
     $email = trim($_GET['email'] ?? $_POST['email'] ?? '');
+    $isGlobal = isset($_GET['global']) && ($_GET['global'] == '1' || $_GET['global'] === 'true');
+
+    // Auto-activar modo global si no se especifica usuario
+    if ($userId <= 0 && empty($email)) {
+        $isGlobal = true;
+    }
+
+    if ($isGlobal) {
+        // =====================================================================
+        // SANEAMIENTO GLOBAL: Limpiar TODOS los tokens compartidos en el sistema
+        // =====================================================================
+        $globalConflicts = [];
+        $totalEliminados = 0;
+
+        // 1. Detectar tokens presentes en más de un usuario
+        $resMulti = $conn->query("
+            SELECT token, COUNT(DISTINCT user_id) as total_users, MAX(id) as keep_id
+            FROM fcm_tokens
+            GROUP BY token
+            HAVING total_users > 1
+        ");
+
+        if ($resMulti) {
+            while ($rM = $resMulti->fetch_assoc()) {
+                $cToken = $rM['token'];
+                $keepId = intval($rM['keep_id']);
+                
+                // Obtener detalles de a quiénes afectaba
+                $stInf = $conn->prepare("SELECT f.id, f.user_id, u.nombre, u.usuario as email, u.rol FROM fcm_tokens f LEFT JOIN usuarios u ON f.user_id = u.id WHERE f.token = ?");
+                $afectados = [];
+                if ($stInf) {
+                    $stInf->bind_param('s', $cToken);
+                    $stInf->execute();
+                    $resInf = $stInf->get_result();
+                    while ($rowInf = $resInf->fetch_assoc()) {
+                        $afectados[] = [
+                            "token_id" => intval($rowInf['id']),
+                            "user_id" => intval($rowInf['user_id']),
+                            "nombre" => $rowInf['nombre'] ?? 'N/A',
+                            "email" => $rowInf['email'] ?? 'N/A',
+                            "rol" => $rowInf['rol'] ?? 'N/A',
+                            "conservado" => (intval($rowInf['id']) === $keepId)
+                        ];
+                    }
+                    $stInf->close();
+                }
+
+                $globalConflicts[] = [
+                    "token_sample" => substr($cToken, 0, 15) . '...',
+                    "total_usuarios" => intval($rM['total_users']),
+                    "keep_id" => $keepId,
+                    "cuentas_afectadas" => $afectados
+                ];
+
+                // Borrar todas las asociaciones de este token excepto el keepId (la sesión más reciente)
+                $stDelM = $conn->prepare("DELETE FROM fcm_tokens WHERE token = ? AND id != ?");
+                if ($stDelM) {
+                    $stDelM->bind_param('si', $cToken, $keepId);
+                    $stDelM->execute();
+                    $totalEliminados += $stDelM->affected_rows;
+                    $stDelM->close();
+                }
+            }
+        }
+
+        // 2. Limpiar duplicados del mismo token para el mismo usuario
+        $resSelfDup = $conn->query("
+            SELECT user_id, token, MAX(id) as keep_id, COUNT(*) as cnt
+            FROM fcm_tokens
+            GROUP BY user_id, token
+            HAVING cnt > 1
+        ");
+        $dupesCleaned = 0;
+        if ($resSelfDup) {
+            while ($rD = $resSelfDup->fetch_assoc()) {
+                $uId = intval($rD['user_id']);
+                $tStr = $rD['token'];
+                $kId = intval($rD['keep_id']);
+                $conn->query("DELETE FROM fcm_tokens WHERE user_id = $uId AND token = '" . $conn->real_escape_string($tStr) . "' AND id != $kId");
+                $dupesCleaned += $conn->affected_rows;
+            }
+        }
+
+        // 3. Sincronizar / limpiar usuarios.fcm_token si apunta a un token que ya no le pertenece
+        $usuariosColCleaned = 0;
+        try {
+            $chkCol = $conn->query("SHOW COLUMNS FROM usuarios LIKE 'fcm_token'");
+            if ($chkCol && $chkCol->num_rows > 0) {
+                // Si el token de usuarios.fcm_token está en fcm_tokens con otro usuario, nulificarlo
+                $conn->query("
+                    UPDATE usuarios u
+                    JOIN fcm_tokens f ON u.fcm_token = f.token AND u.id != f.user_id
+                    SET u.fcm_token = NULL
+                ");
+                $usuariosColCleaned = $conn->affected_rows;
+            }
+        } catch (Throwable $e) {}
+
+        // 4. Expirar recordatorios programados huérfanos con más de 3 horas de retraso
+        $expiredReminders = 0;
+        try {
+            $conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE enviado = 0 AND fecha_programada < DATE_SUB(NOW(), INTERVAL 3 HOUR)");
+            $expiredReminders = $conn->affected_rows;
+        } catch (Throwable $e) {}
+
+        $response["success"] = true;
+        $response["modo"] = "global_sanitize";
+        $response["conflictos_detectados"] = $globalConflicts;
+        $response["conflictos_eliminados"] = $totalEliminados;
+        $response["tokens_duplicados_limpiados"] = $dupesCleaned;
+        $response["usuarios_col_limpiados"] = $usuariosColCleaned;
+        $response["recordatorios_viejos_expirados"] = $expiredReminders;
+        $response["mensaje"] = "Saneamiento global completado: Se resolvieron " . count($globalConflicts) . " tokens cruzados entre cuentas ($totalEliminados filas eliminadas) y se purgaron $expiredReminders recordatorios obsoletos.";
+
+        echo json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        exit;
+    }
 
     $targetUser = null;
 
