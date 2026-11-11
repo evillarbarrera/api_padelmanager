@@ -58,25 +58,52 @@ try {
 
 function guardarToken($conn, $input) {
     $userId = intval($input['user_id'] ?? 0);
-    $token = $input['token'] ?? '';
+    $token = trim($input['token'] ?? '');
     
     // Log the attempt
     $logMsg = date('Y-m-d H:i:s') . " - GuardarToken Attempt: User $userId - Token: $token" . PHP_EOL;
-    file_put_contents(__DIR__ . '/token_requests.log', $logMsg, FILE_APPEND);
+    @file_put_contents(__DIR__ . '/token_requests.log', $logMsg, FILE_APPEND);
 
     if ($userId <= 0 || empty($token)) {
         throw new Exception("user_id y token son requeridos");
     }
 
-    $stmt = $conn->prepare("
-        INSERT INTO fcm_tokens (user_id, token, created_at)
-        VALUES (?, ?, NOW())
-        ON DUPLICATE KEY UPDATE token = VALUES(token)
+    // 1. REGLA CLAVE: Un dispositivo físico solo pertenece a un usuario a la vez.
+    // Si este token estaba registrado bajo otro usuario (ej: entrenador, admin o login previo en el mismo celular),
+    // se desvincula de los otros usuarios para que no reciba notificaciones ajenas.
+    $stCleanOther = $conn->prepare("DELETE FROM fcm_tokens WHERE token = ? AND user_id != ?");
+    if ($stCleanOther) {
+        $stCleanOther->bind_param('si', $token, $userId);
+        $stCleanOther->execute();
+        $stCleanOther->close();
+    }
+
+    // 2. Evitar filas duplicadas del mismo token para el mismo usuario
+    $stCleanSame = $conn->prepare("DELETE FROM fcm_tokens WHERE token = ? AND user_id = ?");
+    if ($stCleanSame) {
+        $stCleanSame->bind_param('si', $token, $userId);
+        $stCleanSame->execute();
+        $stCleanSame->close();
+    }
+
+    // 3. Insertar el token actualizado
+    $stmt = $conn->prepare("INSERT INTO fcm_tokens (user_id, token, created_at) VALUES (?, ?, NOW())");
+    if ($stmt) {
+        $stmt->bind_param('is', $userId, $token);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    // 4. Limitar a un máximo de 3 tokens activos por usuario (mantener solo los más recientes)
+    @$conn->query("
+        DELETE FROM fcm_tokens 
+        WHERE user_id = $userId 
+          AND id NOT IN (
+              SELECT id FROM (
+                  SELECT id FROM fcm_tokens WHERE user_id = $userId ORDER BY id DESC LIMIT 3
+              ) as tmp
+          )
     ");
-    
-    $stmt->bind_param('is', $userId, $token);
-    $stmt->execute();
-    $stmt->close();
 
     echo json_encode(['success' => true, 'message' => 'Token guardado']);
 }

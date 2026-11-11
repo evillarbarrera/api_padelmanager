@@ -39,15 +39,33 @@ try {
  * Guardar token FCM del usuario
  */
 function guardarToken($userId, $token) {
-    global $conn;
-$db = $conn ?? $mysqli;
+    global $conn, $mysqli;
+    $db = $conn ?? $mysqli;
     
-    $stmt = $db->prepare("
-        INSERT INTO fcm_tokens (user_id, token, created_at)
-        VALUES (?, ?, NOW())
-        ON DUPLICATE KEY UPDATE token = VALUES(token), updated_at = NOW()
-    ");
-    
+    $userId = intval($userId);
+    $token = trim($token);
+
+    if ($userId <= 0 || empty($token)) {
+        throw new Exception("user_id y token son requeridos");
+    }
+
+    // Desvincular este token de otros usuarios si fue reutilizado
+    $stCleanOther = $db->prepare("DELETE FROM fcm_tokens WHERE token = ? AND user_id != ?");
+    if ($stCleanOther) {
+        $stCleanOther->bind_param('si', $token, $userId);
+        $stCleanOther->execute();
+        $stCleanOther->close();
+    }
+
+    // Evitar duplicados del mismo token para este usuario
+    $stCleanSame = $db->prepare("DELETE FROM fcm_tokens WHERE token = ? AND user_id = ?");
+    if ($stCleanSame) {
+        $stCleanSame->bind_param('si', $token, $userId);
+        $stCleanSame->execute();
+        $stCleanSame->close();
+    }
+
+    $stmt = $db->prepare("INSERT INTO fcm_tokens (user_id, token, created_at) VALUES (?, ?, NOW())");
     if (!$stmt) {
         throw new Exception("Error preparando statement: " . $db->error);
     }
@@ -57,6 +75,17 @@ $db = $conn ?? $mysqli;
         throw new Exception("Error ejecutando statement: " . $stmt->error);
     }
     $stmt->close();
+
+    // Mantener solo los últimos 3 tokens
+    @$db->query("
+        DELETE FROM fcm_tokens 
+        WHERE user_id = $userId 
+          AND id NOT IN (
+              SELECT id FROM (
+                  SELECT id FROM fcm_tokens WHERE user_id = $userId ORDER BY id DESC LIMIT 3
+              ) as tmp
+          )
+    ");
 
     echo json_encode(['success' => true, 'message' => 'Token guardado']);
 }
