@@ -282,10 +282,12 @@ try {
 
     $conn->close();
 } catch (Throwable $e) {
-    http_response_code(500);
+    http_response_code(200);
     echo json_encode([
         "status" => "error",
-        "message" => "Error de servidor al cargar la información del club: " . $e->getMessage()
-    ]);
+        "message" => "Error de servidor al cargar la información del club: " . $e->getMessage(),
+        "line" => $e->getLine(),
+        "file" => basename($e->getFile())
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 }
 ?>
