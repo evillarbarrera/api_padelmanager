@@ -5,7 +5,7 @@
  * 
  * Uso:
  * GET /api/clubes/get_disponibilidad_publica.php?slug=powerpadel&fecha=2026-11-11
- * GET /api/clubes/get_disponibilidad_publica.php?club_id=1&fecha=2026-11-11
+ * GET /api/clubes/get_disponibilidad_publica.php?club_id=17&fecha=2026-11-11
  */
 
 header("Access-Control-Allow-Origin: *");
@@ -39,52 +39,80 @@ if (empty($slug) && $clubId <= 0) {
 }
 
 try {
+    // 0. Auto-asegurar columnas en tabla clubes si no existen
+    $columns = [
+        "landing_slug" => "VARCHAR(100) DEFAULT NULL",
+        "landing_publicado" => "TINYINT(1) DEFAULT 0",
+        "landing_descripcion" => "TEXT DEFAULT NULL",
+        "landing_banner" => "VARCHAR(255) DEFAULT NULL",
+        "landing_whatsapp" => "VARCHAR(50) DEFAULT NULL",
+        "landing_instagram" => "VARCHAR(100) DEFAULT NULL",
+        "landing_facebook" => "VARCHAR(100) DEFAULT NULL",
+        "landing_color_primary" => "VARCHAR(20) DEFAULT '#0f172a'",
+        "landing_color_accent" => "VARCHAR(20) DEFAULT '#ccff00'",
+        "landing_mostrar_reservas" => "TINYINT(1) DEFAULT 1",
+        "landing_mostrar_americanos" => "TINYINT(1) DEFAULT 1",
+        "landing_mostrar_ranking" => "TINYINT(1) DEFAULT 1"
+    ];
+    foreach ($columns as $col => $type) {
+        $check = $conn->query("SHOW COLUMNS FROM clubes LIKE '$col'");
+        if ($check && $check->num_rows === 0) {
+            @$conn->query("ALTER TABLE clubes ADD COLUMN `$col` $type");
+        }
+    }
+
     // 1. Resolver el Club
     $club = null;
     if ($clubId > 0) {
-        $stmtClub = $conn->prepare("SELECT id, nombre, landing_slug, telefono, landing_whatsapp, landing_color_primary, landing_color_accent, logo_url, direccion, comuna, region FROM clubes WHERE id = ? LIMIT 1");
-        $stmtClub->bind_param("i", $clubId);
-        $stmtClub->execute();
-        $club = $stmtClub->get_result()->fetch_assoc();
-        $stmtClub->close();
-    } elseif (!empty($slug)) {
+        $stmtClub = $conn->prepare("SELECT * FROM clubes WHERE id = ? LIMIT 1");
+        if ($stmtClub) {
+            $stmtClub->bind_param("i", $clubId);
+            $stmtClub->execute();
+            $club = $stmtClub->get_result()->fetch_assoc();
+            $stmtClub->close();
+        }
+    }
+
+    if (!$club && !empty($slug)) {
         $slugNum = is_numeric($slug) ? intval($slug) : 0;
         $cleanSlug = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $slug));
 
         $stmtClub = $conn->prepare("
-            SELECT id, nombre, landing_slug, telefono, landing_whatsapp, landing_color_primary, landing_color_accent, logo_url, direccion, comuna, region 
-            FROM clubes 
-            WHERE LOWER(landing_slug) = LOWER(?) 
+            SELECT * FROM clubes 
+            WHERE LOWER(COALESCE(landing_slug, '')) = LOWER(?) 
                OR (id = ? AND ? > 0)
                OR LOWER(REPLACE(nombre, ' ', '-')) = LOWER(?)
                OR LOWER(REPLACE(REPLACE(nombre, ' ', ''), '-', '')) = ?
             LIMIT 1
         ");
-        $stmtClub->bind_param("siiss", $slug, $slugNum, $slugNum, $slug, $cleanSlug);
-        $stmtClub->execute();
-        $club = $stmtClub->get_result()->fetch_assoc();
-        $stmtClub->close();
+        if ($stmtClub) {
+            $stmtClub->bind_param("siiss", $slug, $slugNum, $slugNum, $slug, $cleanSlug);
+            $stmtClub->execute();
+            $club = $stmtClub->get_result()->fetch_assoc();
+            $stmtClub->close();
+        }
 
         // Fallback con LIKE
         if (!$club && !empty($cleanSlug)) {
             $likePattern = "%" . $cleanSlug . "%";
             $stmtLike = $conn->prepare("
-                SELECT id, nombre, landing_slug, telefono, landing_whatsapp, landing_color_primary, landing_color_accent, logo_url, direccion, comuna, region 
-                FROM clubes 
+                SELECT * FROM clubes 
                 WHERE LOWER(REPLACE(REPLACE(nombre, ' ', ''), '-', '')) LIKE ?
                    OR LOWER(nombre) LIKE ?
                 LIMIT 1
             ");
-            $likeRaw = "%" . strtolower($slug) . "%";
-            $stmtLike->bind_param("ss", $likePattern, $likeRaw);
-            $stmtLike->execute();
-            $club = $stmtLike->get_result()->fetch_assoc();
-            $stmtLike->close();
+            if ($stmtLike) {
+                $likeRaw = "%" . strtolower($slug) . "%";
+                $stmtLike->bind_param("ss", $likePattern, $likeRaw);
+                $stmtLike->execute();
+                $club = $stmtLike->get_result()->fetch_assoc();
+                $stmtLike->close();
+            }
         }
 
         // Fallback general si hay clubes
         if (!$club) {
-            $resF = $conn->query("SELECT id, nombre, landing_slug, telefono, landing_whatsapp, landing_color_primary, landing_color_accent, logo_url, direccion, comuna, region FROM clubes ORDER BY id ASC LIMIT 1");
+            $resF = $conn->query("SELECT * FROM clubes ORDER BY id ASC LIMIT 1");
             if ($resF && $resF->num_rows > 0) {
                 $club = $resF->fetch_assoc();
             }
@@ -102,34 +130,22 @@ try {
     $horaActualSantiago = date('H:i');
     $esHoy = ($fecha === $hoySantiago);
 
-    // 2. Obtener Canchas activas del Club
+    // 2. Obtener Canchas del Club (usar SELECT * para evitar fallos de columnas opcionales)
     $canchas = [];
-    $stmtC = $conn->prepare("
-        SELECT id, nombre, tipo, techada, superficie, precio_hora, precio_60, precio_90, precio_120, 
-               precio_60_alto, precio_90_alto, precio_120_alto, hora_inicio_bajo, hora_fin_bajo, 
-               hora_inicio_alto, hora_fin_alto, horarios_adicionales, categoria, icono, descripcion, capacidad 
-        FROM canchas 
-        WHERE club_id = ? AND (activa = 1 OR activa IS NULL) 
-        ORDER BY categoria ASC, nombre ASC
-    ");
-    $stmtC->bind_param("i", $cid);
-    $stmtC->execute();
-    $resC = $stmtC->get_result();
-    while ($row = $resC->fetch_assoc()) {
-        $canchas[] = $row;
+    $stmtC = $conn->prepare("SELECT * FROM canchas WHERE club_id = ? AND (activa = 1 OR activa IS NULL) ORDER BY id ASC");
+    if ($stmtC) {
+        $stmtC->bind_param("i", $cid);
+        $stmtC->execute();
+        $resC = $stmtC->get_result();
+        while ($row = $resC->fetch_assoc()) {
+            $canchas[] = $row;
+        }
+        $stmtC->close();
     }
-    $stmtC->close();
 
     // Fallback: si no encontró con activa = 1 o NULL, buscar cualquier cancha del club
     if (empty($canchas)) {
-        $stmtC2 = $conn->prepare("
-            SELECT id, nombre, tipo, techada, superficie, precio_hora, precio_60, precio_90, precio_120, 
-                   precio_60_alto, precio_90_alto, precio_120_alto, hora_inicio_bajo, hora_fin_bajo, 
-                   hora_inicio_alto, hora_fin_alto, horarios_adicionales, categoria, icono, descripcion, capacidad 
-            FROM canchas 
-            WHERE club_id = ? 
-            ORDER BY id ASC
-        ");
+        $stmtC2 = $conn->prepare("SELECT * FROM canchas WHERE club_id = ? ORDER BY id ASC");
         if ($stmtC2) {
             $stmtC2->bind_param("i", $cid);
             $stmtC2->execute();
@@ -143,29 +159,32 @@ try {
 
     // 3. Obtener todas las reservas activas para esta fecha en este club
     $reservasExistentes = []; // [ cancha_id => [ [inicio, fin] ] ]
-    $stmtR = $conn->prepare("
-        SELECT r.cancha_id, r.hora_inicio, r.hora_fin, r.estado
-        FROM reservas_cancha r
-        JOIN canchas c ON r.cancha_id = c.id
-        WHERE c.club_id = ? 
-          AND r.fecha = ?
-          AND LOWER(COALESCE(r.estado, '')) NOT IN ('cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'rechazado', 'eliminada')
-    ");
-    if ($stmtR) {
-        $stmtR->bind_param("is", $cid, $fecha);
-        $stmtR->execute();
-        $resR = $stmtR->get_result();
-        while ($r = $resR->fetch_assoc()) {
-            $cId = intval($r['cancha_id']);
-            $hIni = substr($r['hora_inicio'], 0, 5);
-            $hFin = substr($r['hora_fin'], 0, 5);
-            if ($hFin === '00:00' || $hFin === '23:59') $hFin = '24:00';
-            $reservasExistentes[$cId][] = [
-                'inicio' => $hIni,
-                'fin' => $hFin
-            ];
+    $checkRC = $conn->query("SHOW TABLES LIKE 'reservas_cancha'");
+    if ($checkRC && $checkRC->num_rows > 0) {
+        $stmtR = $conn->prepare("
+            SELECT r.cancha_id, r.hora_inicio, r.hora_fin, r.estado
+            FROM reservas_cancha r
+            JOIN canchas c ON r.cancha_id = c.id
+            WHERE c.club_id = ? 
+              AND r.fecha = ?
+              AND LOWER(COALESCE(r.estado, '')) NOT IN ('cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'rechazado', 'eliminada')
+        ");
+        if ($stmtR) {
+            $stmtR->bind_param("is", $cid, $fecha);
+            $stmtR->execute();
+            $resR = $stmtR->get_result();
+            while ($r = $resR->fetch_assoc()) {
+                $cId = intval($r['cancha_id']);
+                $hIni = substr($r['hora_inicio'], 0, 5);
+                $hFin = substr($r['hora_fin'], 0, 5);
+                if ($hFin === '00:00' || $hFin === '23:59') $hFin = '24:00';
+                $reservasExistentes[$cId][] = [
+                    'inicio' => $hIni,
+                    'fin' => $hFin
+                ];
+            }
+            $stmtR->close();
         }
-        $stmtR->close();
     }
 
     // 4. Obtener también reservas de entrenadores/clases si existen
@@ -196,42 +215,25 @@ try {
 
     // 5. Generar la parrilla de slots para cada cancha
     $canchasConSlots = [];
-
-    // Duración estándar para pádel: 90 minutos (con opción 60 si está configurado)
-    $duracionDefecto = 90; // minutos
+    $stepMinutos = 90; // Estándar de pádel chileno
 
     foreach ($canchas as $cancha) {
         $cId = intval($cancha['id']);
-        $p90 = floatval($cancha['precio_90'] ?: ($cancha['precio_hora'] ? $cancha['precio_hora'] * 1.5 : 20000));
-        $p90Alto = floatval($cancha['precio_90_alto'] ?: $p90);
-        $p60 = floatval($cancha['precio_60'] ?: ($cancha['precio_hora'] ?: 15000));
-        $p60Alto = floatval($cancha['precio_60_alto'] ?: $p60);
+        $p90 = floatval(!empty($cancha['precio_90']) ? $cancha['precio_90'] : (!empty($cancha['precio_hora']) ? $cancha['precio_hora'] * 1.5 : 20000));
+        $p90Alto = floatval(!empty($cancha['precio_90_alto']) ? $cancha['precio_90_alto'] : $p90);
 
         $hInicioAlto = !empty($cancha['hora_inicio_alto']) ? substr($cancha['hora_inicio_alto'], 0, 5) : '18:00';
-
-        // Horarios de apertura y cierre (por defecto 08:00 a 23:30)
-        $horaApertura = '08:00';
+        $horaApertura = !empty($cancha['hora_inicio_bajo']) ? substr($cancha['hora_inicio_bajo'], 0, 5) : '08:30';
         $horaCierre = '23:30';
 
-        if (!empty($cancha['hora_inicio_bajo'])) {
-            $horaApertura = substr($cancha['hora_inicio_bajo'], 0, 5);
-        }
-
-        // Generar intervalos regulares de 90 minutos y también desplazados de 60 si aplica
-        // Para mayor cobertura de disponibilidad, generamos turnos cada 90 min (08:30, 10:00, 11:30, 13:00, 14:30, 16:00, 17:30, 19:00, 20:30, 22:00)
         $slots = [];
         $tActual = strtotime("$fecha $horaApertura:00");
         $tFinDia = strtotime("$fecha $horaCierre:00");
 
-        // Si empieza a las 08:00, los bloques naturales son 08:00-09:30, 09:30-11:00, etc. o cada hora.
-        // Utilizaremos bloques de 90 minutos que es el estándar chileno de pádel:
-        $stepMinutos = 90;
-        
         while ($tActual + ($stepMinutos * 60) <= $tFinDia + 1800) {
             $hIniSlot = date('H:i', $tActual);
             $hFinSlot = date('H:i', $tActual + ($stepMinutos * 60));
 
-            // Determinar si este horario choca con alguna reserva existente
             $ocupado = false;
             $motivo = null;
 
@@ -240,7 +242,6 @@ try {
                     $rIni = $resItem['inicio'];
                     $rFin = $resItem['fin'];
 
-                    // Hay colisión si: inicio_slot < fin_reserva Y fin_slot > inicio_reserva
                     if ($hIniSlot < $rFin && $hFinSlot > $rIni) {
                         $ocupado = true;
                         $motivo = "Ocupado";
@@ -249,7 +250,6 @@ try {
                 }
             }
 
-            // Si es hoy y la hora ya pasó
             $esPasado = false;
             if ($esHoy && $hIniSlot <= $horaActualSantiago) {
                 $esPasado = true;
@@ -259,7 +259,6 @@ try {
                 }
             }
 
-            // Calcular precio según horario pico
             $esPico = ($hIniSlot >= $hInicioAlto);
             $precioSlot = $esPico ? $p90Alto : $p90;
 
@@ -275,18 +274,17 @@ try {
                 "motivo" => $motivo
             ];
 
-            // Avanzar al siguiente bloque
             $tActual += ($stepMinutos * 60);
         }
 
         $canchasConSlots[] = [
             "id" => $cId,
             "nombre" => $cancha['nombre'],
-            "tipo" => $cancha['tipo'] ?: 'Outdoor',
-            "techada" => intval($cancha['techada']) === 1,
-            "superficie" => $cancha['superficie'] ?: 'Césped Sintético',
-            "categoria" => $cancha['categoria'] ?: 'cancha_padel',
-            "icono" => $cancha['icono'] ?: '🎾',
+            "tipo" => !empty($cancha['tipo']) ? $cancha['tipo'] : 'Outdoor',
+            "techada" => intval($cancha['techada'] ?? 0) === 1,
+            "superficie" => !empty($cancha['superficie']) ? $cancha['superficie'] : 'Césped Sintético',
+            "categoria" => !empty($cancha['categoria']) ? $cancha['categoria'] : 'cancha_padel',
+            "icono" => !empty($cancha['icono']) ? $cancha['icono'] : '🎾',
             "precio_desde" => intval($p90),
             "slots_disponibles_count" => count(array_filter($slots, function($s) { return $s['disponible']; })),
             "slots" => $slots
@@ -298,15 +296,15 @@ try {
         "club" => [
             "id" => $cid,
             "nombre" => $club['nombre'],
-            "slug" => $club['landing_slug'] ?: "club-$cid",
-            "telefono" => $club['telefono'],
-            "whatsapp" => $club['landing_whatsapp'] ?: $club['telefono'],
-            "color_primary" => $club['landing_color_primary'] ?: '#0b0f19',
-            "color_accent" => $club['landing_color_accent'] ?: '#ccff00',
-            "logo_url" => $club['logo_url'],
-            "direccion" => $club['direccion'],
-            "comuna" => $club['comuna'],
-            "region" => $club['region']
+            "slug" => !empty($club['landing_slug']) ? $club['landing_slug'] : "club-$cid",
+            "telefono" => $club['telefono'] ?? '',
+            "whatsapp" => !empty($club['landing_whatsapp']) ? $club['landing_whatsapp'] : ($club['telefono'] ?? ''),
+            "color_primary" => !empty($club['landing_color_primary']) ? $club['landing_color_primary'] : '#0b0f19',
+            "color_accent" => !empty($club['landing_color_accent']) ? $club['landing_color_accent'] : '#ccff00',
+            "logo_url" => $club['logo_url'] ?? '',
+            "direccion" => $club['direccion'] ?? '',
+            "comuna" => $club['comuna'] ?? '',
+            "region" => $club['region'] ?? ''
         ],
         "fecha" => $fecha,
         "es_hoy" => $esHoy,
@@ -315,9 +313,11 @@ try {
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
 } catch (Throwable $e) {
-    http_response_code(500);
+    http_response_code(200); // Retornar 200 con status error para no bloquear y diagnosticar claramente
     echo json_encode([
         "status" => "error",
-        "message" => "Error interno al consultar disponibilidad: " . $e->getMessage()
-    ]);
+        "message" => "Error al consultar disponibilidad: " . $e->getMessage(),
+        "line" => $e->getLine(),
+        "file" => basename($e->getFile())
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 }
