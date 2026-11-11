@@ -39,15 +39,37 @@ try {
  * Guardar token FCM del usuario
  */
 function guardarToken($userId, $token) {
-    global $conn;
-$db = $conn ?? $mysqli;
+    global $conn, $mysqli;
+    $db = $conn ?? $mysqli;
     
-    $stmt = $db->prepare("
-        INSERT INTO fcm_tokens (user_id, token, created_at)
-        VALUES (?, ?, NOW())
-        ON DUPLICATE KEY UPDATE token = VALUES(token), updated_at = NOW()
-    ");
-    
+    $userId = intval($userId);
+    $token = trim($token);
+
+    if ($userId <= 0 || empty($token)) {
+        throw new Exception("user_id y token son requeridos");
+    }
+
+    // Desvincular este token de otros usuarios si fue reutilizado
+    $stCleanOther = $db->prepare("DELETE FROM fcm_tokens WHERE token = ? AND user_id != ?");
+    if ($stCleanOther) {
+        $stCleanOther->bind_param('si', $token, $userId);
+        $stCleanOther->execute();
+        $stCleanOther->close();
+    }
+
+    try {
+        $db->query("UPDATE usuarios SET fcm_token = NULL WHERE fcm_token = '" . $db->real_escape_string($token) . "' AND id != $userId");
+    } catch (Throwable $e) {}
+
+    // Evitar duplicados del mismo token para este usuario
+    $stCleanSame = $db->prepare("DELETE FROM fcm_tokens WHERE token = ? AND user_id = ?");
+    if ($stCleanSame) {
+        $stCleanSame->bind_param('si', $token, $userId);
+        $stCleanSame->execute();
+        $stCleanSame->close();
+    }
+
+    $stmt = $db->prepare("INSERT INTO fcm_tokens (user_id, token, created_at) VALUES (?, ?, NOW())");
     if (!$stmt) {
         throw new Exception("Error preparando statement: " . $db->error);
     }
@@ -57,6 +79,17 @@ $db = $conn ?? $mysqli;
         throw new Exception("Error ejecutando statement: " . $stmt->error);
     }
     $stmt->close();
+
+    // Mantener solo los últimos 3 tokens
+    @$db->query("
+        DELETE FROM fcm_tokens 
+        WHERE user_id = $userId 
+          AND id NOT IN (
+              SELECT id FROM (
+                  SELECT id FROM fcm_tokens WHERE user_id = $userId ORDER BY id DESC LIMIT 3
+              ) as tmp
+          )
+    ");
 
     echo json_encode(['success' => true, 'message' => 'Token guardado']);
 }
@@ -104,44 +137,53 @@ $db = $conn ?? $mysqli;
  * Programar recordatorio para el día anterior
  */
 function programarRecordatorio($data) {
-    global $conn;
-$db = $conn ?? $mysqli;
+    global $conn, $mysqli;
+    $db = $conn ?? $mysqli;
     
-    $userId = $data['user_id'] ?? null;
-    $packNombre = $data['pack_nombre'] ?? '';
+    $userId = intval($data['user_id'] ?? 0);
+    $packNombre = trim($data['pack_nombre'] ?? 'Entrenamiento');
     $fechaEntrenamiento = $data['fecha_entrenamiento'] ?? null;
-    $horaInicio = $data['hora_inicio'] ?? '';
+    $horaInicio = trim($data['hora_inicio'] ?? '');
+    $reservaId = intval($data['reserva_id'] ?? 0);
 
-    if (!$userId || !$fechaEntrenamiento) {
+    if ($userId <= 0 || !$fechaEntrenamiento) {
         throw new Exception("user_id y fecha_entrenamiento son requeridos");
     }
 
-    // Calcular fecha del recordatorio (día anterior)
+    try {
+        $checkColRes = $db->query("SHOW COLUMNS FROM recordatorios_programados LIKE 'reserva_id'");
+        if ($checkColRes && $checkColRes->num_rows === 0) {
+            $db->query("ALTER TABLE recordatorios_programados ADD COLUMN reserva_id INT NULL");
+        }
+    } catch (Throwable $e) {}
+
+    $nowStr = date('Y-m-d H:i:s');
+    $insertedCount = 0;
+
+    // Calcular fecha del recordatorio (día anterior a las 09:00 AM)
     $fecha = new DateTime($fechaEntrenamiento);
     $fecha->modify('-1 day');
-    $fechaRecordatorio = $fecha->format('Y-m-d');
+    $fechaRecordatorio = $fecha->format('Y-m-d') . ' 09:00:00';
+
+    if ($fechaRecordatorio > $nowStr) {
+        $titulo = "🥎 Recordatorio: Entrenamiento mañana";
+        $mensaje = "Mañana tienes entrenamiento de $packNombre a las $horaInicio";
+        $tipo = 'recordatorio_dia_anterior';
+
+        $stmt = $db->prepare("
+            INSERT INTO recordatorios_programados (user_id, titulo, mensaje, tipo, fecha_programada, reserva_id, enviado)
+            VALUES (?, ?, ?, ?, ?, ?, 0)
+        ");
+
+        if ($stmt) {
+            $stmt->bind_param('issssi', $userId, $titulo, $mensaje, $tipo, $fechaRecordatorio, $reservaId);
+            $stmt->execute();
+            $stmt->close();
+            $insertedCount++;
+        }
+    }
     
-    $titulo = "🥎 Recordatorio: Entrenamiento mañana";
-    $mensaje = "Mañana tienes entrenamiento de $packNombre a las $horaInicio";
-    $tipo = 'recordatorio_dia_anterior';
-
-    // Guardar en tabla de recordatorios programados
-    $stmt = $db->prepare("
-        INSERT INTO recordatorios_programados (user_id, titulo, mensaje, tipo, fecha_programada, enviado)
-        VALUES (?, ?, ?, ?, ?, 0)
-    ");
-
-    if (!$stmt) {
-        throw new Exception("Error preparando statement: " . $db->error);
-    }
-
-    $stmt->bind_param('issss', $userId, $titulo, $mensaje, $tipo, $fechaRecordatorio);
-    if (!$stmt->execute()) {
-        throw new Exception("Error ejecutando statement: " . $stmt->error);
-    }
-    $stmt->close();
-
-    echo json_encode(['success' => true, 'message' => 'Recordatorio programado']);
+    echo json_encode(['success' => true, 'message' => "Recordatorio procesado (programados: $insertedCount)"]);
 }
 
 /**

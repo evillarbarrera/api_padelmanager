@@ -197,6 +197,9 @@ try {
         $msgFinal = "Reserva cancelada correctamente.";
     }
 
+    // Cancelar recordatorios programados pendientes de esta clase para el alumno
+    @$conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE (reserva_id = $reserva_id OR (user_id = $jugador_id AND fecha_programada LIKE '" . $conn->real_escape_string($reserva['fecha']) . "%')) AND enviado = 0");
+
     // --- SEND RESPONSE IMMEDIATELY ---
     echo json_encode([
         "ok" => true,

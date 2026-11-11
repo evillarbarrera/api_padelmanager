@@ -68,12 +68,17 @@ function hasBeenNotified2H($conn, $userId, $tipo, $fechaRef, $identificadorEvent
             SELECT id FROM notificaciones 
             WHERE user_id = ? 
               AND tipo = ? 
-              AND (fecha_referencia = ? OR (DATE(fecha) = CURDATE() AND mensaje LIKE ?))
+              AND (
+                  fecha_referencia = ? 
+                  OR (DATE(fecha) = CURDATE() AND mensaje LIKE ?)
+                  OR (DATE(fecha) = CURDATE() AND fecha_referencia LIKE ?)
+              )
             LIMIT 1
         ");
         if ($stmt) {
             $likePattern = "%" . $identificadorEvento . "%";
-            $stmt->bind_param('isss', $userId, $tipo, $fechaRef, $likePattern);
+            $fechaPattern = substr($fechaRef, 0, 10) . "%";
+            $stmt->bind_param('issss', $userId, $tipo, $fechaRef, $likePattern, $fechaPattern);
             $stmt->execute();
             $res = $stmt->get_result();
             $exists = ($res && $res->num_rows > 0);
@@ -422,7 +427,8 @@ try {
             LEFT JOIN reserva_jugadores rj ON rj.reserva_id = r.id
             LEFT JOIN usuarios uj ON rj.jugador_id = uj.id
             WHERE r.fecha = CURDATE()
-              AND (r.estado IS NULL OR r.estado NOT IN ('cancelada', 'cancelado', 'Cancelada', 'Cancelado'))
+              AND r.estado = 'reservado'
+              AND r.entrenador_id > 0
         ";
 
         if (!$isForce) {
@@ -464,7 +470,7 @@ try {
                     }
 
                     $titulo = "🏋️‍♂️ ¡Tu clase de Pádel es en 2 horas!";
-                    $mensaje = "Tu entrenamiento de $packNombre con $coachNombre comienza a las $horaInicio hrs en $clubNombre. ¡A darlo todo!";
+                    $mensaje = "Tu entrenamiento de $packNombre con $coachNombre comienza a las $horaInicio hrs en $clubNombre. ¡A darlo todo! (Clase #$reservaId)";
 
                     $extraPayload = [
                         'event_type' => 'clase_padel',
@@ -490,14 +496,14 @@ try {
                     ];
                 }
 
-                // 4.B NOTIFY COACH (PROFESOR)
-                if ($coachId > 0 && (!$filterUserId || $coachId === $filterUserId)) {
+                // 4.B NOTIFY COACH (PROFESOR) - Solo si hay alumnos confirmados en la clase
+                if (!empty($uniqueAlumnos) && $coachId > 0 && (!$filterUserId || $coachId === $filterUserId)) {
                     $tipoCoach = 'recordatorio_2h_coach';
                     $identificadorCoach = "clase_coach #$reservaId";
 
                     if (!hasBeenNotified2H($conn, $coachId, $tipoCoach, $fechaRef, $identificadorCoach)) {
                         $tituloCoach = "📋 ¡Clase programada en 2 horas!";
-                        $mensajeCoach = "Tienes sesión de $packNombre a las $horaInicio hrs en $clubNombre con $alumnosNombres.";
+                        $mensajeCoach = "Tienes sesión de $packNombre a las $horaInicio hrs en $clubNombre con $alumnosNombres. (Clase #$reservaId)";
 
                         $extraPayloadCoach = [
                             'event_type' => 'clase_coach',
@@ -534,17 +540,41 @@ try {
     // =========================================================================
     $checkRecProg = $conn->query("SHOW TABLES LIKE 'recordatorios_programados'");
     if ($checkRecProg && $checkRecProg->num_rows > 0) {
-        $sqlProg = "SELECT id, user_id, titulo, mensaje, tipo 
+        // Expirar recordatorios con más de 3 horas de retraso para evitar spam de recordatorios obsoletos
+        @$conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE enviado = 0 AND fecha_programada < DATE_SUB(NOW(), INTERVAL 3 HOUR)");
+
+        $checkColRes = $conn->query("SHOW COLUMNS FROM recordatorios_programados LIKE 'reserva_id'");
+        $hasReservaIdCol = ($checkColRes && $checkColRes->num_rows > 0);
+
+        $sqlProg = "SELECT id, user_id, titulo, mensaje, tipo " . ($hasReservaIdCol ? ", reserva_id" : "") . "
                     FROM recordatorios_programados 
                     WHERE enviado = 0 
                       AND fecha_programada <= NOW()
+                      AND fecha_programada >= DATE_SUB(NOW(), INTERVAL 3 HOUR)
                     LIMIT 100";
         $resProg = $conn->query($sqlProg);
         if ($resProg) {
             while ($rProg = $resProg->fetch_assoc()) {
                 $pId = intval($rProg['user_id']);
                 $recId = intval($rProg['id']);
+                $rResId = isset($rProg['reserva_id']) ? intval($rProg['reserva_id']) : 0;
                 if ($filterUserId && $pId !== $filterUserId) continue;
+
+                // Si está vinculado a una reserva, comprobar que no haya sido cancelada
+                if ($rResId > 0) {
+                    $stCheckVal = $conn->prepare("SELECT estado FROM reservas WHERE id = ?");
+                    if ($stCheckVal) {
+                        $stCheckVal->bind_param("i", $rResId);
+                        $stCheckVal->execute();
+                        $resCheckVal = $stCheckVal->get_result()->fetch_assoc();
+                        $stCheckVal->close();
+                        if ($resCheckVal && in_array(strtolower($resCheckVal['estado']), ['cancelada', 'cancelado', 'bloqueado'])) {
+                            // Reserva cancelada: marcar como descartado y no enviar
+                            $conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE id = $recId");
+                            continue;
+                        }
+                    }
+                }
 
                 if (!$isDryRun) {
                     if (notifyUser($conn, $pId, $rProg['titulo'], $rProg['mensaje'], $rProg['tipo'])) {

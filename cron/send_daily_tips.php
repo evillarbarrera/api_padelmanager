@@ -110,8 +110,13 @@ Solo devuelve las 2 líneas.";
     $titulo_base = $tip_seleccionado['titulo'];
     $cuerpo_ia = $tip_seleccionado['mensaje'];
 
-    // 3. Obtener todos los alumnos activos
-    $sql = "SELECT u.id, u.nombre FROM usuarios u WHERE u.rol = 'jugador'";
+    // 3. Obtener jugadores activos (o uno específico para pruebas)
+    $targetUserId = isset($_GET['user_id']) ? intval($_GET['user_id']) : 0;
+    if ($targetUserId > 0) {
+        $sql = "SELECT u.id, u.nombre FROM usuarios u WHERE u.id = $targetUserId";
+    } else {
+        $sql = "SELECT u.id, u.nombre FROM usuarios u WHERE u.rol = 'jugador'";
+    }
     $res = $conn->query($sql);
 
     $count_notificaciones = 0;

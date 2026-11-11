@@ -65,6 +65,9 @@ try {
             }
         }
 
+        // Cancelar recordatorios programados pendientes de esta clase
+        @$conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE reserva_id = " . intval($reserva_id) . " AND enviado = 0");
+
         // --- RESPUESTA INMEDIATA ---
         echo json_encode(["ok" => true, "message" => "Reserva cancelada correctamente"]);
         
