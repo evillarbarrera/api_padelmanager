@@ -19,35 +19,61 @@ if (!function_exists('get_fcm_access_token')) {
             return false;
         }
         
-        // Create JWT
-        $header = json_encode(['alg' => 'RS256', 'typ' => 'JWT']);
+        // Función canónica Base64Url (RFC 7515)
+        $b64Url = function($data) {
+            return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+        };
+
+        // Create JWT Header con kid de la Service Account
+        $header = [
+            'alg' => 'RS256',
+            'typ' => 'JWT'
+        ];
+        if (!empty($keyData['private_key_id'])) {
+            $header['kid'] = $keyData['private_key_id'];
+        }
+
+        // Clock Skew tolerance: restar 60s al iat
         $now = time();
-        $claim = json_encode([
+        $claim = [
             'iss' => $keyData['client_email'],
             'scope' => 'https://www.googleapis.com/auth/firebase.messaging',
             'aud' => 'https://oauth2.googleapis.com/token',
             'exp' => $now + 3600,
-            'iat' => $now
-        ]);
+            'iat' => $now - 60
+        ];
 
-        $base64UrlHeader = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($header));
-        $base64UrlClaim = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($claim));
+        $headerJson = json_encode($header, JSON_UNESCAPED_SLASHES);
+        $claimJson = json_encode($claim, JSON_UNESCAPED_SLASHES);
+
+        $base64UrlHeader = $b64Url($headerJson);
+        $base64UrlClaim = $b64Url($claimJson);
         $signatureInput = $base64UrlHeader . "." . $base64UrlClaim;
 
+        $privKeyObj = openssl_pkey_get_private($keyData['private_key']);
+        if (!$privKeyObj) {
+            $openSslErrors = [];
+            while ($msg = openssl_error_string()) {
+                $openSslErrors[] = $msg;
+            }
+            $diagError = "openssl_pkey_get_private no pudo parsear la private_key: " . implode("; ", $openSslErrors);
+            error_log("FCM Sender Error: $diagError");
+            return false;
+        }
+
         $signature = '';
-        $signSuccess = @openssl_sign($signatureInput, $signature, $keyData['private_key'], "sha256WithRSAEncryption");
+        $signSuccess = openssl_sign($signatureInput, $signature, $privKeyObj, OPENSSL_ALGO_SHA256);
         if (!$signSuccess) {
             $openSslErrors = [];
             while ($msg = openssl_error_string()) {
                 $openSslErrors[] = $msg;
             }
-            $diagError = "openssl_sign falló al firmar JWT con la private_key: " . implode("; ", $openSslErrors);
+            $diagError = "openssl_sign falló con OPENSSL_ALGO_SHA256: " . implode("; ", $openSslErrors);
             error_log("FCM Sender Error: $diagError");
             return false;
         }
 
-        $base64UrlSignature = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($signature));
-        $jwt = $signatureInput . "." . $base64UrlSignature;
+        $jwt = $signatureInput . "." . $b64Url($signature);
 
         // Send to Google OAuth2 API
         $ch = curl_init();
