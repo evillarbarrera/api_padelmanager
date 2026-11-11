@@ -3,15 +3,21 @@
 // Función pura en PHP para evitar Composer dependency requests (kreait/firebase) y usar FCM HTTP v1
 
 if (!function_exists('get_fcm_access_token')) {
-    function get_fcm_access_token() {
+    function get_fcm_access_token(&$diagError = null) {
         $keyFile = __DIR__ . '/../academia-padel-firebase-adminsdk-fbsvc-e982fff4f3.json';
         if (!file_exists($keyFile)) {
-            error_log("FCM Sender Error: No se encuentra el JSON de Service Account en $keyFile");
+            $diagError = "No se encuentra el archivo JSON de Service Account en: $keyFile";
+            error_log("FCM Sender Error: $diagError");
             return false;
         }
 
-        $keyData = json_decode(file_get_contents($keyFile), true);
-        if (!isset($keyData['private_key'])) return false;
+        $keyContent = file_get_contents($keyFile);
+        $keyData = json_decode($keyContent, true);
+        if (!$keyData || !isset($keyData['private_key'])) {
+            $diagError = "El archivo JSON existe pero no contiene 'private_key' válida.";
+            error_log("FCM Sender Error: $diagError");
+            return false;
+        }
         
         // Create JWT
         $header = json_encode(['alg' => 'RS256', 'typ' => 'JWT']);
@@ -29,9 +35,18 @@ if (!function_exists('get_fcm_access_token')) {
         $signatureInput = $base64UrlHeader . "." . $base64UrlClaim;
 
         $signature = '';
-        openssl_sign($signatureInput, $signature, $keyData['private_key'], "sha256WithRSAEncryption");
+        $signSuccess = @openssl_sign($signatureInput, $signature, $keyData['private_key'], "sha256WithRSAEncryption");
+        if (!$signSuccess) {
+            $openSslErrors = [];
+            while ($msg = openssl_error_string()) {
+                $openSslErrors[] = $msg;
+            }
+            $diagError = "openssl_sign falló al firmar JWT con la private_key: " . implode("; ", $openSslErrors);
+            error_log("FCM Sender Error: $diagError");
+            return false;
+        }
+
         $base64UrlSignature = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($signature));
-        
         $jwt = $signatureInput . "." . $base64UrlSignature;
 
         // Send to Google OAuth2 API
@@ -39,6 +54,9 @@ if (!function_exists('get_fcm_access_token')) {
         curl_setopt($ch, CURLOPT_URL, 'https://oauth2.googleapis.com/token');
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
             'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
             'assertion' => $jwt
@@ -46,15 +64,22 @@ if (!function_exists('get_fcm_access_token')) {
         
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
         curl_close($ch);
         
         if ($httpCode != 200) {
-            error_log("FCM Token Error: " . $response);
+            $diagError = "Google OAuth2 rechazo la peticion (HTTP $httpCode): " . ($response ?: $curlError);
+            error_log("FCM Token Error: $diagError");
             return false;
         }
 
         $resData = json_decode($response, true);
-        return $resData['access_token'] ?? false;
+        $token = $resData['access_token'] ?? false;
+        if (!$token) {
+            $diagError = "Google respondio 200 pero no vino 'access_token': $response";
+            return false;
+        }
+        return $token;
     }
 }
 
@@ -135,6 +160,9 @@ if (!function_exists('send_fcm_push')) {
             curl_setopt($ch, CURLOPT_URL, $url);
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 15);
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
             
