@@ -128,8 +128,20 @@ try {
 
     $response["tokens_found"] = count($tokens);
 
-    $title = $_GET['title'] ?? "🎾 ¡Prueba PadelBlox!";
-    $body = $_GET['body'] ?? "Hola " . ($userName ?: 'Jugador') . ", tus notificaciones en PadelBlox están funcionando correctamente.";
+    $tipoPrueba = $_GET['tipo'] ?? 'general';
+
+    if ($tipoPrueba === 'recordatorio') {
+        $title = "⏰ ¡Tu partido en Pista Central es en 2 horas!";
+        $body = "Hoy a las 19:30 hrs en PowerPadel Machalí. ¡Prepárate con tiempo y activa tu Apple Watch!";
+    } elseif ($tipoPrueba === 'tip') {
+        $title = "🥎 Consejo PadelBlox: Volea de Bloqueo";
+        $body = "Hola " . ($userName ?: 'Jugador') . ", no hagas backswing en la red. Deja que la potencia del rival rebote en tu pala firme.";
+    } else {
+        $title = $_GET['title'] ?? "🎾 ¡Prueba PadelBlox!";
+        $body = $_GET['body'] ?? "Hola " . ($userName ?: 'Jugador') . ", tus notificaciones en PadelBlox están funcionando correctamente.";
+    }
+
+    $response["tipo"] = $tipoPrueba;
     $response["title"] = $title;
     $response["body"] = $body;
 
