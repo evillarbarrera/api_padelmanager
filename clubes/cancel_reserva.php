@@ -36,7 +36,11 @@ $cancel_all_torneo = !empty($data['cancel_all_torneo']);
 $primary_id = $reserva_ids[0];
 
 // 1. Obtener datos antes de cancelar para el correo y validaciones
-$sql = "SELECT r.*, c.club_id FROM reservas_cancha r LEFT JOIN canchas c ON r.cancha_id = c.id WHERE r.id = ?";
+$sql = "SELECT r.*, c.nombre as cancha_nombre, c.club_id, COALESCE(cl.nombre, 'Club Pádel') as club_nombre, cl.email as club_email 
+        FROM reservas_cancha r 
+        LEFT JOIN canchas c ON r.cancha_id = c.id 
+        LEFT JOIN clubes cl ON c.club_id = cl.id 
+        WHERE r.id = ?";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("i", $primary_id);
 $stmt->execute();
@@ -165,28 +169,17 @@ if ($success) {
         $conn->query("UPDATE reservas SET cancha_id = NULL WHERE id = $rEntrenadorId");
     }
 
-    // 1. Devolver respuesta JSON de inmediato (0.1s)
-    @ob_clean();
-    $jsonResponse = json_encode(["success" => true]);
-    echo $jsonResponse;
-
-    // 2. Liberar la conexión HTTP de inmediato
-    if (function_exists('fastcgi_finish_request')) {
-        fastcgi_finish_request();
-    } else {
-        @ignore_user_abort(true);
-        @header("Connection: close");
-        @header("Content-Length: " . strlen($jsonResponse));
-        @flush();
-    }
-
-    // 3. Procesar el envío de correo en segundo plano
+    // 1. Procesar el envío de notificaciones (Push y Correo) usando los datos respaldados
     try {
         require_once "../system/mail_service.php";
-        notificarReservaCancha($conn, $primary_id, 'cancelacion');
+        notificarReservaCancha($conn, $primary_id, 'cancelacion', [], $reserva);
     } catch (Throwable $e) {
         error_log("Error enviando notificacion de cancelacion de reserva: " . $e->getMessage());
     }
+
+    // 2. Devolver respuesta JSON limpia
+    @ob_clean();
+    echo json_encode(["success" => true]);
 } else {
     ob_clean();
     http_response_code(500);

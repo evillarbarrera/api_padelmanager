@@ -180,24 +180,30 @@ function enviarCorreoSMTP($to, $subject, $bodyHTML) {
     ];
 }
 
-function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = []) {
+function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = [], $reservaData = null) {
     $debugLog = __DIR__ . '/mail_debug.log';
     file_put_contents($debugLog, date('[Y-m-d H:i:s]') . " ===== INICIO NOTIFICACION RESERVA #$reserva_id (Accion: $action) =====\n", FILE_APPEND);
 
     // PASO 1: Obtener datos completos de la reserva
-    $reservaRes = $conn->query("SELECT r.*, 
-                                COALESCE(c.nombre, 'Cancha') as cancha_nombre, 
-                                COALESCE(NULLIF(c.club_id, 0), 17) as club_id, 
-                                COALESCE(cl.nombre, 'PowerPadel Machali') as club_nombre, 
-                                cl.email as club_email 
-                                FROM reservas_cancha r 
-                                LEFT JOIN canchas c ON r.cancha_id = c.id 
-                                LEFT JOIN clubes cl ON c.club_id = cl.id 
-                                WHERE r.id = " . intval($reserva_id));
-    
-    $reserva = $reservaRes ? $reservaRes->fetch_assoc() : null;
+    $reserva = null;
+    if (!empty($reservaData) && is_array($reservaData)) {
+        $reserva = $reservaData;
+    } else {
+        $reservaRes = $conn->query("SELECT r.*, 
+                                    COALESCE(c.nombre, 'Cancha') as cancha_nombre, 
+                                    COALESCE(NULLIF(c.club_id, 0), 17) as club_id, 
+                                    COALESCE(cl.nombre, 'PowerPadel Machali') as club_nombre, 
+                                    cl.email as club_email 
+                                    FROM reservas_cancha r 
+                                    LEFT JOIN canchas c ON r.cancha_id = c.id 
+                                    LEFT JOIN clubes cl ON c.club_id = cl.id 
+                                    WHERE r.id = " . intval($reserva_id));
+        
+        $reserva = $reservaRes ? $reservaRes->fetch_assoc() : null;
+    }
+
     if (!$reserva) {
-        file_put_contents($debugLog, date('[Y-m-d H:i:s]') . " [PASO 1 ERROR] No se encontró la Reserva #$reserva_id en la base de datos.\n", FILE_APPEND);
+        file_put_contents($debugLog, date('[Y-m-d H:i:s]') . " [PASO 1 ERROR] No se encontró la Reserva #$reserva_id en la base de datos ni en memoria.\n", FILE_APPEND);
         return false;
     }
 
@@ -281,6 +287,21 @@ function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = [])
                 if ($mail) {
                     $targets[$mail] = $u['nombre'];
                     file_put_contents($debugLog, date('[Y-m-d H:i:s]') . " [CREACION TITULAR] ID $titularId -> {$u['nombre']} <$mail>\n", FILE_APPEND);
+                }
+            }
+        }
+
+        // Enviar a los demás jugadores inscritos en la reserva (jugador 2, 3 y 4)
+        $otrosIds = [intval($reserva['jugador2_id'] ?? 0), intval($reserva['jugador3_id'] ?? 0), intval($reserva['jugador4_id'] ?? 0)];
+        foreach ($otrosIds as $oId) {
+            if ($oId > 0) {
+                $uResO = $conn->query("SELECT $userFields FROM usuarios WHERE id = $oId");
+                if ($uResO && $uO = $uResO->fetch_assoc()) {
+                    $mailO = $getMail($uO);
+                    if ($mailO) {
+                        $targets[$mailO] = $uO['nombre'];
+                        file_put_contents($debugLog, date('[Y-m-d H:i:s]') . " [CREACION JUGADOR ADICIONAL] ID $oId -> {$uO['nombre']} <$mailO>\n", FILE_APPEND);
+                    }
                 }
             }
         }
@@ -511,11 +532,7 @@ function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = [])
     </body>
     </html>";
 
-    file_put_contents($debugLog, date('[Y-m-d H:i:s]') . " [PASO 7 DISPARANDO RESEND API] Envitando a " . count($emailList) . " cuentas: " . implode(", ", $emailList) . "\n", FILE_APPEND);
-    
-    $res = enviarCorreoSMTP($emailList, $subject, $bodyHTML);
-    
-    // --- ENVÍO DE NOTIFICACIONES PUSH AL CELULAR Y PROGRAMACIÓN DE RECORDATORIOS ---
+    // --- PASO A: ENVÍO DE NOTIFICACIONES PUSH AL CELULAR Y PROGRAMACIÓN DE RECORDATORIOS (INMEDIATO) ---
     try {
         require_once __DIR__ . '/../notifications/notificaciones_helper.php';
         
@@ -627,6 +644,11 @@ function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = [])
         error_log("Error enviando notificacion push de reserva: " . $ePush->getMessage());
     }
 
+    // --- PASO B: ENVÍO DE CORREOS ELECTRÓNICOS ---
+    file_put_contents($debugLog, date('[Y-m-d H:i:s]') . " [PASO 7 DISPARANDO RESEND API] Envitando a " . count($emailList) . " cuentas: " . implode(", ", $emailList) . "\n", FILE_APPEND);
+    
+    $res = enviarCorreoSMTP($emailList, $subject, $bodyHTML);
+    
     file_put_contents($debugLog, date('[Y-m-d H:i:s]') . " ===== FIN NOTIFICACION RESERVA #$reserva_id =====\n\n", FILE_APPEND);
     return true;
 }

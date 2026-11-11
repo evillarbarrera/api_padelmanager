@@ -38,8 +38,8 @@ $currentTime = date('H:i:s');
 $isForce = isset($_GET['force']) && ($_GET['force'] == '1' || $_GET['force'] === 'true');
 $isDryRun = isset($_GET['dry_run']) && ($_GET['dry_run'] == '1' || $_GET['dry_run'] === 'true');
 $filterUserId = isset($_GET['user_id']) ? intval($_GET['user_id']) : null;
-$windowMinutesMin = isset($_GET['win_min']) ? intval($_GET['win_min']) : 105; // 1h 45m
-$windowMinutesMax = isset($_GET['win_max']) ? intval($_GET['win_max']) : 135; // 2h 15m
+$windowMinutesMin = isset($_GET['win_min']) ? intval($_GET['win_min']) : 30;  // Margen flexible: desde 30 min
+$windowMinutesMax = isset($_GET['win_max']) ? intval($_GET['win_max']) : 150; // Hasta 2h 30m para no perder eventos si el cron corre cada 15-30m
 
 $summary = [
     "success" => true,
@@ -129,7 +129,7 @@ try {
             LEFT JOIN usuarios u2 ON r.jugador2_id = u2.id
             LEFT JOIN usuarios u3 ON r.jugador3_id = u3.id
             LEFT JOIN usuarios u4 ON r.jugador4_id = u4.id
-            WHERE r.fecha = CURDATE()
+            WHERE r.fecha BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 DAY)
               AND (r.estado IS NULL OR r.estado NOT IN ('cancelada', 'cancelado', 'Cancelada', 'Cancelado'))
         ";
 
@@ -525,6 +525,40 @@ try {
                         $summary["notifications_skipped_duplicate"]++;
                     }
                 }
+            }
+        }
+    }
+
+    // =========================================================================
+    // 5. SCAN RECORDATORIOS PROGRAMADOS EN COLA (recordatorios_programados)
+    // =========================================================================
+    $checkRecProg = $conn->query("SHOW TABLES LIKE 'recordatorios_programados'");
+    if ($checkRecProg && $checkRecProg->num_rows > 0) {
+        $sqlProg = "SELECT id, user_id, titulo, mensaje, tipo 
+                    FROM recordatorios_programados 
+                    WHERE enviado = 0 
+                      AND fecha_programada <= NOW()
+                    LIMIT 100";
+        $resProg = $conn->query($sqlProg);
+        if ($resProg) {
+            while ($rProg = $resProg->fetch_assoc()) {
+                $pId = intval($rProg['user_id']);
+                $recId = intval($rProg['id']);
+                if ($filterUserId && $pId !== $filterUserId) continue;
+
+                if (!$isDryRun) {
+                    if (notifyUser($conn, $pId, $rProg['titulo'], $rProg['mensaje'], $rProg['tipo'])) {
+                        $conn->query("UPDATE recordatorios_programados SET enviado = 1, enviado_at = NOW() WHERE id = $recId");
+                    }
+                }
+                $summary["notifications_sent"]++;
+                $summary["details"][] = [
+                    "type" => "recordatorio_programado",
+                    "user_id" => $pId,
+                    "event_id" => $recId,
+                    "title" => $rProg['titulo'],
+                    "status" => $isDryRun ? "simulated" : "sent"
+                ];
             }
         }
     }
