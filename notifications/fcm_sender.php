@@ -6,6 +6,14 @@ if (!function_exists('get_fcm_access_token')) {
     function get_fcm_access_token(&$diagError = null) {
         $keyFile = __DIR__ . '/../academia-padel-firebase-adminsdk-fbsvc-e982fff4f3.json';
         if (!file_exists($keyFile)) {
+            // Buscar automáticamente cualquier archivo de service account descargado de Firebase en api/
+            $matches = glob(__DIR__ . '/../*firebase-adminsdk*.json');
+            if (!empty($matches)) {
+                $keyFile = $matches[0];
+            }
+        }
+
+        if (!file_exists($keyFile)) {
             $diagError = "No se encuentra el archivo JSON de Service Account en: $keyFile";
             error_log("FCM Sender Error: $diagError");
             return false;
@@ -121,8 +129,14 @@ if (!function_exists('send_fcm_push')) {
 
         // Load project id from json
         $keyFile = __DIR__ . '/../academia-padel-firebase-adminsdk-fbsvc-e982fff4f3.json';
-        $keyData = json_decode(file_get_contents($keyFile), true);
-        $projectId = $keyData['project_id'];
+        if (!file_exists($keyFile)) {
+            $matches = glob(__DIR__ . '/../*firebase-adminsdk*.json');
+            if (!empty($matches)) {
+                $keyFile = $matches[0];
+            }
+        }
+        $keyData = file_exists($keyFile) ? json_decode(file_get_contents($keyFile), true) : null;
+        $projectId = $keyData['project_id'] ?? 'academia-padel';
 
         $url = "https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send";
 
