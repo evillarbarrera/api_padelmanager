@@ -90,10 +90,13 @@ $hFinShort = substr($horaFin, 0, 5);
 try {
     // 1. Asegurar columnas adicionales en reservas_cancha si no existen
     $colsCheck = [
+        "nombre_externo" => "VARCHAR(120) NULL",
         "telefono_externo" => "VARCHAR(50) NULL",
         "email_externo" => "VARCHAR(120) NULL",
         "tipo_origen" => "VARCHAR(30) DEFAULT 'web_guest'",
-        "notas_reserva" => "TEXT NULL"
+        "notas_reserva" => "TEXT NULL",
+        "metodo_pago" => "VARCHAR(50) DEFAULT 'club'",
+        "precio_total" => "DECIMAL(10,2) NULL"
     ];
     foreach ($colsCheck as $col => $typeDef) {
         $cRes = $conn->query("SHOW COLUMNS FROM reservas_cancha LIKE '$col'");
@@ -102,10 +105,10 @@ try {
         }
     }
 
-    // 2. Obtener datos de la Cancha y del Club
+    // 2. Obtener datos de la Cancha y del Club (usando admin_id de clubes)
     $stmtCancha = $conn->prepare("
         SELECT c.id, c.nombre, c.club_id, c.precio_hora, c.precio_90, c.precio_90_alto, c.hora_inicio_alto,
-               cl.nombre as club_nombre, cl.telefono as club_telefono, cl.landing_whatsapp, cl.direccion, cl.comuna, cl.usuario_id as club_admin_id
+               cl.nombre as club_nombre, cl.telefono as club_telefono, cl.landing_whatsapp, cl.direccion, cl.comuna, cl.admin_id as club_admin_id
         FROM canchas c
         JOIN clubes cl ON c.club_id = cl.id
         WHERE c.id = ? AND c.activa = 1
@@ -126,7 +129,21 @@ try {
     $canchaNombre = $canchaData['nombre'];
     $clubNombre = $canchaData['club_nombre'];
     $clubAdminId = intval($canchaData['club_admin_id'] ?? 0);
-    $clubTelefono = $canchaData['landing_whatsapp'] ?: $canchaData['club_telefono'];
+    $clubTelefono = !empty($canchaData['landing_whatsapp']) ? $canchaData['landing_whatsapp'] : $canchaData['club_telefono'];
+
+    // Si el club no tiene admin_id directo, buscar el administrador asignado en usuarios_clubes
+    if ($clubAdminId <= 0) {
+        $stmtUC = $conn->prepare("SELECT usuario_id FROM usuarios_clubes WHERE club_id = ? AND activo = 1 ORDER BY (rol = 'administrador_club') DESC LIMIT 1");
+        if ($stmtUC) {
+            $stmtUC->bind_param("i", $clubId);
+            $stmtUC->execute();
+            $rUC = $stmtUC->get_result()->fetch_assoc();
+            if ($rUC) {
+                $clubAdminId = intval($rUC['usuario_id']);
+            }
+            $stmtUC->close();
+        }
+    }
 
     // 3. Calcular precio según horario pico
     $hInicioAlto = !empty($canchaData['hora_inicio_alto']) ? substr($canchaData['hora_inicio_alto'], 0, 5) : '18:00';
