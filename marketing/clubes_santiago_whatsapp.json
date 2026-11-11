@@ -1,0 +1,233 @@
+{
+  "campana": "Padelblox Santiago Outreach WhatsApp 2026",
+  "actualizado_el": "2026-11-11",
+  "remitente": {
+    "nombre": "Emmanuel Villar",
+    "empresa": "Padelblox Chile",
+    "telefono": "+56 9 6908 3124",
+    "web": "https://padelblox.cl"
+  },
+  "total_clubs": 20,
+  "clubs": [
+    {
+      "id": 1,
+      "nombre_club": "Club Conecta Las Condes",
+      "comuna": "Las Condes / Lo Barnechea",
+      "telefono": "+56944606428",
+      "contacto": "Administración",
+      "email": "administracionlascondes@grupoconecta.cl",
+      "direccion": "Av. Las Condes 12560",
+      "estado_envio": "pendiente",
+      "notas": "Club de alta afluencia, canchas premium."
+    },
+    {
+      "id": 2,
+      "nombre_club": "Club Conecta La Dehesa",
+      "comuna": "Lo Barnechea",
+      "telefono": "+56974781499",
+      "contacto": "Administración",
+      "email": "contacto@grupoconecta.cl",
+      "direccion": "El Rodeo 12699",
+      "estado_envio": "pendiente",
+      "notas": "Sector La Dehesa."
+    },
+    {
+      "id": 3,
+      "nombre_club": "Más Padel Club Lo Curro",
+      "comuna": "Vitacura",
+      "telefono": "+56937521150",
+      "contacto": "Gerencia / Recepción",
+      "email": "",
+      "direccion": "Las Cujas 9723",
+      "estado_envio": "pendiente",
+      "notas": "Club exclusivo en Lo Curro."
+    },
+    {
+      "id": 4,
+      "nombre_club": "Red Padel Club",
+      "comuna": "Vitacura",
+      "telefono": "+56990907892",
+      "contacto": "Administración",
+      "email": "redpadelclub@gmail.com",
+      "direccion": "Av. Vitacura 8751",
+      "estado_envio": "pendiente",
+      "notas": "Vitacura central."
+    },
+    {
+      "id": 5,
+      "nombre_club": "Fontova Padel",
+      "comuna": "Huechuraba",
+      "telefono": "+56967449970",
+      "contacto": "Coordinación",
+      "email": "contacto@fontovapadel.com",
+      "direccion": "Av. Pedro Fontova",
+      "estado_envio": "pendiente",
+      "notas": "Zona norte de Santiago."
+    },
+    {
+      "id": 6,
+      "nombre_club": "Sportpark Huechuraba",
+      "comuna": "Huechuraba",
+      "telefono": "+56928573502",
+      "contacto": "Administración",
+      "email": "contacto@sportparkhuechuraba.cl",
+      "direccion": "Sector Ciudad Empresarial / Huechuraba",
+      "estado_envio": "pendiente",
+      "notas": "Complejo multideportivo."
+    },
+    {
+      "id": 7,
+      "nombre_club": "Altamira Pádel Center",
+      "comuna": "Peñalolén",
+      "telefono": "+56979202644",
+      "contacto": "Gerencia / Recepción",
+      "email": "contacto@altamirapadelcenter.cl",
+      "direccion": "Av. Quilín 8809",
+      "estado_envio": "pendiente",
+      "notas": "Canchas panorámicas, cafetería y tienda."
+    },
+    {
+      "id": 8,
+      "nombre_club": "Padel House Las Pircas",
+      "comuna": "Peñalolén",
+      "telefono": "+56971397295",
+      "contacto": "Administración",
+      "email": "",
+      "direccion": "Av. Quilín 9900",
+      "estado_envio": "pendiente",
+      "notas": "Sector Las Pircas."
+    },
+    {
+      "id": 9,
+      "nombre_club": "Padel Club Chile",
+      "comuna": "Peñalolén",
+      "telefono": "+56974917289",
+      "contacto": "Recepción",
+      "email": "",
+      "direccion": "Plazoleta Cuatro 8831",
+      "estado_envio": "pendiente",
+      "notas": "Comuna Peñalolén."
+    },
+    {
+      "id": 10,
+      "nombre_club": "Aeropadel",
+      "comuna": "La Reina",
+      "telefono": "+56984664056",
+      "contacto": "Administración",
+      "email": "contacto@aeropadel.cl",
+      "direccion": "Nueva Larraín",
+      "estado_envio": "pendiente",
+      "notas": "Academia activa y arriendos."
+    },
+    {
+      "id": 11,
+      "nombre_club": "Smash La Reina",
+      "comuna": "La Reina",
+      "telefono": "+56932035759",
+      "contacto": "Recepción",
+      "email": "",
+      "direccion": "Nueva Larraín 8381",
+      "estado_envio": "pendiente",
+      "notas": "Sector La Reina alta."
+    },
+    {
+      "id": 12,
+      "nombre_club": "Club de Pádel La Florida",
+      "comuna": "La Florida",
+      "telefono": "+56961331442",
+      "contacto": "Administración",
+      "email": "",
+      "direccion": "San José de la Estrella 816",
+      "estado_envio": "pendiente",
+      "notas": "6 canchas panorámicas y quincho."
+    },
+    {
+      "id": 13,
+      "nombre_club": "Pádel Lo Cañas",
+      "comuna": "La Florida",
+      "telefono": "+56983412376",
+      "contacto": "Administración",
+      "email": "",
+      "direccion": "María Cristina 6736",
+      "estado_envio": "pendiente",
+      "notas": "Sector Lo Cañas."
+    },
+    {
+      "id": 14,
+      "nombre_club": "Pádel Las Encinas",
+      "comuna": "Ñuñoa",
+      "telefono": "+56992968009",
+      "contacto": "Administración",
+      "email": "hola@padellasencinas.cl",
+      "direccion": "Las Encinas 3050",
+      "estado_envio": "pendiente",
+      "notas": "Ñuñoa."
+    },
+    {
+      "id": 15,
+      "nombre_club": "Chicureo Padel",
+      "comuna": "Colina / Chicureo",
+      "telefono": "+56953272777",
+      "contacto": "Administración",
+      "email": "contacto@chicureopadel.cl",
+      "direccion": "El Alba 3 Oriente, Parcela 4",
+      "estado_envio": "pendiente",
+      "notas": "Sector Chicureo."
+    },
+    {
+      "id": 16,
+      "nombre_club": "Set Point Padel Club",
+      "comuna": "Colina / Chicureo",
+      "telefono": "+56983248738",
+      "contacto": "Administración",
+      "email": "clubdepadelchicureo@gmail.com",
+      "direccion": "Av. Camino Chicureo 2500",
+      "estado_envio": "pendiente",
+      "notas": "Chicureo."
+    },
+    {
+      "id": 17,
+      "nombre_club": "El Encuentro Pádel",
+      "comuna": "Colina / Chicureo",
+      "telefono": "+56934297553",
+      "contacto": "Coordinación",
+      "email": "",
+      "direccion": "Piedra Roja",
+      "estado_envio": "pendiente",
+      "notas": "Piedra Roja Chicureo."
+    },
+    {
+      "id": 18,
+      "nombre_club": "Arena Pádel Club",
+      "comuna": "San Miguel",
+      "telefono": "+56921959304",
+      "contacto": "Administración",
+      "email": "",
+      "direccion": "Sexta Avenida",
+      "estado_envio": "pendiente",
+      "notas": "San Miguel zona sur/centro."
+    },
+    {
+      "id": 19,
+      "nombre_club": "Más Que Pádel Maipú",
+      "comuna": "Maipú",
+      "telefono": "+56988823189",
+      "contacto": "Administración",
+      "email": "",
+      "direccion": "Av. Central Gonzalo Pérez Llona 450",
+      "estado_envio": "pendiente",
+      "notas": "Maipú."
+    },
+    {
+      "id": 20,
+      "nombre_club": "Pádel Club Las Vizcachas",
+      "comuna": "Puente Alto",
+      "telefono": "+56952285543",
+      "contacto": "Administración",
+      "email": "",
+      "direccion": "Camino a San José de Maipo 05669",
+      "estado_envio": "pendiente",
+      "notas": "Sector Las Vizcachas Puente Alto."
+    }
+  ]
+}

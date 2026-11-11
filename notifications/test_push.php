@@ -150,12 +150,14 @@ try {
     }
 
     // 3. Probar autenticación con Google Firebase FCM v1
-    $accessToken = get_fcm_access_token();
+    $diagOAuthError = '';
+    $accessToken = get_fcm_access_token($diagOAuthError);
     if (!$accessToken) {
         $keyFile = __DIR__ . '/../academia-padel-firebase-adminsdk-fbsvc-e982fff4f3.json';
         $keyExists = file_exists($keyFile);
         $response["success"] = false;
         $response["error"] = "No se pudo obtener el Access Token de Google OAuth2 para FCM.";
+        $response["oauth_detail"] = $diagOAuthError;
         $response["diagnostics"][] = "Archivo de credenciales: " . ($keyExists ? "Existe en servidor" : "NO EXISTE en $keyFile");
         echo json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         exit;
