@@ -109,7 +109,7 @@ try {
                precio_60_alto, precio_90_alto, precio_120_alto, hora_inicio_bajo, hora_fin_bajo, 
                hora_inicio_alto, hora_fin_alto, horarios_adicionales, categoria, icono, descripcion, capacidad 
         FROM canchas 
-        WHERE club_id = ? AND activa = 1 
+        WHERE club_id = ? AND (activa = 1 OR activa IS NULL) 
         ORDER BY categoria ASC, nombre ASC
     ");
     $stmtC->bind_param("i", $cid);
@@ -119,6 +119,27 @@ try {
         $canchas[] = $row;
     }
     $stmtC->close();
+
+    // Fallback: si no encontró con activa = 1 o NULL, buscar cualquier cancha del club
+    if (empty($canchas)) {
+        $stmtC2 = $conn->prepare("
+            SELECT id, nombre, tipo, techada, superficie, precio_hora, precio_60, precio_90, precio_120, 
+                   precio_60_alto, precio_90_alto, precio_120_alto, hora_inicio_bajo, hora_fin_bajo, 
+                   hora_inicio_alto, hora_fin_alto, horarios_adicionales, categoria, icono, descripcion, capacidad 
+            FROM canchas 
+            WHERE club_id = ? 
+            ORDER BY id ASC
+        ");
+        if ($stmtC2) {
+            $stmtC2->bind_param("i", $cid);
+            $stmtC2->execute();
+            $resC2 = $stmtC2->get_result();
+            while ($row2 = $resC2->fetch_assoc()) {
+                $canchas[] = $row2;
+            }
+            $stmtC2->close();
+        }
+    }
 
     // 3. Obtener todas las reservas activas para esta fecha en este club
     $reservasExistentes = []; // [ cancha_id => [ [inicio, fin] ] ]
