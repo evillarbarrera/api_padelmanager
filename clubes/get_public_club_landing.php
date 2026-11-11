@@ -272,6 +272,21 @@ try {
         }
     } catch (Throwable $t) {}
 
+    // Normalizar logo_url si solo existe 'logo'
+    $rawLogo = !empty($club['logo']) ? $club['logo'] : (!empty($club['logo_url']) ? $club['logo_url'] : null);
+    if ($rawLogo) {
+        if (strpos($rawLogo, 'http') === 0 || strpos($rawLogo, 'assets/') === 0) {
+            $club['logo_url'] = $rawLogo;
+        } else {
+            $cleanPath = ltrim($rawLogo, '/');
+            $cleanPath = preg_replace('/^(prd|dev)\//', '', $cleanPath);
+            if (strpos($cleanPath, '/') === false) {
+                $cleanPath = "uploads/clubes/" . $cleanPath;
+            }
+            $club['logo_url'] = "https://api.padelmanager.cl/prd/" . $cleanPath;
+        }
+    }
+
     echo json_encode([
         "status" => "success",
         "club" => $club,
