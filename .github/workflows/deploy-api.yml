@@ -26,7 +26,20 @@ jobs:
 
       - name: 🛠️ Instalar lftp
         run: |
-          sudo apt-get update && sudo apt-get install -y lftp
+          if ! command -v lftp &> /dev/null; then
+            echo "Configurando DNS de respaldo..."
+            sudo bash -c 'echo "nameserver 8.8.8.8" >> /etc/resolv.conf'
+            sudo bash -c 'echo "nameserver 1.1.1.1" >> /etc/resolv.conf'
+            for i in 1 2 3 4 5; do
+              echo "Intento $i de instalación de lftp..."
+              sudo apt-get update -y && sudo apt-get install -y --fix-missing lftp && break || {
+                echo "Intento $i falló por red/DNS. Reintentando en 5 segundos..."
+                sleep 5
+              }
+            done
+          else
+            echo "lftp ya está instalado."
+          fi
 
       - name: 🔍 Determinar Carpeta de Destino
         id: target
