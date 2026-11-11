@@ -101,15 +101,25 @@ jobs:
 
       - name: 🚀 Sincronizar API a Ferozo (${{ steps.target.outputs.env }})
         if: steps.prep.outputs.has_files == 'true'
-        env:
-          SFTP_SERVER: ${{ secrets.SFTP_SERVER || 'c2632100.ferozo.com' }}
-          SFTP_USERNAME: ${{ secrets.SFTP_USERNAME || 'c2632100' }}
-          SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
-          SFTP_PORT: 21
-          SFTP_REMOTE_DIR: ${{ steps.target.outputs.dir }}
-          DEPLOY_SOURCE_DIR: .deploy_staging
         run: |
-          python3 deploy_ferozo_api.py
+          if ! command -v lftp &> /dev/null; then
+            echo "🔧 Configurando mirrors y DNS para instalación confiable de lftp..."
+            sudo bash -c 'echo "nameserver 8.8.8.8" >> /etc/resolv.conf'
+            sudo bash -c 'echo "nameserver 1.1.1.1" >> /etc/resolv.conf'
+            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu/|http://archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
+            for i in 1 2 3; do
+              sudo apt-get update -y && sudo apt-get install -y --fix-missing lftp && break || sleep 4
+            done
+          fi
+          lftp -u "${{ secrets.SFTP_USERNAME || 'c2632100' }},${{ secrets.SFTP_PASSWORD }}" -p 21 ${{ secrets.SFTP_SERVER || 'c2632100.ferozo.com' }} << EOF
+          set ftp:ssl-allow yes
+          set ftp:ssl-protect-data no
+          set ssl:verify-certificate no
+          set net:timeout 60
+          set net:max-retries 3
+          mirror -R --verbose .deploy_staging/ ${{ steps.target.outputs.dir }}
+          quit
+          EOF
 
       - name: ℹ️ Notificación si no hubo cambios
         if: steps.prep.outputs.has_files != 'true'
