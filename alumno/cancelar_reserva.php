@@ -52,7 +52,7 @@ try {
     }
 
     // 1. Obtener información de la reserva
-    $query = "SELECT r.id, r.fecha, r.hora_inicio, r.estado FROM reservas r ";
+    $query = "SELECT r.id, r.fecha, r.hora_inicio, r.estado, r.entrenador_id FROM reservas r ";
     $query .= "JOIN reserva_jugadores rj ON r.id = rj.reserva_id ";
     $query .= "WHERE r.id = ? AND rj.jugador_id = ?";
     
@@ -100,6 +100,10 @@ try {
                 } else {
                     $col = ($resC['jugador2_id'] == $jugador_id) ? 'jugador2_id' : (($resC['jugador3_id'] == $jugador_id) ? 'jugador3_id' : 'jugador4_id');
                     $conn->query("UPDATE reservas_cancha SET $col = NULL WHERE id = $reserva_id");
+                    try {
+                        require_once "../system/mail_service.php";
+                        notificarReservaCancha($conn, $reserva_id, 'actualizacion');
+                    } catch (Throwable $e) {}
                     echo json_encode(["success" => true, "message" => "Has salido de la reserva de cancha"]);
                     exit;
                 }
@@ -287,13 +291,16 @@ try {
               </td></tr></table>
             </body></html>";
 
+            // 2. PUSH (Inmediato)
+            $idEntrenador = $resP['entrenador_id'] ?? ($reserva['entrenador_id'] ?? null);
+            if ($idEntrenador) {
+                notifyUser($conn, $idEntrenador, "🚫 Clase Cancelada por Alumno", "$nomJugador ha cancelado la clase del $fechaFmt a las $horaFmt", 'clase_cancelada');
+            }
+            notifyUser($conn, $jugador_id, "🚫 Cancelación Confirmada", "Has cancelado tu clase del $fechaFmt a las $horaFmt.", 'cancelacion_confirmada');
+
+            // 3. EMAIL
             if (!empty($emailJugador)) enviarCorreoSMTP($emailJugador, $subject, $bodyPlayer);
             if (!empty($emailEntrenador)) enviarCorreoSMTP($emailEntrenador, $subject, $bodyCoach);
-
-            // 3. PUSH
-            $idEntrenador = $resP['entrenador_id'] ?? $reserva['entrenador_id'];
-            notifyUser($conn, $idEntrenador, "🚫 Clase Cancelada por Alumno", "$nomJugador ha cancelado la clase del $fechaFmt a las $horaFmt", 'clase_cancelada');
-            notifyUser($conn, $jugador_id, "🚫 Cancelación Confirmada", "Has cancelado tu clase del $fechaFmt a las $horaFmt.", 'cancelacion_confirmada');
         }
     }
     // --- NOTIFICATIONS END ---

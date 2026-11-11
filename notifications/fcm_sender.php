@@ -145,34 +145,8 @@ if (!function_exists('send_fcm_push')) {
             if ($httpCode == 200) {
                 $successCount++;
             } else {
-                $errors[] = "Token: $token - Code: $httpCode - Response: $response";
-                
-                // Auto-prune dead/unregistered APNs or FCM tokens
-                if ($httpCode == 404 || $httpCode == 410 || 
-                    strpos($response, 'UNREGISTERED') !== false || 
-                    strpos($response, 'NOT_FOUND') !== false || 
-                    strpos($response, 'INVALID_ARGUMENT') !== false) {
-                    
-                    try {
-                        global $conn;
-                        $db = $conn;
-                        if (!$db && file_exists(__DIR__ . '/../db.php')) {
-                            @include_once __DIR__ . '/../db.php';
-                            $db = $conn;
-                        }
-                        if ($db instanceof mysqli) {
-                            $delStmt = $db->prepare("DELETE FROM fcm_tokens WHERE token = ?");
-                            if ($delStmt) {
-                                $delStmt->bind_param('s', $token);
-                                $delStmt->execute();
-                                $delStmt->close();
-                                error_log("FCM Sender: Auto-pruned invalid token: " . substr($token, 0, 20) . "...");
-                            }
-                        }
-                    } catch (Throwable $eTokenPrune) {
-                        error_log("FCM Sender token pruning error: " . $eTokenPrune->getMessage());
-                    }
-                }
+                $errors[] = "Token: " . substr($token, 0, 25) . "... - Code: $httpCode - Response: $response";
+                error_log("FCM Send Warning: Token error (HTTP $httpCode): " . substr($response, 0, 150));
             }
         }
 
