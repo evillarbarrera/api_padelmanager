@@ -155,9 +155,46 @@ try {
     if (!$accessToken) {
         $keyFile = __DIR__ . '/../academia-padel-firebase-adminsdk-fbsvc-e982fff4f3.json';
         $keyExists = file_exists($keyFile);
+        $keyData = $keyExists ? json_decode(file_get_contents($keyFile), true) : null;
+        $currentKid = $keyData['private_key_id'] ?? 'N/A';
+        $clientEmail = $keyData['client_email'] ?? 'N/A';
+
+        // Consultar a Google las claves públicas vigentes para esta Service Account
+        $googleActiveKeys = [];
+        $keyStatusMsg = "No se pudo consultar a Google";
+        if (!empty($clientEmail) && $clientEmail !== 'N/A') {
+            $certsUrl = "https://www.googleapis.com/robot/v1/metadata/x509/" . urlencode($clientEmail);
+            $chCert = curl_init($certsUrl);
+            curl_setopt($chCert, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($chCert, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($chCert, CURLOPT_SSL_VERIFYHOST, false);
+            curl_setopt($chCert, CURLOPT_TIMEOUT, 5);
+            $certRes = curl_exec($chCert);
+            curl_close($chCert);
+            $certJson = json_decode($certRes, true);
+            if (is_array($certJson)) {
+                $googleActiveKeys = array_keys($certJson);
+                if (in_array($currentKid, $googleActiveKeys)) {
+                    $keyStatusMsg = "La clave ID $currentKid está ACTIVA en Google.";
+                } else {
+                    $keyStatusMsg = "ATENCIÓN: La clave ID '$currentKid' fue REVOCADA o EXPIRÓ en Google. Claves activas en Google: " . implode(", ", $googleActiveKeys);
+                }
+            } else {
+                $keyStatusMsg = "Respuesta de certificados Google: " . substr($certRes, 0, 100);
+            }
+        }
+
         $response["success"] = false;
         $response["error"] = "No se pudo obtener el Access Token de Google OAuth2 para FCM.";
         $response["oauth_detail"] = $diagOAuthError;
+        $response["server_time_utc"] = gmdate('Y-m-d H:i:s');
+        $response["server_time_local"] = date('Y-m-d H:i:s T');
+        $response["service_account"] = [
+            "client_email" => $clientEmail,
+            "private_key_id_en_json" => $currentKid,
+            "estado_en_google" => $keyStatusMsg,
+            "claves_activas_en_google" => $googleActiveKeys
+        ];
         $response["diagnostics"][] = "Archivo de credenciales: " . ($keyExists ? "Existe en servidor" : "NO EXISTE en $keyFile");
         echo json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         exit;
