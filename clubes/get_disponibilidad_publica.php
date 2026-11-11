@@ -291,6 +291,22 @@ try {
         ];
     }
 
+    // Normalizar logo_url si existe 'logo'
+    $rawLogo = !empty($club['logo']) ? $club['logo'] : (!empty($club['logo_url']) ? $club['logo_url'] : null);
+    $clubLogoUrl = null;
+    if ($rawLogo) {
+        if (strpos($rawLogo, 'http') === 0 || strpos($rawLogo, 'assets/') === 0) {
+            $clubLogoUrl = $rawLogo;
+        } else {
+            $cleanPath = ltrim($rawLogo, '/');
+            $cleanPath = preg_replace('/^(prd|dev)\//', '', $cleanPath);
+            if (strpos($cleanPath, '/') === false) {
+                $cleanPath = "uploads/clubes/" . $cleanPath;
+            }
+            $clubLogoUrl = "https://api.padelmanager.cl/prd/" . $cleanPath;
+        }
+    }
+
     echo json_encode([
         "status" => "success",
         "club" => [
@@ -301,7 +317,8 @@ try {
             "whatsapp" => !empty($club['landing_whatsapp']) ? $club['landing_whatsapp'] : ($club['telefono'] ?? ''),
             "color_primary" => !empty($club['landing_color_primary']) ? $club['landing_color_primary'] : '#0b0f19',
             "color_accent" => !empty($club['landing_color_accent']) ? $club['landing_color_accent'] : '#ccff00',
-            "logo_url" => $club['logo_url'] ?? '',
+            "logo_url" => $clubLogoUrl,
+            "logo" => $club['logo'] ?? '',
             "direccion" => $club['direccion'] ?? '',
             "comuna" => $club['comuna'] ?? '',
             "region" => $club['region'] ?? ''

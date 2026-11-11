@@ -24,10 +24,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 🛠️ Instalar lftp
-        run: |
-          sudo apt-get update && sudo apt-get install -y lftp
-
       - name: 🔍 Determinar Carpeta de Destino
         id: target
         run: |
@@ -58,7 +54,6 @@ jobs:
             echo "has_files=true" >> $GITHUB_OUTPUT
             echo "count=todos" >> $GITHUB_OUTPUT
           else
-            # Determinar base de comparación
             if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
               BASE_COMMIT=$(git rev-parse HEAD~1 2>/dev/null || echo "")
             else
@@ -104,11 +99,19 @@ jobs:
             echo "$DELETED_FILES" > .deleted_files.txt
           fi
 
-      - name: 🚀 Sincronizar API incremental (solo nuevo/modificado) a ${{ steps.target.outputs.env }}
+      - name: 🚀 Sincronizar API a Ferozo (${{ steps.target.outputs.env }})
         if: steps.prep.outputs.has_files == 'true'
         run: |
-          echo "Subiendo ${{ steps.prep.outputs.count }} archivo(s) a ${{ steps.target.outputs.dir }}..."
-          lftp -u "${{ secrets.SFTP_USERNAME || 'c2632100' }},${{ secrets.SFTP_PASSWORD }}" -p 21 ${{ secrets.SFTP_SERVER || 'c2632100.ferozo.com' }} << 'EOF'
+          if ! command -v lftp &> /dev/null; then
+            echo "🔧 Configurando mirrors y DNS para instalación confiable de lftp..."
+            sudo bash -c 'echo "nameserver 8.8.8.8" >> /etc/resolv.conf'
+            sudo bash -c 'echo "nameserver 1.1.1.1" >> /etc/resolv.conf'
+            sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu/|http://archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
+            for i in 1 2 3; do
+              sudo apt-get update -y && sudo apt-get install -y --fix-missing lftp && break || sleep 4
+            done
+          fi
+          lftp -u "${{ secrets.SFTP_USERNAME || 'c2632100' }},${{ secrets.SFTP_PASSWORD }}" -p 21 ${{ secrets.SFTP_SERVER || 'c2632100.ferozo.com' }} << EOF
           set ftp:ssl-allow yes
           set ftp:ssl-protect-data no
           set ssl:verify-certificate no
@@ -117,26 +120,6 @@ jobs:
           mirror -R --verbose .deploy_staging/ ${{ steps.target.outputs.dir }}
           quit
           EOF
-
-      - name: 🗑️ Eliminar en servidor archivos borrados en Git
-        run: |
-          if [ -f .deleted_files.txt ] && [ -s .deleted_files.txt ]; then
-            echo "Procesando archivos eliminados en Git..."
-            while IFS= read -r file; do
-              [ -z "$file" ] && continue
-              case "$file" in
-                .git/*|.github/*|resp/*|scratch/*|*.log|*.zip|*.tar.gz) continue ;;
-              esac
-              echo "  🗑️ Eliminando en remoto: ${{ steps.target.outputs.dir }}$file"
-              lftp -u "${{ secrets.SFTP_USERNAME || 'c2632100' }},${{ secrets.SFTP_PASSWORD }}" -p 21 ${{ secrets.SFTP_SERVER || 'c2632100.ferozo.com' }} << EOF || true
-              set ftp:ssl-allow yes
-              set ftp:ssl-protect-data no
-              set ssl:verify-certificate no
-              rm -f "${{ steps.target.outputs.dir }}$file"
-              quit
-          EOF
-            done < .deleted_files.txt
-          fi
 
       - name: ℹ️ Notificación si no hubo cambios
         if: steps.prep.outputs.has_files != 'true'
