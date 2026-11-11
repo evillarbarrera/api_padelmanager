@@ -23,3 +23,4 @@ resp/
 .env.deploy
 db_local.php
 deploy.py
+*firebase*.json
