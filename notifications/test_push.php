@@ -140,15 +140,138 @@ try {
         exit;
     }
 
-    // 3. Enviar notificación push
-    $pushSent = notifyUser($conn, $targetUserId, $title, $body, 'test_push', date('Y-m-d H:i:s'), [
-        'type' => 'test',
-        'route' => '/jugador-partidos'
-    ]);
+    // Opción para limpiar tokens viejos acumulados si se solicita
+    if (isset($_GET['clean']) && $_GET['clean'] == '1') {
+        $conn->query("DELETE FROM fcm_tokens WHERE user_id = $targetUserId");
+        $response["message"] = "Se limpiaron los " . count($tokens) . " tokens anteriores del usuario. Ahora abre la app en tu celular para registrar únicamente el token actual.";
+        $response["tokens_found"] = 0;
+        echo json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        exit;
+    }
 
-    $response["success"] = true;
-    $response["push_result"] = $pushSent;
-    $response["message"] = "Notificación de prueba enviada exitosamente a " . count($tokens) . " dispositivo(s) activo(s).";
+    // 3. Probar autenticación con Google Firebase FCM v1
+    $accessToken = get_fcm_access_token();
+    if (!$accessToken) {
+        $keyFile = __DIR__ . '/../academia-padel-firebase-adminsdk-fbsvc-e982fff4f3.json';
+        $keyExists = file_exists($keyFile);
+        $response["success"] = false;
+        $response["error"] = "No se pudo obtener el Access Token de Google OAuth2 para FCM.";
+        $response["diagnostics"][] = "Archivo de credenciales: " . ($keyExists ? "Existe en servidor" : "NO EXISTE en $keyFile");
+        echo json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $response["diagnostics"][] = "Google OAuth2 Access Token obtenido correctamente.";
+
+    // 4. Enviar notificación push inspeccionando la respuesta de Google para cada token
+    $keyFile = __DIR__ . '/../academia-padel-firebase-adminsdk-fbsvc-e982fff4f3.json';
+    $keyData = json_decode(file_get_contents($keyFile), true);
+    $projectId = $keyData['project_id'] ?? 'academia-padel';
+    $url = "https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send";
+
+    $headers = [
+        'Authorization: Bearer ' . $accessToken,
+        'Content-Type: application/json'
+    ];
+
+    $fcmResults = [];
+    $successCount = 0;
+    $invalidTokens = [];
+
+    foreach ($tokens as $token) {
+        $message = [
+            'message' => [
+                'token' => $token,
+                'notification' => [
+                    'title' => $title,
+                    'body' => $body
+                ],
+                'data' => [
+                    'type' => 'test',
+                    'route' => '/jugador-partidos',
+                    'timestamp' => (string)time()
+                ],
+                'android' => [
+                    'priority' => 'high',
+                    'notification' => [
+                        'sound' => 'default',
+                        'click_action' => 'FCM_PLUGIN_ACTIVITY',
+                        'icon' => 'fcm_push_icon'
+                    ]
+                ],
+                'apns' => [
+                    'headers' => [
+                        'apns-priority' => '10',
+                        'apns-push-type' => 'alert'
+                    ],
+                    'payload' => [
+                        'aps' => [
+                            'alert' => [
+                                'title' => $title,
+                                'body' => $body
+                            ],
+                            'sound' => 'default',
+                            'badge' => 1
+                        ]
+                    ]
+                ]
+            ]
+        ];
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($message));
+        curl_setopt($ch, CURLOPT_TIMEOUT, 8);
+        $resCurl = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $parsedRes = json_decode($resCurl, true);
+
+        if ($httpCode === 200) {
+            $successCount++;
+            $fcmResults[] = [
+                "token" => substr($token, 0, 15) . "...",
+                "status" => "DELIVERED_TO_GOOGLE_FCM",
+                "http_code" => $httpCode,
+                "fcm_message_id" => $parsedRes['name'] ?? 'OK'
+            ];
+        } else {
+            $errCode = $parsedRes['error']['details'][0]['errorCode'] ?? ($parsedRes['error']['status'] ?? 'ERROR');
+            $errMsg = $parsedRes['error']['message'] ?? $resCurl;
+            $fcmResults[] = [
+                "token" => substr($token, 0, 15) . "...",
+                "status" => "REJECTED_BY_GOOGLE",
+                "http_code" => $httpCode,
+                "error_code" => $errCode,
+                "error_message" => $errMsg
+            ];
+            if ($httpCode === 404 || $errCode === 'UNREGISTERED') {
+                $invalidTokens[] = $token;
+            }
+        }
+    }
+
+    // Auto-limpiar tokens declarados como UNREGISTERED por Google si fallaron todos o parte
+    if (!empty($invalidTokens) && isset($_GET['auto_prune'])) {
+        foreach ($invalidTokens as $invT) {
+            $conn->query("DELETE FROM fcm_tokens WHERE token = '$invT'");
+        }
+        $response["diagnostics"][] = "Se eliminaron " . count($invalidTokens) . " tokens obsoletos de Google.";
+    }
+
+    // Registrar en tabla notificaciones internas
+    @notifyUser($conn, $targetUserId, $title, $body, 'test_push', date('Y-m-d H:i:s'));
+
+    $response["success"] = ($successCount > 0);
+    $response["delivered_count"] = $successCount;
+    $response["failed_count"] = count($tokens) - $successCount;
+    $response["fcm_details"] = $fcmResults;
+    $response["message"] = ($successCount > 0)
+        ? "Google FCM aceptó la entrega para $successCount dispositivo(s)."
+        : "Ningún token fue aceptado por Google FCM. Todos fueron rechazados (dispositivos desinstalados, tokens viejos o certificados de Apple pendientes).";
 
     echo json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
