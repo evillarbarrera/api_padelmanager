@@ -22,7 +22,7 @@ En Padelblox desarrollamos un software integral que conecta las reservas con tor
 
 Estamos seleccionando clubes clave en Santiago para darles *3 meses de acceso completo 100% gratis* sin ningún compromiso.
 
-¿Te gustaría que te comparta un video de 1 minuto o coordinemos una demo rápida de 5 min por acá?
+¿Te gustaría que coordinemos una demo rápida de 5 min por acá?
 
 —
 *Emmanuel Villar*
