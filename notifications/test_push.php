@@ -164,13 +164,36 @@ try {
     // 3. Probar autenticación con Google Firebase FCM v1
     $diagOAuthError = '';
     $accessToken = get_fcm_access_token($diagOAuthError);
-    if (!$accessToken) {
-        $keyFile = __DIR__ . '/../academia-padel-firebase-adminsdk-fbsvc-e982fff4f3.json';
-        $keyExists = file_exists($keyFile);
-        $keyData = $keyExists ? json_decode(file_get_contents($keyFile), true) : null;
-        $currentKid = $keyData['private_key_id'] ?? 'N/A';
-        $clientEmail = $keyData['client_email'] ?? 'N/A';
 
+    // Obtener datos de la Service Account para diagnóstico y envío
+    $keyData = null;
+    $keySource = '';
+    if (file_exists(__DIR__ . '/firebase_credentials.php')) {
+        require_once __DIR__ . '/firebase_credentials.php';
+        if (function_exists('get_firebase_service_account_data')) {
+            $keyData = get_firebase_service_account_data();
+            $keySource = 'firebase_credentials.php (Base64)';
+        }
+    }
+    if (!$keyData) {
+        $keyFile = __DIR__ . '/../academia-padel-firebase-adminsdk-fbsvc-e982fff4f3.json';
+        if (!file_exists($keyFile)) {
+            $matches = glob(__DIR__ . '/../*firebase-adminsdk*.json');
+            if (!empty($matches)) {
+                $keyFile = $matches[0];
+            }
+        }
+        if (file_exists($keyFile)) {
+            $keyData = json_decode(file_get_contents($keyFile), true);
+            $keySource = basename($keyFile);
+        }
+    }
+
+    $currentKid = $keyData['private_key_id'] ?? 'N/A';
+    $clientEmail = $keyData['client_email'] ?? 'N/A';
+    $projectId = $keyData['project_id'] ?? 'academia-padel';
+
+    if (!$accessToken) {
         // Consultar a Google las claves públicas vigentes para esta Service Account
         $googleActiveKeys = [];
         $keyStatusMsg = "No se pudo consultar a Google";
@@ -189,7 +212,7 @@ try {
                 if (in_array($currentKid, $googleActiveKeys)) {
                     $keyStatusMsg = "La clave ID $currentKid está ACTIVA en Google.";
                 } else {
-                    $keyStatusMsg = "ATENCIÓN: La clave ID '$currentKid' fue REVOCADA o EXPIRÓ en Google. Claves activas en Google: " . implode(", ", $googleActiveKeys);
+                    $keyStatusMsg = "ATENCIÓN: La clave privada local (ID: '$currentKid') fue REVOCADA o ELIMINADA en Google. Claves activas en Google Console: " . implode(", ", $googleActiveKeys);
                 }
             } else {
                 $keyStatusMsg = "Respuesta de certificados Google: " . substr($certRes, 0, 100);
@@ -202,21 +225,19 @@ try {
         $response["server_time_utc"] = gmdate('Y-m-d H:i:s');
         $response["server_time_local"] = date('Y-m-d H:i:s T');
         $response["service_account"] = [
+            "origen_credenciales" => $keySource ?: "No se encontró ningún archivo de credenciales",
             "client_email" => $clientEmail,
-            "private_key_id_en_json" => $currentKid,
+            "private_key_id_actual" => $currentKid,
             "estado_en_google" => $keyStatusMsg,
             "claves_activas_en_google" => $googleActiveKeys
         ];
-        $response["diagnostics"][] = "Archivo de credenciales: " . ($keyExists ? "Existe en servidor" : "NO EXISTE en $keyFile");
+        $response["diagnostics"][] = "Origen de credenciales: " . ($keySource ?: "NO ENCONTRADAS");
         echo json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         exit;
     }
     $response["diagnostics"][] = "Google OAuth2 Access Token obtenido correctamente.";
 
     // 4. Enviar notificación push inspeccionando la respuesta de Google para cada token
-    $keyFile = __DIR__ . '/../academia-padel-firebase-adminsdk-fbsvc-e982fff4f3.json';
-    $keyData = json_decode(file_get_contents($keyFile), true);
-    $projectId = $keyData['project_id'] ?? 'academia-padel';
     $url = "https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send";
 
     $headers = [

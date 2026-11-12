@@ -72,10 +72,10 @@ try {
 
             // Partidos por rondas
             $sqlM = "SELECT tp.*,
-                            COALESCE(u1.nombre, 'J1') as jugador1_nombre,
-                            COALESCE(u2.nombre, 'J2') as jugador2_nombre,
-                            COALESCE(u3.nombre, 'J3') as jugador3_nombre,
-                            COALESCE(u4.nombre, 'J4') as jugador4_nombre
+                            COALESCE(u1.nombre, tp.nombre_externo_1, 'J1') as jugador1_nombre,
+                            COALESCE(u2.nombre, tp.nombre_externo_2, 'J2') as jugador2_nombre,
+                            COALESCE(u3.nombre, tp.nombre_externo_3, 'J3') as jugador3_nombre,
+                            COALESCE(u4.nombre, tp.nombre_externo_4, 'J4') as jugador4_nombre
                      FROM torneo_partidos tp
                      LEFT JOIN usuarios u1 ON tp.jugador1_id = u1.id
                      LEFT JOIN usuarios u2 ON tp.jugador2_id = u2.id
@@ -132,13 +132,28 @@ try {
             }
 
             foreach ($partidos as $m) {
+                // Las fases de finales no deben sumar a la tabla de posiciones de clasificación
+                if (isset($m['fase']) && strtolower(trim($m['fase'])) === 'finales') {
+                    continue;
+                }
+
                 if ($m['resultado_t1'] !== null && $m['resultado_t2'] !== null) {
                     $pt1 = (int)$m['resultado_t1'];
                     $pt2 = (int)$m['resultado_t2'];
                     foreach ($inscritos as $ins) {
                         $pId = $ins['id'];
-                        $isTeam1 = (strpos($ins['nombre_pareja'], $m['jugador1_nombre']) !== false || strpos($ins['nombre_pareja'], $m['jugador2_nombre']) !== false);
-                        $isTeam2 = (strpos($ins['nombre_pareja'], $m['jugador3_nombre']) !== false || strpos($ins['nombre_pareja'], $m['jugador4_nombre']) !== false);
+                        $isTeam1 = (
+                            (!empty($ins['jugador1']) && $ins['jugador1'] !== 'Jugador 1' && ($ins['jugador1'] === $m['jugador1_nombre'] || $ins['jugador1'] === $m['jugador2_nombre'])) ||
+                            (!empty($ins['jugador2']) && $ins['jugador2'] !== 'Jugador 2' && ($ins['jugador2'] === $m['jugador1_nombre'] || $ins['jugador2'] === $m['jugador2_nombre'])) ||
+                            (!empty($m['jugador1_nombre']) && $m['jugador1_nombre'] !== 'J1' && strpos($ins['nombre_pareja'], $m['jugador1_nombre']) !== false) ||
+                            (!empty($m['jugador2_nombre']) && $m['jugador2_nombre'] !== 'J2' && strpos($ins['nombre_pareja'], $m['jugador2_nombre']) !== false)
+                        );
+                        $isTeam2 = (
+                            (!empty($ins['jugador1']) && $ins['jugador1'] !== 'Jugador 1' && ($ins['jugador1'] === $m['jugador3_nombre'] || $ins['jugador1'] === $m['jugador4_nombre'])) ||
+                            (!empty($ins['jugador2']) && $ins['jugador2'] !== 'Jugador 2' && ($ins['jugador2'] === $m['jugador3_nombre'] || $ins['jugador2'] === $m['jugador4_nombre'])) ||
+                            (!empty($m['jugador3_nombre']) && $m['jugador3_nombre'] !== 'J3' && strpos($ins['nombre_pareja'], $m['jugador3_nombre']) !== false) ||
+                            (!empty($m['jugador4_nombre']) && $m['jugador4_nombre'] !== 'J4' && strpos($ins['nombre_pareja'], $m['jugador4_nombre']) !== false)
+                        );
                         
                         if ($isTeam1 && isset($standingsMap[$pId])) {
                             $standingsMap[$pId]['pj']++;

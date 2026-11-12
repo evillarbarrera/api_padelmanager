@@ -45,8 +45,17 @@ while ($g = $resGrupos->fetch_assoc()) {
     $stmtR->execute();
     $rR = $stmtR->get_result();
     
-    if ($r1 = $rR->fetch_assoc()) $firsts[$gn] = $r1['pareja_id'];
-    if ($r2 = $rR->fetch_assoc()) $seconds[$gn] = $r2['pareja_id'];
+    $letter = strtoupper(trim(str_replace(['grupo', 'Grupo', ' '], '', $gn)));
+    if (empty($letter)) $letter = $gn;
+
+    if ($r1 = $rR->fetch_assoc()) {
+        $firsts[$gn] = $r1['pareja_id'];
+        $firsts[$letter] = $r1['pareja_id'];
+    }
+    if ($r2 = $rR->fetch_assoc()) {
+        $seconds[$gn] = $r2['pareja_id'];
+        $seconds[$letter] = $r2['pareja_id'];
+    }
 }
 
 $numGroups = count($groupNames);
@@ -125,8 +134,8 @@ $cruces = $cruces_config[$startLevel] ?? [];
 foreach ($cruces as $idx => $c) {
     if (isset($bracket_ids[$startLevel][$idx])) {
         $mid = $bracket_ids[$startLevel][$idx];
-        $p1 = $firsts[$c['1']] ?? null;
-        $p2 = $seconds[$c['2']] ?? null;
+        $p1 = $firsts[$c['1']] ?? $firsts['Grupo ' . $c['1']] ?? null;
+        $p2 = $seconds[$c['2']] ?? $seconds['Grupo ' . $c['2']] ?? null;
         
         if ($p1 || $p2) {
             $sqlU = "UPDATE torneo_partidos_cuadro SET pareja1_id = ?, pareja2_id = ? WHERE id = ?";
