@@ -24,3 +24,4 @@ resp/
 db_local.php
 deploy.py
 *firebase*.json
+notifications/firebase_credentials.php

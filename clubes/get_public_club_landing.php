@@ -261,12 +261,28 @@ try {
             $stmtR->execute();
             $resR = $stmtR->get_result();
             while ($r = $resR->fetch_assoc()) {
+                $fotoPerfil = $r['foto_perfil'];
+                if (!empty($fotoPerfil)) {
+                    if (strpos($fotoPerfil, 'http') === 0 || strpos($fotoPerfil, 'assets/') === 0) {
+                        // ya es URL absoluta o asset
+                    } else {
+                        $clean = ltrim($fotoPerfil, '/');
+                        $clean = preg_replace('/^(prd|dev)\//', '', $clean);
+                        if (strpos($clean, '/') === false) {
+                            $clean = "uploads/perfiles/" . $clean;
+                        }
+                        $fotoPerfil = "https://api.padelmanager.cl/prd/" . $clean;
+                    }
+                } else {
+                    $fotoPerfil = null;
+                }
+
                 $ranking[] = [
                     "id" => $r['id'],
                     "nombre" => $r['nombre'],
                     "categoria" => $r['categoria'] ?: "General",
                     "puntos" => intval($r['puntos_ranking']),
-                    "foto" => $r['foto_perfil']
+                    "foto" => $fotoPerfil
                 ];
             }
         }
