@@ -72,10 +72,10 @@ try {
 
             // Partidos por rondas
             $sqlM = "SELECT tp.*,
-                            COALESCE(u1.nombre, 'J1') as jugador1_nombre,
-                            COALESCE(u2.nombre, 'J2') as jugador2_nombre,
-                            COALESCE(u3.nombre, 'J3') as jugador3_nombre,
-                            COALESCE(u4.nombre, 'J4') as jugador4_nombre
+                            COALESCE(u1.nombre, tp.nombre_externo_1, 'J1') as jugador1_nombre,
+                            COALESCE(u2.nombre, tp.nombre_externo_2, 'J2') as jugador2_nombre,
+                            COALESCE(u3.nombre, tp.nombre_externo_3, 'J3') as jugador3_nombre,
+                            COALESCE(u4.nombre, tp.nombre_externo_4, 'J4') as jugador4_nombre
                      FROM torneo_partidos tp
                      LEFT JOIN usuarios u1 ON tp.jugador1_id = u1.id
                      LEFT JOIN usuarios u2 ON tp.jugador2_id = u2.id
