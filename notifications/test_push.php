@@ -335,8 +335,23 @@ try {
         $response["diagnostics"][] = "Se eliminaron " . count($invalidTokens) . " tokens obsoletos de Google.";
     }
 
-    // Registrar en tabla notificaciones internas
-    @notifyUser($conn, $targetUserId, $title, $body, 'test_push', date('Y-m-d H:i:s'));
+    // Registrar en tabla notificaciones internas (solo base de datos, sin re-enviar push duplicado)
+    try {
+        $nowStr = date('Y-m-d H:i:s');
+        $stDb = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, fecha_referencia, leida) VALUES (?, ?, ?, 'test_push', ?, 0)");
+        if ($stDb) {
+            $stDb->bind_param('isss', $targetUserId, $title, $body, $nowStr);
+            $stDb->execute();
+            $stDb->close();
+        } else {
+            $stDb2 = $conn->prepare("INSERT INTO notificaciones (user_id, titulo, mensaje, tipo, leida) VALUES (?, ?, ?, 'test_push', 0)");
+            if ($stDb2) {
+                $stDb2->bind_param('iss', $targetUserId, $title, $body);
+                $stDb2->execute();
+                $stDb2->close();
+            }
+        }
+    } catch (Throwable $ignoreDb) {}
 
     $response["success"] = ($successCount > 0);
     $response["delivered_count"] = $successCount;
