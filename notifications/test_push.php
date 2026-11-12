@@ -263,11 +263,12 @@ try {
                     'timestamp' => (string)time()
                 ],
                 'android' => [
-                    'priority' => 'high',
+                    'priority' => 'HIGH',
                     'notification' => [
                         'sound' => 'default',
-                        'click_action' => 'FCM_PLUGIN_ACTIVITY',
-                        'icon' => 'fcm_push_icon'
+                        'default_sound' => true,
+                        'default_vibrate_timings' => true,
+                        'notification_priority' => 'PRIORITY_HIGH'
                     ]
                 ],
                 'apns' => [
