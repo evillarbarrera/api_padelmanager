@@ -17,9 +17,9 @@ if (!validateToken()) {
 
 require_once "../db.php";
 
-$cancha_id = $_GET['cancha_id'] ?? 0;
-$club_id   = $_GET['club_id'] ?? 0;
-$fecha     = $_GET['fecha'] ?? date('Y-m-d');
+$cancha_id = intval($_GET['cancha_id'] ?? 0);
+$club_id   = intval($_GET['club_id'] ?? 0);
+$fecha     = trim($_GET['fecha'] ?? date('Y-m-d'));
 
 if (!$cancha_id && !$club_id) {
     http_response_code(400);
@@ -27,49 +27,107 @@ if (!$cancha_id && !$club_id) {
     exit;
 }
 
-// SILENT SCHEMA FIX
-function ensureCanchaColumns($conn) {
-    $cols = [
-        'categoria' => "VARCHAR(50) DEFAULT 'cancha_padel'",
-        'icono' => "VARCHAR(50) DEFAULT '🎾'",
-        'descripcion' => "TEXT NULL",
-        'capacidad' => "INT DEFAULT 4",
-        'precio_60_alto' => "DECIMAL(10,2) DEFAULT 0.00",
-        'precio_90_alto' => "DECIMAL(10,2) DEFAULT 0.00",
-        'precio_120_alto' => "DECIMAL(10,2) DEFAULT 0.00",
-        'hora_inicio_bajo' => "TIME DEFAULT '07:00:00'",
-        'hora_fin_bajo' => "TIME DEFAULT '18:00:00'",
-        'hora_inicio_alto' => "TIME DEFAULT '18:00:00'",
-        'hora_fin_alto' => "TIME DEFAULT '24:00:00'"
-    ];
-    foreach ($cols as $col => $def) {
-        $check = $conn->query("SHOW COLUMNS FROM canchas LIKE '$col'");
-        if ($check && $check->num_rows == 0) {
-            $conn->query("ALTER TABLE canchas ADD `$col` $def");
-        }
+// 1. Obtener las canchas involucradas
+$canchas_ids = [];
+if ($club_id > 0) {
+    $sqlC = "SELECT id, nombre, tipo, superficie, categoria, icono, descripcion, capacidad, 
+                    precio_60, precio_90, precio_120, precio_60_alto, precio_90_alto, precio_120_alto, 
+                    hora_inicio_bajo, hora_fin_bajo, hora_inicio_alto, hora_fin_alto, horarios_adicionales 
+             FROM canchas 
+             WHERE club_id = ? AND activa = 1 
+             ORDER BY id ASC";
+    $stmtC = $conn->prepare($sqlC);
+    $stmtC->bind_param("i", $club_id);
+    $stmtC->execute();
+    $resC = $stmtC->get_result();
+    while ($c = $resC->fetch_assoc()) {
+        $canchas_ids[] = $c;
     }
+    $stmtC->close();
+} else {
+    $sqlC = "SELECT id, nombre, tipo, superficie, categoria, icono, descripcion, capacidad, 
+                    precio_60, precio_90, precio_120, precio_60_alto, precio_90_alto, precio_120_alto, 
+                    hora_inicio_bajo, hora_fin_bajo, hora_inicio_alto, hora_fin_alto, horarios_adicionales 
+             FROM canchas 
+             WHERE id = ? AND activa = 1 
+             ORDER BY id ASC";
+    $stmtC = $conn->prepare($sqlC);
+    $stmtC->bind_param("i", $cancha_id);
+    $stmtC->execute();
+    $resC = $stmtC->get_result();
+    if ($c = $resC->fetch_assoc()) {
+        $canchas_ids[] = $c;
+    }
+    $stmtC->close();
 }
-// Limpiar reservas huérfanas de liga o torneos desincronizados antes de calcular disponibilidad
-@$conn->query("DELETE r FROM reservas_cancha r 
-               LEFT JOIN liga_partidos lp ON r.liga_partido_id = lp.id 
-               WHERE r.liga_partido_id IS NOT NULL 
-                 AND r.liga_partido_id > 0
-                 AND (lp.id IS NULL OR lp.fecha_hora IS NULL OR lp.fecha_hora LIKE '0000%' OR lp.cancha_id IS NULL)");
 
-@$conn->query("DELETE r FROM reservas_cancha r 
-               LEFT JOIN torneos_americanos ta ON r.torneo_id = ta.id 
-               WHERE r.torneo_id IS NOT NULL 
-                 AND r.torneo_id > 0 
-                 AND (ta.id IS NULL OR ta.estado = 'Cerrado' OR r.fecha != ta.fecha)");
+if (empty($canchas_ids)) {
+    echo json_encode([]);
+    exit;
+}
 
-function getFreeDuration($conn, $cancha, $fecha, $h_inicio, $fin_ts) {
-    $cid = $cancha['id'];
-    $t = strtotime("$fecha $h_inicio");
-    
-    // Check if the court has prices configured for 60, 90, 120 min
+// Extraer lista de IDs de canchas
+$cid_list = array_map(function($c) { return intval($c['id']); }, $canchas_ids);
+$cid_placeholders = implode(',', array_fill(0, count($cid_list), '?'));
+$cid_types = str_repeat('i', count($cid_list));
+
+// 2. Pre-cargar configuraciones horarias por cancha para este día en 1 sola consulta
+$dia_semana = intval(date('w', strtotime($fecha)));
+$configs_por_cancha = [];
+
+$sqlConfig = "SELECT * FROM cancha_horarios_config WHERE cancha_id IN ($cid_placeholders) AND dia_semana = ?";
+$stmtConfig = $conn->prepare($sqlConfig);
+if ($stmtConfig) {
+    $bind_types = $cid_types . 'i';
+    $bind_params = array_merge($cid_list, [$dia_semana]);
+    $stmtConfig->bind_param($bind_types, ...$bind_params);
+    $stmtConfig->execute();
+    $resConfig = $stmtConfig->get_result();
+    while ($rowConfig = $resConfig->fetch_assoc()) {
+        $configs_por_cancha[intval($rowConfig['cancha_id'])][] = $rowConfig;
+    }
+    $stmtConfig->close();
+}
+
+// 3. Pre-cargar TODAS las reservas activas de la fecha en 1 sola consulta (Optimización Clave)
+$reservas_por_cancha = [];
+$sqlReservas = "SELECT cancha_id, 
+                       TIME_TO_SEC(hora_inicio) AS start_sec, 
+                       (CASE 
+                           WHEN hora_fin IN ('00:00:00', '00:00', '24:00', '24:00:00', '23:59', '23:59:00', '23:59:59') OR hora_fin <= hora_inicio THEN 86400 
+                           ELSE TIME_TO_SEC(hora_fin) 
+                        END) AS end_sec 
+                FROM reservas_cancha 
+                WHERE cancha_id IN ($cid_placeholders) 
+                  AND fecha = ? 
+                  AND LOWER(COALESCE(estado, '')) NOT IN ('cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'rechazado', 'eliminada', 'eliminado')";
+
+$stmtReservas = $conn->prepare($sqlReservas);
+if ($stmtReservas) {
+    $bind_types_r = $cid_types . 's';
+    $bind_params_r = array_merge($cid_list, [$fecha]);
+    $stmtReservas->bind_param($bind_types_r, ...$bind_params_r);
+    $stmtReservas->execute();
+    $resReservas = $stmtReservas->get_result();
+    while ($r = $resReservas->fetch_assoc()) {
+        $cId = intval($r['cancha_id']);
+        $reservas_por_cancha[$cId][] = [
+            'start' => intval($r['start_sec']),
+            'end'   => intval($r['end_sec'])
+        ];
+    }
+    $stmtReservas->close();
+}
+
+/**
+ * Función ultra-rápida de verificación de disponibilidad en memoria RAM.
+ * Reemplaza los cientos de llamadas a base de datos por comparaciones O(1) de enteros.
+ */
+function getFreeDurationFast($cancha, $start_sec, $fin_dia_sec, $reservasCancha) {
+    // Verificar si la cancha tiene precios configurados para 60, 90, 120 min
     $has_120 = (float)($cancha['precio_120'] ?? 0) > 0 || (float)($cancha['precio_120_alto'] ?? 0) > 0;
-    $has_90 = (float)($cancha['precio_90'] ?? 0) > 0 || (float)($cancha['precio_90_alto'] ?? 0) > 0;
-    $has_60 = (float)($cancha['precio_60'] ?? 0) > 0 || (float)($cancha['precio_60_alto'] ?? 0) > 0;
+    $has_90  = (float)($cancha['precio_90'] ?? 0) > 0 || (float)($cancha['precio_90_alto'] ?? 0) > 0;
+    $has_60  = (float)($cancha['precio_60'] ?? 0) > 0 || (float)($cancha['precio_60_alto'] ?? 0) > 0;
 
     if (!$has_120 && !$has_90 && !$has_60) {
         $has_90 = true;
@@ -77,107 +135,67 @@ function getFreeDuration($conn, $cancha, $fecha, $h_inicio, $fin_ts) {
     }
 
     $is_120_ok = $has_120;
-    $is_90_ok = $has_90;
-    $is_60_ok = $has_60;
+    $is_90_ok  = $has_90;
+    $is_60_ok  = $has_60;
 
-    // 120 min
-    if ($fin_ts - $t < 120 * 60) {
+    // Verificar si excede el fin de la jornada
+    if ($fin_dia_sec - $start_sec < 7200) { // 120 min
         $is_120_ok = false;
     }
-    // 90 min
-    if ($fin_ts - $t < 90 * 60) {
+    if ($fin_dia_sec - $start_sec < 5400) { // 90 min
         $is_90_ok = false;
     }
-    // 60 min
-    if ($fin_ts - $t < 60 * 60) {
+    if ($fin_dia_sec - $start_sec < 3600) { // 60 min
         $is_60_ok = false;
     }
 
-    $collisionSql = "SELECT id FROM reservas_cancha 
-                     WHERE cancha_id = ? AND fecha = ? 
-                       AND LOWER(estado) NOT IN ('cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'rechazado', 'eliminada', 'eliminado')
-                       AND TIME_TO_SEC(hora_inicio) < ? 
-                       AND (CASE WHEN hora_fin IN ('00:00:00', '00:00', '24:00', '24:00:00', '23:59', '23:59:00', '23:59:59') OR hora_fin <= hora_inicio THEN 86400 ELSE TIME_TO_SEC(hora_fin) END) > ?";
-
-    $h_ini_clean = trim($h_inicio);
-    if (strlen($h_ini_clean) === 5) {
-        $h_ini_clean .= ':00';
-    }
-    $start_sec = (intval(substr($h_ini_clean, 0, 2)) * 3600) + (intval(substr($h_ini_clean, 3, 2)) * 60) + intval(substr($h_ini_clean, 6, 2));
-
-    if ($is_120_ok) {
-        $end_sec_120 = min(86400, $start_sec + 7200);
-        $stmt = $conn->prepare($collisionSql);
-        $stmt->bind_param("isii", $cid, $fecha, $end_sec_120, $start_sec);
-        $stmt->execute();
-        if ($stmt->get_result()->num_rows > 0) {
-            $is_120_ok = false;
-        }
-        $stmt->close();
+    if (!$is_120_ok && !$is_90_ok && !$is_60_ok) {
+        return 0;
     }
 
-    if ($is_90_ok) {
-        $end_sec_90 = min(86400, $start_sec + 5400);
-        $stmt = $conn->prepare($collisionSql);
-        $stmt->bind_param("isii", $cid, $fecha, $end_sec_90, $start_sec);
-        $stmt->execute();
-        if ($stmt->get_result()->num_rows > 0) {
-            $is_90_ok = false;
-        }
-        $stmt->close();
-    }
+    // Colisiones con reservas existentes
+    if (!empty($reservasCancha)) {
+        $end_120 = min(86400, $start_sec + 7200);
+        $end_90  = min(86400, $start_sec + 5400);
+        $end_60  = min(86400, $start_sec + 3600);
 
-    if ($is_60_ok) {
-        $end_sec_60 = min(86400, $start_sec + 3600);
-        $stmt = $conn->prepare($collisionSql);
-        $stmt->bind_param("isii", $cid, $fecha, $end_sec_60, $start_sec);
-        $stmt->execute();
-        if ($stmt->get_result()->num_rows > 0) {
-            $is_60_ok = false;
+        foreach ($reservasCancha as $res) {
+            $r_start = $res['start'];
+            $r_end   = $res['end'];
+
+            if ($is_120_ok && $start_sec < $r_end && $end_120 > $r_start) {
+                $is_120_ok = false;
+            }
+            if ($is_90_ok && $start_sec < $r_end && $end_90 > $r_start) {
+                $is_90_ok = false;
+            }
+            if ($is_60_ok && $start_sec < $r_end && $end_60 > $r_start) {
+                $is_60_ok = false;
+            }
+
+            if (!$is_120_ok && !$is_90_ok && !$is_60_ok) {
+                break;
+            }
         }
-        $stmt->close();
     }
 
     if ($is_120_ok) return 120;
-    if ($is_90_ok) return 90;
-    if ($is_60_ok) return 60;
+    if ($is_90_ok)  return 90;
+    if ($is_60_ok)  return 60;
     return 0;
 }
 
-$response = [];
-
-// 1. Obtener las canchas involucradas
-$canchas_ids = [];
-if ($club_id) {
-    $sqlC = "SELECT id, nombre, tipo, superficie, categoria, icono, descripcion, capacidad, precio_60, precio_90, precio_120, precio_60_alto, precio_90_alto, precio_120_alto, hora_inicio_bajo, hora_fin_bajo, hora_inicio_alto, hora_fin_alto, horarios_adicionales FROM canchas WHERE club_id = ? AND activa = 1 ORDER BY id ASC";
-    $stmtC = $conn->prepare($sqlC);
-    $stmtC->bind_param("i", $club_id);
-    $stmtC->execute();
-    $resC = $stmtC->get_result();
-    while($c = $resC->fetch_assoc()) {
-        $canchas_ids[] = $c;
-    }
-} else {
-    $sqlC = "SELECT id, nombre, tipo, superficie, categoria, icono, descripcion, capacidad, precio_60, precio_90, precio_120, precio_60_alto, precio_90_alto, precio_120_alto, hora_inicio_bajo, hora_fin_bajo, hora_inicio_alto, hora_fin_alto, horarios_adicionales FROM canchas WHERE id = ? AND activa = 1 ORDER BY id ASC";
-    $stmtC = $conn->prepare($sqlC);
-    $stmtC->bind_param("i", $cancha_id);
-    $stmtC->execute();
-    $resC = $stmtC->get_result();
-    if($c = $resC->fetch_assoc()) {
-        $canchas_ids[] = $c;
-    }
-}
-
-$horarios_mapeados = []; // [ '09:00:00' => [ {cancha_id, cancha_nombre, disponible} ] ]
+$horarios_mapeados = [];
 
 foreach ($canchas_ids as $cancha) {
-    $cid = $cancha['id'];
+    $cid = intval($cancha['id']);
     $cnombre = $cancha['nombre'];
+    $reservasCancha = $reservas_por_cancha[$cid] ?? [];
 
     $h_inicio_bajo_str = !empty($cancha['hora_inicio_bajo']) ? substr($cancha['hora_inicio_bajo'], 0, 5) : '07:00';
-    $h_fin_bajo_str = !empty($cancha['hora_fin_bajo']) ? substr($cancha['hora_fin_bajo'], 0, 5) : '18:00';
+    $h_fin_bajo_str    = !empty($cancha['hora_fin_bajo']) ? substr($cancha['hora_fin_bajo'], 0, 5) : '18:00';
     $h_inicio_alto_str = !empty($cancha['hora_inicio_alto']) ? substr($cancha['hora_inicio_alto'], 0, 5) : '18:00';
-    $h_fin_alto_str = !empty($cancha['hora_fin_alto']) ? substr($cancha['hora_fin_alto'], 0, 5) : '24:00';
+    $h_fin_alto_str    = !empty($cancha['hora_fin_alto']) ? substr($cancha['hora_fin_alto'], 0, 5) : '24:00';
     if ($h_fin_alto_str === '00:00' || $h_fin_alto_str === '23:30' || $h_fin_alto_str === '23:59') {
         $h_fin_alto_str = '24:00';
     }
@@ -190,22 +208,21 @@ foreach ($canchas_ids as $cancha) {
         }
     }
 
-    $dia_semana = date('w', strtotime($fecha));
-    $sqlConfig = "SELECT * FROM cancha_horarios_config WHERE cancha_id = ? AND dia_semana = ?";
-    $stmtConfig = $conn->prepare($sqlConfig);
-    $stmtConfig->bind_param("ii", $cid, $dia_semana);
-    $stmtConfig->execute();
-    $resConfig = $stmtConfig->get_result();
+    $configRows = $configs_por_cancha[$cid] ?? [];
 
-    if ($resConfig->num_rows == 0) {
+    if (empty($configRows)) {
+        // Bloques por defecto de 30 minutos de 07:00 a 24:00
         $inicio = strtotime("$fecha 07:00:00");
         $fin = strtotime("$fecha 00:00:00 +1 day");
         $bloque = 30 * 60; // 30 min default
+        $fin_sec_dia = 86400;
+
         for ($t = $inicio; $t < $fin; $t += $bloque) {
             $h_inicio = date('H:i:s', $t);
             $h_fin_slot = ($t + $bloque >= $fin) ? '24:00:00' : date('H:i:s', $t + $bloque);
             $h_inicio_short = substr($h_inicio, 0, 5);
 
+            // Determinar tarifa y tramos
             $matched_tramo = null;
             if (count($tramos_json) > 0) {
                 foreach ($tramos_json as $idx => $tr) {
@@ -235,7 +252,8 @@ foreach ($canchas_ids as $cancha) {
                 $nombre_tarifa = $es_horario_alto ? '⚡ Horario Alto' : '🌿 Horario Bajo';
             }
 
-            $duracion_libre = getFreeDuration($conn, $cancha, $fecha, $h_inicio, $fin);
+            $start_sec = (intval(substr($h_inicio, 0, 2)) * 3600) + (intval(substr($h_inicio, 3, 2)) * 60) + intval(substr($h_inicio, 6, 2));
+            $duracion_libre = getFreeDurationFast($cancha, $start_sec, $fin_sec_dia, $reservasCancha);
             $is_reserved = ($duracion_libre == 0);
 
             $display_name = $cnombre;
@@ -281,15 +299,19 @@ foreach ($canchas_ids as $cancha) {
             ];
         }
     } else {
-        while ($config = $resConfig->fetch_assoc()) {
+        foreach ($configRows as $config) {
             $inicio = strtotime("$fecha " . $config['hora_inicio']);
             $fin_str = $config['hora_fin'];
             if ($fin_str === '00:00:00' || $fin_str === '24:00:00' || $fin_str === '23:59:59' || $fin_str === '23:30:00') {
                 $fin = strtotime("$fecha 00:00:00 +1 day");
+                $fin_sec_dia = 86400;
             } else {
                 $fin = strtotime("$fecha $fin_str");
+                $fin_sec_dia = (intval(substr($fin_str, 0, 2)) * 3600) + (intval(substr($fin_str, 3, 2)) * 60);
             }
-            $bloque = $config['duracion_bloque'] * 60;
+            $dur_bloque = intval($config['duracion_bloque'] ?? 30);
+            $bloque = ($dur_bloque > 0 ? $dur_bloque : 30) * 60;
+
             for ($t = $inicio; $t < $fin; $t += $bloque) {
                 $h_inicio = date('H:i:s', $t);
                 $h_fin = ($t + $bloque >= $fin) ? '24:00:00' : date('H:i:s', $t + $bloque);
@@ -324,7 +346,8 @@ foreach ($canchas_ids as $cancha) {
                     $nombre_tarifa = $es_horario_alto ? '⚡ Horario Alto' : '🌿 Horario Bajo';
                 }
 
-                $duracion_libre = getFreeDuration($conn, $cancha, $fecha, $h_inicio, $fin);
+                $start_sec = (intval(substr($h_inicio, 0, 2)) * 3600) + (intval(substr($h_inicio, 3, 2)) * 60) + intval(substr($h_inicio, 6, 2));
+                $duracion_libre = getFreeDurationFast($cancha, $start_sec, $fin_sec_dia, $reservasCancha);
                 $is_reserved = ($duracion_libre == 0);
 
                 $display_name = $cnombre;

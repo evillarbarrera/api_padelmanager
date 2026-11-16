@@ -108,13 +108,14 @@ try {
 
     // --- NOTIFICATIONS START (Background) ---
     require_once "../notifications/whatsapp_service.php";
+    require_once "../notifications/notificaciones_helper.php";
     require_once "../system/mail_service.php";
     
     // Fetch phones, emails AND names
     $sqlData = "
         SELECT 
             u1.telefono as cel_jugador, u1.nombre as nom_jugador, u1.usuario as email_jugador,
-            u2.telefono as cel_entrenador, u2.nombre as nom_entrenador, u2.usuario as email_entrenador,
+            u2.id as entrenador_id, u2.telefono as cel_entrenador, u2.nombre as nom_entrenador, u2.usuario as email_entrenador,
             p.nombre as pack_nombre, p.dia_semana, p.hora_inicio as pack_hora
         FROM usuarios u1 
         JOIN packs p ON p.id = ?
@@ -180,6 +181,16 @@ try {
 
             if (!empty($emailJugador)) enviarCorreoSMTP($emailJugador, $subject, $bodyPlayer);
             if (!empty($emailEntrenador)) enviarCorreoSMTP($emailEntrenador, $subject, $bodyCoach);
+
+            // 3. PUSH NOTIFICATIONS
+            $tituloPush = "🚫 Entrenamiento Grupal";
+            $msgPushJugador = "Has sido dado de baja del entrenamiento grupal {$resP['pack_nombre']} ($diaNombre $horaFmt). Tu crédito sigue disponible.";
+            notifyUser($conn, $jugador_id, $tituloPush, $msgPushJugador, 'inscripcion_grupal_cancelada');
+
+            if (!empty($resP['entrenador_id']) && intval($resP['entrenador_id']) !== intval($jugador_id)) {
+                $msgPushCoach = "$nomJugador se ha dado de baja de tu entrenamiento grupal {$resP['pack_nombre']} ($diaNombre $horaFmt).";
+                notifyUser($conn, $resP['entrenador_id'], "🚫 Baja en Entrenamiento Grupal", $msgPushCoach, 'inscripcion_grupal_cancelada');
+            }
         }
     }
     // --- NOTIFICATIONS END ---
