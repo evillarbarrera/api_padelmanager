@@ -57,28 +57,34 @@ $summary = [
     "details" => []
 ];
 
-// Helper to check if already notified with defensive fallbacks
+// Helper to check if already notified with defensive fallbacks and cross-type deduplication
 function hasBeenNotified2H($conn, $userId, $tipo, $fechaRef, $identificadorEvento) {
     $userId = intval($userId);
     if ($userId <= 0) return false;
 
-    // Check with fecha_referencia
+    // Check with fecha_referencia y matching cruzado de tipo para evitar mensajes duplicados (ej: amistoso vs liga vs programado)
     try {
         $stmt = @$conn->prepare("
             SELECT id FROM notificaciones 
             WHERE user_id = ? 
-              AND tipo = ? 
+              AND (
+                  tipo = ? 
+                  OR tipo LIKE 'recordatorio%2h%' 
+                  OR tipo LIKE 'recordatorio_partido%'
+                  OR tipo IN ('recordatorio_2h_amistoso', 'recordatorio_2h_liga', 'recordatorio_2h_torneo', 'recordatorio_2h_clase', 'recordatorio_2h_coach', 'recordatorio_partido_2h', 'recordatorio_2h')
+              )
               AND (
                   fecha_referencia = ? 
                   OR (DATE(fecha) = CURDATE() AND mensaje LIKE ?)
                   OR (DATE(fecha) = CURDATE() AND fecha_referencia LIKE ?)
+                  OR (DATE(fecha) = CURDATE() AND fecha_referencia = ?)
               )
             LIMIT 1
         ");
         if ($stmt) {
             $likePattern = "%" . $identificadorEvento . "%";
             $fechaPattern = substr($fechaRef, 0, 10) . "%";
-            $stmt->bind_param('issss', $userId, $tipo, $fechaRef, $likePattern, $fechaPattern);
+            $stmt->bind_param('isssss', $userId, $tipo, $fechaRef, $likePattern, $fechaPattern, $fechaRef);
             $stmt->execute();
             $res = $stmt->get_result();
             $exists = ($res && $res->num_rows > 0);
@@ -91,7 +97,11 @@ function hasBeenNotified2H($conn, $userId, $tipo, $fechaRef, $identificadorEvent
             $stmtFallback = @$conn->prepare("
                 SELECT id FROM notificaciones 
                 WHERE user_id = ? 
-                  AND tipo = ? 
+                  AND (
+                      tipo = ? 
+                      OR tipo LIKE 'recordatorio%2h%' 
+                      OR tipo LIKE 'recordatorio_partido%'
+                  )
                   AND DATE(fecha) = CURDATE() 
                   AND mensaje LIKE ?
                 LIMIT 1
@@ -114,10 +124,15 @@ function hasBeenNotified2H($conn, $userId, $tipo, $fechaRef, $identificadorEvent
 
 try {
     // =========================================================================
-    // 1. SCAN RESERVAS DE CANCHA (PARTIDOS AMISTOSOS / RESERVAS DE PISTA)
+    // 1. SCAN RESERVAS DE CANCHA (PARTIDOS AMISTOSOS / RESERVAS DE PISTA DIRECTAS)
     // =========================================================================
     $checkReservasCancha = $conn->query("SHOW TABLES LIKE 'reservas_cancha'");
     if ($checkReservasCancha && $checkReservasCancha->num_rows > 0) {
+        $checkColTorneo = $conn->query("SHOW COLUMNS FROM reservas_cancha LIKE 'torneo_id'");
+        $hasTorneoCol = ($checkColTorneo && $checkColTorneo->num_rows > 0);
+        $checkColTipoRes = $conn->query("SHOW COLUMNS FROM reservas_cancha LIKE 'tipo_reserva'");
+        $hasTipoResCol = ($checkColTipoRes && $checkColTipoRes->num_rows > 0);
+
         $sqlReservas = "
             SELECT r.id, r.fecha, r.hora_inicio, r.hora_fin, r.cancha_id,
                    r.usuario_id, r.jugador2_id, r.jugador3_id, r.jugador4_id,
@@ -135,8 +150,20 @@ try {
             LEFT JOIN usuarios u3 ON r.jugador3_id = u3.id
             LEFT JOIN usuarios u4 ON r.jugador4_id = u4.id
             WHERE r.fecha BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 DAY)
-              AND (r.estado IS NULL OR r.estado NOT IN ('cancelada', 'cancelado', 'Cancelada', 'Cancelado'))
+              AND (r.estado IS NULL OR (
+                  LOWER(TRIM(r.estado)) NOT IN ('cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'rechazado', 'eliminada', 'eliminado', 'bloqueado', 'bloqueada')
+                  AND LOWER(TRIM(r.estado)) NOT LIKE '%cancel%'
+              ))
+              AND (r.liga_partido_id IS NULL OR r.liga_partido_id = 0)
+              AND (r.reserva_entrenador_id IS NULL OR r.reserva_entrenador_id = 0)
         ";
+
+        if ($hasTorneoCol) {
+            $sqlReservas .= " AND (r.torneo_id IS NULL OR r.torneo_id = 0) ";
+        }
+        if ($hasTipoResCol) {
+            $sqlReservas .= " AND (r.tipo_reserva IS NULL OR LOWER(TRIM(r.tipo_reserva)) NOT IN ('americano', 'entrenamiento')) ";
+        }
 
         if (!$isForce) {
             $sqlReservas .= "
@@ -190,6 +217,8 @@ try {
 
                     if (!$isDryRun) {
                         notifyMatchReminder2H($conn, $pId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
+                        // Neutralizar recordatorios en cola de recordatorios_programados para este partido/usuario y evitar duplicados
+                        @$conn->query("UPDATE recordatorios_programados SET enviado = 1, enviado_at = NOW() WHERE (reserva_id = $reservaId OR (user_id = $pId AND fecha_programada LIKE '" . substr($fechaRef, 0, 10) . "%')) AND tipo LIKE '%2h%' AND enviado = 0");
                     }
 
                     $summary["notifications_sent"]++;
@@ -247,7 +276,18 @@ try {
             LEFT JOIN canchas can ON lp.cancha_id = can.id
             WHERE lp.fecha_hora IS NOT NULL
               AND lp.fecha_hora NOT LIKE '0000%'
-              AND (lp.estado IS NULL OR lp.estado IN ('Pendiente', 'Programado'))
+              AND (lp.estado IS NULL OR (
+                  LOWER(TRIM(lp.estado)) IN ('pendiente', 'programado')
+                  AND LOWER(TRIM(lp.estado)) NOT IN ('cancelado', 'cancelada', 'suspendido', 'jugado', 'walkover')
+                  AND LOWER(TRIM(lp.estado)) NOT LIKE '%cancel%'
+              ))
+              AND (par1.estado IS NULL OR (LOWER(TRIM(par1.estado)) != 'cancelada' AND LOWER(TRIM(par1.estado)) NOT LIKE '%cancel%'))
+              AND (par2.estado IS NULL OR (LOWER(TRIM(par2.estado)) != 'cancelada' AND LOWER(TRIM(par2.estado)) NOT LIKE '%cancel%'))
+              AND NOT EXISTS (
+                  SELECT 1 FROM reservas_cancha rc_sub 
+                  WHERE rc_sub.liga_partido_id = lp.id 
+                    AND (LOWER(TRIM(rc_sub.estado)) IN ('cancelada', 'cancelado', 'anulada') OR LOWER(TRIM(rc_sub.estado)) LIKE '%cancel%')
+              )
         ";
 
         if (!$isForce) {
@@ -313,6 +353,8 @@ try {
 
                     if (!$isDryRun) {
                         notifyMatchReminder2H($conn, $pId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
+                        // Neutralizar recordatorios programados redundantes
+                        @$conn->query("UPDATE recordatorios_programados SET enviado = 1, enviado_at = NOW() WHERE (user_id = $pId AND fecha_programada LIKE '" . substr($fechaRef, 0, 10) . "%') AND tipo LIKE '%liga%' AND enviado = 0");
                     }
 
                     $summary["notifications_sent"]++;
@@ -342,7 +384,10 @@ try {
             JOIN torneo_participantes tp ON tp.torneo_id = t.id
             LEFT JOIN clubes cl ON t.club_id = cl.id
             WHERE t.fecha = CURDATE()
-              AND (t.estado IS NULL OR t.estado NOT IN ('Cancelado', 'Finalizado', 'Cerrado'))
+              AND (t.estado IS NULL OR (
+                  LOWER(TRIM(t.estado)) NOT IN ('cancelado', 'cancelada', 'finalizado', 'cerrado', 'anulado', 'anulada')
+                  AND LOWER(TRIM(t.estado)) NOT LIKE '%cancel%'
+              ))
         ";
 
         if (!$isForce) {
@@ -427,8 +472,14 @@ try {
             LEFT JOIN reserva_jugadores rj ON rj.reserva_id = r.id
             LEFT JOIN usuarios uj ON rj.jugador_id = uj.id
             WHERE r.fecha = CURDATE()
-              AND r.estado = 'reservado'
+              AND LOWER(TRIM(r.estado)) = 'reservado'
+              AND LOWER(TRIM(r.estado)) NOT IN ('cancelada', 'cancelado', 'bloqueado', 'anulado')
               AND r.entrenador_id > 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM reservas_cancha rc_e 
+                  WHERE rc_e.reserva_entrenador_id = r.id 
+                    AND (LOWER(TRIM(rc_e.estado)) IN ('cancelada', 'cancelado', 'anulada') OR LOWER(TRIM(rc_e.estado)) LIKE '%cancel%')
+              )
         ";
 
         if (!$isForce) {
@@ -546,7 +597,7 @@ try {
         $checkColRes = $conn->query("SHOW COLUMNS FROM recordatorios_programados LIKE 'reserva_id'");
         $hasReservaIdCol = ($checkColRes && $checkColRes->num_rows > 0);
 
-        $sqlProg = "SELECT id, user_id, titulo, mensaje, tipo " . ($hasReservaIdCol ? ", reserva_id" : "") . "
+        $sqlProg = "SELECT id, user_id, titulo, mensaje, tipo, fecha_programada " . ($hasReservaIdCol ? ", reserva_id" : "") . "
                     FROM recordatorios_programados 
                     WHERE enviado = 0 
                       AND fecha_programada <= NOW()
@@ -558,26 +609,63 @@ try {
                 $pId = intval($rProg['user_id']);
                 $recId = intval($rProg['id']);
                 $rResId = isset($rProg['reserva_id']) ? intval($rProg['reserva_id']) : 0;
+                $fProg = $rProg['fecha_programada'] ?? date('Y-m-d H:i:s');
                 if ($filterUserId && $pId !== $filterUserId) continue;
 
-                // Si está vinculado a una reserva, comprobar que no haya sido cancelada
+                // 5.A Verificar si el evento vinculado ha sido cancelado (en reservas_cancha o reservas)
                 if ($rResId > 0) {
-                    $stCheckVal = $conn->prepare("SELECT estado FROM reservas WHERE id = ?");
-                    if ($stCheckVal) {
-                        $stCheckVal->bind_param("i", $rResId);
-                        $stCheckVal->execute();
-                        $resCheckVal = $stCheckVal->get_result()->fetch_assoc();
-                        $stCheckVal->close();
-                        if ($resCheckVal && in_array(strtolower($resCheckVal['estado']), ['cancelada', 'cancelado', 'bloqueado'])) {
-                            // Reserva cancelada: marcar como descartado y no enviar
-                            $conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE id = $recId");
-                            continue;
+                    $isCancelled = false;
+
+                    // Revisar reservas_cancha (canchas / partidos amistosos)
+                    $stCheckCancha = $conn->prepare("SELECT estado FROM reservas_cancha WHERE id = ?");
+                    if ($stCheckCancha) {
+                        $stCheckCancha->bind_param("i", $rResId);
+                        $stCheckCancha->execute();
+                        $resCheckC = $stCheckCancha->get_result()->fetch_assoc();
+                        $stCheckCancha->close();
+                        if ($resCheckC) {
+                            $stC = strtolower(trim($resCheckC['estado'] ?? ''));
+                            if (in_array($stC, ['cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'eliminada', 'bloqueado', 'bloqueada']) || strpos($stC, 'cancel') !== false) {
+                                $isCancelled = true;
+                            }
                         }
+                    }
+
+                    // Revisar reservas (clases de entrenador)
+                    if (!$isCancelled) {
+                        $stCheckVal = $conn->prepare("SELECT estado FROM reservas WHERE id = ?");
+                        if ($stCheckVal) {
+                            $stCheckVal->bind_param("i", $rResId);
+                            $stCheckVal->execute();
+                            $resCheckVal = $stCheckVal->get_result()->fetch_assoc();
+                            $stCheckVal->close();
+                            if ($resCheckVal) {
+                                $stR = strtolower(trim($resCheckVal['estado'] ?? ''));
+                                if (in_array($stR, ['cancelada', 'cancelado', 'bloqueado', 'anulado']) || strpos($stR, 'cancel') !== false) {
+                                    $isCancelled = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if ($isCancelled) {
+                        // Evento cancelado: descartar recordatorio sin enviar
+                        $conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE id = $recId");
+                        continue;
                     }
                 }
 
+                // 5.B Control estricto de duplicados: si el usuario ya recibió un recordatorio hoy para este evento, omitir
+                $identificador = ($rResId > 0) ? "#$rResId" : $rProg['titulo'];
+                if (hasBeenNotified2H($conn, $pId, $rProg['tipo'], $fProg, $identificador)) {
+                    // Ya notificado hoy: marcar como enviado y omitir duplicado
+                    $conn->query("UPDATE recordatorios_programados SET enviado = 1, enviado_at = NOW() WHERE id = $recId");
+                    $summary["notifications_skipped_duplicate"]++;
+                    continue;
+                }
+
                 if (!$isDryRun) {
-                    if (notifyUser($conn, $pId, $rProg['titulo'], $rProg['mensaje'], $rProg['tipo'])) {
+                    if (notifyUser($conn, $pId, $rProg['titulo'], $rProg['mensaje'], $rProg['tipo'], $fProg)) {
                         $conn->query("UPDATE recordatorios_programados SET enviado = 1, enviado_at = NOW() WHERE id = $recId");
                     }
                 }

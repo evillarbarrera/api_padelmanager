@@ -262,9 +262,42 @@ function programarRecordatorioPartido2H($conn, $input) {
 
     $dateTimeStr = "$fecha $horaInicio";
     $matchDateTime = new DateTime($dateTimeStr);
+    $now = new DateTime();
+    
+    // Si el evento ya ocurrió o está en el pasado inmediato, no programar
+    if ($matchDateTime < $now) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'El evento ya ocurrió, no se programó recordatorio'
+        ]);
+        return;
+    }
+
     $reminderDateTime = clone $matchDateTime;
     $reminderDateTime->modify('-2 hours');
     $fechaProgramada = $reminderDateTime->format('Y-m-d H:i:s');
+
+    $reservaIdVal = (is_numeric($matchId) && intval($matchId) > 0) ? intval($matchId) : 0;
+
+    // Verificar si el partido o clase está cancelado
+    if ($reservaIdVal > 0) {
+        $stC = @$conn->query("SELECT estado FROM reservas_cancha WHERE id = $reservaIdVal");
+        if ($stC && $rowC = $stC->fetch_assoc()) {
+            $est = strtolower(trim($rowC['estado'] ?? ''));
+            if (in_array($est, ['cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'eliminada']) || strpos($est, 'cancel') !== false) {
+                echo json_encode(['success' => false, 'message' => 'El partido está cancelado']);
+                return;
+            }
+        }
+        $stR = @$conn->query("SELECT estado FROM reservas WHERE id = $reservaIdVal");
+        if ($stR && $rowR = $stR->fetch_assoc()) {
+            $estR = strtolower(trim($rowR['estado'] ?? ''));
+            if (in_array($estR, ['cancelada', 'cancelado', 'bloqueado', 'anulado']) || strpos($estR, 'cancel') !== false) {
+                echo json_encode(['success' => false, 'message' => 'La clase está cancelada']);
+                return;
+            }
+        }
+    }
 
     $titulo = "🎾 ¡Tu partido en $cancha es en 2 horas!";
     if ($tipoEvento === 'liga') {
@@ -276,16 +309,61 @@ function programarRecordatorioPartido2H($conn, $input) {
     $mensaje = "Hoy a las $horaInicio hrs en $club. Prepárate con tiempo y activa tu Apple Watch.";
     $tipo = "recordatorio_2h_" . $tipoEvento;
 
-    // Check if table recordatorios_programados exists
-    $stmt = $conn->prepare("
-        INSERT INTO recordatorios_programados (user_id, titulo, mensaje, tipo, fecha_programada, enviado)
-        VALUES (?, ?, ?, ?, ?, 0)
-    ");
+    // Verificar compatibilidad de columna reserva_id
+    $checkColRes = $conn->query("SHOW COLUMNS FROM recordatorios_programados LIKE 'reserva_id'");
+    $hasResCol = ($checkColRes && $checkColRes->num_rows > 0);
 
-    if ($stmt) {
-        $stmt->bind_param('issss', $userId, $titulo, $mensaje, $tipo, $fechaProgramada);
-        $stmt->execute();
-        $stmt->close();
+    // Evitar inserciones duplicadas si ya existe un recordatorio para este usuario y evento/fecha
+    $checkDupSql = "SELECT id FROM recordatorios_programados 
+                    WHERE user_id = ? 
+                      AND enviado = 0 
+                      AND (
+                          " . ($hasResCol && $reservaIdVal > 0 ? "reserva_id = ? OR " : "") . "
+                          (fecha_programada = ? AND (tipo = ? OR tipo LIKE 'recordatorio_2h%'))
+                      )
+                    LIMIT 1";
+    $stCheckDup = $conn->prepare($checkDupSql);
+    if ($stCheckDup) {
+        if ($hasResCol && $reservaIdVal > 0) {
+            $stCheckDup->bind_param("iiss", $userId, $reservaIdVal, $fechaProgramada, $tipo);
+        } else {
+            $stCheckDup->bind_param("iss", $userId, $fechaProgramada, $tipo);
+        }
+        $stCheckDup->execute();
+        $resDup = $stCheckDup->get_result();
+        if ($resDup && $resDup->num_rows > 0) {
+            $stCheckDup->close();
+            echo json_encode([
+                'success' => true,
+                'message' => 'Recordatorio de 2 horas ya programado previamente (sin duplicados)',
+                'fecha_programada' => $fechaProgramada,
+                'titulo' => $titulo
+            ]);
+            return;
+        }
+        $stCheckDup->close();
+    }
+
+    if ($hasResCol) {
+        $stmt = $conn->prepare("
+            INSERT INTO recordatorios_programados (user_id, titulo, mensaje, tipo, fecha_programada, reserva_id, enviado)
+            VALUES (?, ?, ?, ?, ?, ?, 0)
+        ");
+        if ($stmt) {
+            $stmt->bind_param('issssi', $userId, $titulo, $mensaje, $tipo, $fechaProgramada, $reservaIdVal);
+            $stmt->execute();
+            $stmt->close();
+        }
+    } else {
+        $stmt = $conn->prepare("
+            INSERT INTO recordatorios_programados (user_id, titulo, mensaje, tipo, fecha_programada, enviado)
+            VALUES (?, ?, ?, ?, ?, 0)
+        ");
+        if ($stmt) {
+            $stmt->bind_param('issss', $userId, $titulo, $mensaje, $tipo, $fechaProgramada);
+            $stmt->execute();
+            $stmt->close();
+        }
     }
 
     echo json_encode([

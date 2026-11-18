@@ -41,6 +41,7 @@ if (!$userId) {
 
 $club_id = $_GET['club_id'] ?? 0;
 $where = "(r.usuario_id = ? OR r.jugador2_id = ? OR r.jugador3_id = ? OR r.jugador4_id = ?)";
+$where .= " AND (r.estado IS NULL OR (LOWER(TRIM(r.estado)) NOT IN ('cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'eliminada', 'bloqueado', 'bloqueada') AND LOWER(TRIM(r.estado)) NOT LIKE '%cancel%'))";
 if ($club_id) {
     $where .= " AND cl.id = " . (int)$club_id;
 }
