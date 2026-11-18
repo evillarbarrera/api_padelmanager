@@ -48,7 +48,12 @@ try {
                     LEFT JOIN usuarios u4 ON r.jugador4_id = u4.id
                     WHERE (r.usuario_id = ? OR r.jugador2_id = ? OR r.jugador3_id = ? OR r.jugador4_id = ?)
                       AND (r.fecha >= DATE_SUB(CURDATE(), INTERVAL 1 DAY))
-                      AND LOWER(TRIM(COALESCE(r.estado, ''))) NOT IN ('cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'rechazado', 'eliminada', 'eliminado')
+                      AND (r.estado IS NULL OR (
+                          LOWER(TRIM(r.estado)) NOT IN ('cancelada', 'cancelado', 'anulada', 'anulado', 'rechazada', 'rechazado', 'eliminada', 'eliminado', 'bloqueado', 'bloqueada')
+                          AND LOWER(TRIM(r.estado)) NOT LIKE '%cancel%'
+                      ))
+                      AND (r.reserva_entrenador_id IS NULL OR r.reserva_entrenador_id = 0)
+                      AND (r.liga_partido_id IS NULL OR r.liga_partido_id = 0)
                     ORDER BY r.fecha ASC, r.hora_inicio ASC
                     LIMIT 10";
 
@@ -200,7 +205,13 @@ try {
                      LEFT JOIN clubes cl ON l.club_id = cl.id
                      LEFT JOIN canchas can ON p.cancha_id = can.id
                      WHERE (par1.jugador1_id = ? OR par1.jugador2_id = ? OR par2.jugador1_id = ? OR par2.jugador2_id = ?)
-                       AND (p.estado IS NULL OR p.estado = 'Pendiente' OR p.estado = 'Programado')
+                       AND (p.estado IS NULL OR (
+                           LOWER(TRIM(p.estado)) IN ('pendiente', 'programado')
+                           AND LOWER(TRIM(p.estado)) NOT IN ('cancelado', 'cancelada', 'suspendido', 'jugado', 'walkover')
+                           AND LOWER(TRIM(p.estado)) NOT LIKE '%cancel%'
+                       ))
+                       AND (par1.estado IS NULL OR (LOWER(TRIM(par1.estado)) != 'cancelada' AND LOWER(TRIM(par1.estado)) NOT LIKE '%cancel%'))
+                       AND (par2.estado IS NULL OR (LOWER(TRIM(par2.estado)) != 'cancelada' AND LOWER(TRIM(par2.estado)) NOT LIKE '%cancel%'))
                        AND (p.fecha IS NULL OR p.fecha >= DATE_SUB(CURDATE(), INTERVAL 1 DAY))
                      ORDER BY p.fecha ASC, p.hora_inicio ASC
                      LIMIT 5";

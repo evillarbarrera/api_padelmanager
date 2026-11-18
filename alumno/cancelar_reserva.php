@@ -87,6 +87,7 @@ try {
 
                 if ($resC['usuario_id'] == $jugador_id) {
                     $conn->query("UPDATE reservas_cancha SET estado = 'Cancelada', venta_generada = 0, pagado = 0 WHERE id = $reserva_id");
+                    @$conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE reserva_id = $reserva_id AND enviado = 0");
                     if (!empty($resC['liga_partido_id'])) {
                         $lpId = intval($resC['liga_partido_id']);
                         $conn->query("UPDATE liga_partidos SET cancha_id = NULL, fecha_hora = NULL WHERE id = $lpId");
@@ -100,6 +101,7 @@ try {
                 } else {
                     $col = ($resC['jugador2_id'] == $jugador_id) ? 'jugador2_id' : (($resC['jugador3_id'] == $jugador_id) ? 'jugador3_id' : 'jugador4_id');
                     $conn->query("UPDATE reservas_cancha SET $col = NULL WHERE id = $reserva_id");
+                    @$conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE reserva_id = $reserva_id AND user_id = $jugador_id AND enviado = 0");
                     try {
                         require_once "../system/mail_service.php";
                         notificarReservaCancha($conn, $reserva_id, 'actualizacion');

@@ -147,6 +147,9 @@ if ($isAmericano) {
 }
 
 if ($success) {
+    // Cancelar recordatorios programados pendientes de estas reservas
+    @$conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE reserva_id IN ($idsListStr) AND enviado = 0");
+
     // Sincronización bidireccional con Liga
     if (!empty($reserva['liga_partido_id'])) {
         $lpId = intval($reserva['liga_partido_id']);
