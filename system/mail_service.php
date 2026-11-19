@@ -66,7 +66,7 @@ function enviarCorreoSMTP($to, $subject, $bodyHTML) {
             $response = curl_exec($ch);
             $error = curl_error($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
+            @curl_close($ch);
 
             $duration = round(microtime(true) - $startTime, 3);
 
@@ -555,39 +555,59 @@ function notificarReservaCancha($conn, $reserva_id, $action, $newPlayerIds = [],
         $fechaFmtPart = date("d/m/Y", strtotime($reserva['fecha']));
         $fechaPartido = $reserva['fecha'] . ' ' . $reserva['hora_inicio'];
 
-        // Programar recordatorio de 2 horas antes si es una creación o actualización
+        // Programar recordatorios de 2 horas y 1 hora antes si es una creación o actualización
         if ($action === 'creacion' || $action === 'actualizacion') {
             try {
                 $matchTime = new DateTime($fechaPartido);
-                $reminderTime = clone $matchTime;
-                $reminderTime->modify('-2 hours');
                 $now = new DateTime();
                 
-                if ($reminderTime > $now) {
-                    $fechaProgStr = $reminderTime->format('Y-m-d H:i:s');
-                    $titRecordatorio = "⏰ ¡Tu partido en 2 horas!";
-                    $msgRecordatorio = "Recuerda tu partido en $club_nombre ($cancha_nombre) hoy a las $horaInicioFmt hrs. ¡Prepárate!";
-                    $tipoRecordatorio = "recordatorio_partido_2h";
+                $jugadoresRem = array_filter([
+                    intval($reserva['usuario_id']),
+                    intval($reserva['jugador2_id']),
+                    intval($reserva['jugador3_id']),
+                    intval($reserva['jugador4_id'])
+                ], function($id) { return $id > 0; });
+                $uniqueJugadoresRem = array_unique($jugadoresRem);
+
+                // 1. Recordatorio 2 horas antes
+                $reminderTime2h = clone $matchTime;
+                $reminderTime2h->modify('-2 hours');
+                if ($reminderTime2h > $now) {
+                    $fechaProgStr2h = $reminderTime2h->format('Y-m-d H:i:s');
+                    $titRecordatorio2h = "🎾 ¡Tu partido en 2 horas!";
+                    $msgRecordatorio2h = "Recuerda tu partido en $club_nombre ($cancha_nombre) hoy a las $horaInicioFmt hrs. ¡Prepárate!";
+                    $tipoRecordatorio2h = "recordatorio_partido_2h";
                     
                     $stmtReminder = $conn->prepare("INSERT INTO recordatorios_programados (user_id, titulo, mensaje, tipo, fecha_programada, reserva_id, enviado) VALUES (?, ?, ?, ?, ?, ?, 0)");
                     if ($stmtReminder) {
-                        $jugadoresRem = [
-                            intval($reserva['usuario_id']),
-                            intval($reserva['jugador2_id']),
-                            intval($reserva['jugador3_id']),
-                            intval($reserva['jugador4_id'])
-                        ];
-                        foreach ($jugadoresRem as $jrId) {
-                            if ($jrId > 0) {
-                                $stmtReminder->bind_param("issssi", $jrId, $titRecordatorio, $msgRecordatorio, $tipoRecordatorio, $fechaProgStr, $reserva_id);
-                                $stmtReminder->execute();
-                            }
+                        foreach ($uniqueJugadoresRem as $jrId) {
+                            $stmtReminder->bind_param("issssi", $jrId, $titRecordatorio2h, $msgRecordatorio2h, $tipoRecordatorio2h, $fechaProgStr2h, $reserva_id);
+                            $stmtReminder->execute();
                         }
                         $stmtReminder->close();
                     }
                 }
+
+                // 2. Recordatorio 1 hora antes
+                $reminderTime1h = clone $matchTime;
+                $reminderTime1h->modify('-1 hour');
+                if ($reminderTime1h > $now) {
+                    $fechaProgStr1h = $reminderTime1h->format('Y-m-d H:i:s');
+                    $titRecordatorio1h = "⚡ ¡Tu partido en 1 hora!";
+                    $msgRecordatorio1h = "Tu partido en $club_nombre ($cancha_nombre) arranca a las $horaInicioFmt hrs. ¡Es hora de calentar!";
+                    $tipoRecordatorio1h = "recordatorio_partido_1h";
+                    
+                    $stmtReminder1h = $conn->prepare("INSERT INTO recordatorios_programados (user_id, titulo, mensaje, tipo, fecha_programada, reserva_id, enviado) VALUES (?, ?, ?, ?, ?, ?, 0)");
+                    if ($stmtReminder1h) {
+                        foreach ($uniqueJugadoresRem as $jrId) {
+                            $stmtReminder1h->bind_param("issssi", $jrId, $titRecordatorio1h, $msgRecordatorio1h, $tipoRecordatorio1h, $fechaProgStr1h, $reserva_id);
+                            $stmtReminder1h->execute();
+                        }
+                        $stmtReminder1h->close();
+                    }
+                }
             } catch (Throwable $eRem) {
-                error_log("Error programando recordatorio de 2 horas: " . $eRem->getMessage());
+                error_log("Error programando recordatorios de 2h y 1h: " . $eRem->getMessage());
             }
         }
 

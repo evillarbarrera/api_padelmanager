@@ -1,17 +1,21 @@
 <?php
 /**
- * Cron Job: 2-Hour Pre-Match & Training Reminder System
+ * Cron Job: High-Precision 2-Hour & 1-Hour Pre-Match and Training Reminder Engine
  * PadelBlox Mobile App & Notification Engine
+ * 
+ * Runs every 10 minutes via cron:
+ * curl -s https://padelblox.com/api/cron/send_match_reminders_2h.php > /dev/null 2>&1
+ * 
+ * High Precision Windows (centered around exact targets with ±10 min tolerance):
+ * - Phase 2 Hours: 110 to 130 minutes before start time
+ * - Phase 1 Hour:   50 to  70 minutes before start time
  * 
  * Scans upcoming:
  * 1. Friendly Matches / Court Bookings (reservas_cancha)
  * 2. League & Tournament Fixtures (liga_partidos)
- * 3. Coach Training Sessions & Classes (reservas)
- * 
- * When an event is ~2 hours away (105 to 135 minutes), it sends:
- * - Native Push Notifications via FCM (APNs/Android)
- * - In-App Notification Center records
- * - Smartwatch deep linking payload
+ * 3. American Tournaments (torneos_americanos)
+ * 4. Coach Training Sessions & Classes (reservas)
+ * 5. Queued Reminders (recordatorios_programados)
  */
 
 header("Access-Control-Allow-Origin: *");
@@ -33,19 +37,31 @@ require_once __DIR__ . "/../notifications/notificaciones_helper.php";
 $nowSantiago = date('Y-m-d H:i:s');
 $today = date('Y-m-d');
 $currentTime = date('H:i:s');
+$nowTs = time();
 
 // Options & Parameters
 $isForce = isset($_GET['force']) && ($_GET['force'] == '1' || $_GET['force'] === 'true');
 $isDryRun = isset($_GET['dry_run']) && ($_GET['dry_run'] == '1' || $_GET['dry_run'] === 'true');
 $filterUserId = isset($_GET['user_id']) ? intval($_GET['user_id']) : null;
-$windowMinutesMin = isset($_GET['win_min']) ? intval($_GET['win_min']) : 30;  // Margen flexible: desde 30 min
-$windowMinutesMax = isset($_GET['win_max']) ? intval($_GET['win_max']) : 150; // Hasta 2h 30m para no perder eventos si el cron corre cada 15-30m
+
+// Precise window definitions (minutes before event)
+$window2hMin = isset($_GET['w2_min']) ? intval($_GET['w2_min']) : 110;
+$window2hMax = isset($_GET['w2_max']) ? intval($_GET['w2_max']) : 130;
+$window1hMin = isset($_GET['w1_min']) ? intval($_GET['w1_min']) : 50;
+$window1hMax = isset($_GET['w1_max']) ? intval($_GET['w1_max']) : 70;
+
+// Broad SQL filter limits to fetch candidates efficiently
+$sqlQueryMinMinutes = 45;
+$sqlQueryMaxMinutes = 135;
 
 $summary = [
     "success" => true,
     "timestamp" => $nowSantiago,
-    "mode" => $isDryRun ? "dry_run" : ($isForce ? "force_all_today" : "standard_cron_2h"),
-    "window_minutes" => [$windowMinutesMin, $windowMinutesMax],
+    "mode" => $isDryRun ? "dry_run" : ($isForce ? "force_all_today" : "precise_cron_2h_1h"),
+    "windows" => [
+        "2h_exact_window" => ["$window2hMin min", "$window2hMax min"],
+        "1h_exact_window" => ["$window1hMin min", "$window1hMax min"]
+    ],
     "processed_events" => [
         "reservas_cancha" => 0,
         "liga_partidos" => 0,
@@ -53,26 +69,48 @@ $summary = [
         "entrenamientos" => 0
     ],
     "notifications_sent" => 0,
+    "notifications_sent_2h" => 0,
+    "notifications_sent_1h" => 0,
     "notifications_skipped_duplicate" => 0,
     "details" => []
 ];
 
-// Helper to check if already notified with defensive fallbacks and cross-type deduplication
-function hasBeenNotified2H($conn, $userId, $tipo, $fechaRef, $identificadorEvento) {
+/**
+ * Determine exact reminder stage based on remaining minutes.
+ * Returns '2h', '1h', or null if event is not within precise windows.
+ */
+function getReminderStage($eventDateTimeStr, $nowTs, $w2Min, $w2Max, $w1Min, $w1Max, $isForce) {
+    $eventTs = strtotime($eventDateTimeStr);
+    if (!$eventTs) return null;
+    $diffMinutes = round(($eventTs - $nowTs) / 60);
+
+    if ($diffMinutes >= $w2Min && $diffMinutes <= $w2Max) {
+        return '2h';
+    }
+    if ($diffMinutes >= $w1Min && $diffMinutes <= $w1Max) {
+        return '1h';
+    }
+
+    if ($isForce) {
+        return ($diffMinutes <= 80) ? '1h' : '2h';
+    }
+
+    return null;
+}
+
+/**
+ * Helper to check if user has already been notified for a specific stage ('2h' or '1h')
+ * Prevents 2h notification from blocking 1h notification, while avoiding duplicate dispatches.
+ */
+function hasBeenNotifiedStage($conn, $userId, $stage, $fechaRef, $identificadorEvento) {
     $userId = intval($userId);
     if ($userId <= 0) return false;
 
-    // Check with fecha_referencia y matching cruzado de tipo para evitar mensajes duplicados (ej: amistoso vs liga vs programado)
     try {
         $stmt = @$conn->prepare("
             SELECT id FROM notificaciones 
             WHERE user_id = ? 
-              AND (
-                  tipo = ? 
-                  OR tipo LIKE 'recordatorio%2h%' 
-                  OR tipo LIKE 'recordatorio_partido%'
-                  OR tipo IN ('recordatorio_2h_amistoso', 'recordatorio_2h_liga', 'recordatorio_2h_torneo', 'recordatorio_2h_clase', 'recordatorio_2h_coach', 'recordatorio_partido_2h', 'recordatorio_2h')
-              )
+              AND tipo LIKE CONCAT('%', ?, '%')
               AND (
                   fecha_referencia = ? 
                   OR (DATE(fecha) = CURDATE() AND mensaje LIKE ?)
@@ -84,7 +122,7 @@ function hasBeenNotified2H($conn, $userId, $tipo, $fechaRef, $identificadorEvent
         if ($stmt) {
             $likePattern = "%" . $identificadorEvento . "%";
             $fechaPattern = substr($fechaRef, 0, 10) . "%";
-            $stmt->bind_param('isssss', $userId, $tipo, $fechaRef, $likePattern, $fechaPattern, $fechaRef);
+            $stmt->bind_param('isssss', $userId, $stage, $fechaRef, $likePattern, $fechaPattern, $fechaRef);
             $stmt->execute();
             $res = $stmt->get_result();
             $exists = ($res && $res->num_rows > 0);
@@ -92,23 +130,18 @@ function hasBeenNotified2H($conn, $userId, $tipo, $fechaRef, $identificadorEvent
             return $exists;
         }
     } catch (Throwable $e) {
-        // Fallback without fecha_referencia column
         try {
             $stmtFallback = @$conn->prepare("
                 SELECT id FROM notificaciones 
                 WHERE user_id = ? 
-                  AND (
-                      tipo = ? 
-                      OR tipo LIKE 'recordatorio%2h%' 
-                      OR tipo LIKE 'recordatorio_partido%'
-                  )
+                  AND tipo LIKE CONCAT('%', ?, '%')
                   AND DATE(fecha) = CURDATE() 
                   AND mensaje LIKE ?
                 LIMIT 1
             ");
             if ($stmtFallback) {
                 $likePattern = "%" . $identificadorEvento . "%";
-                $stmtFallback->bind_param('iss', $userId, $tipo, $likePattern);
+                $stmtFallback->bind_param('iss', $userId, $stage, $likePattern);
                 $stmtFallback->execute();
                 $res = $stmtFallback->get_result();
                 $exists = ($res && $res->num_rows > 0);
@@ -120,6 +153,12 @@ function hasBeenNotified2H($conn, $userId, $tipo, $fechaRef, $identificadorEvent
         }
     }
     return false;
+}
+
+// Backward-compatible alias
+function hasBeenNotified2H($conn, $userId, $tipo, $fechaRef, $identificadorEvento) {
+    $stage = (strpos($tipo, '1h') !== false) ? '1h' : '2h';
+    return hasBeenNotifiedStage($conn, $userId, $stage, $fechaRef, $identificadorEvento);
 }
 
 try {
@@ -167,8 +206,8 @@ try {
 
         if (!$isForce) {
             $sqlReservas .= "
-              AND CONCAT(r.fecha, ' ', r.hora_inicio) >= DATE_ADD(NOW(), INTERVAL $windowMinutesMin MINUTE)
-              AND CONCAT(r.fecha, ' ', r.hora_inicio) <= DATE_ADD(NOW(), INTERVAL $windowMinutesMax MINUTE)
+              AND CONCAT(r.fecha, ' ', r.hora_inicio) >= DATE_ADD(NOW(), INTERVAL $sqlQueryMinMinutes MINUTE)
+              AND CONCAT(r.fecha, ' ', r.hora_inicio) <= DATE_ADD(NOW(), INTERVAL $sqlQueryMaxMinutes MINUTE)
             ";
         }
 
@@ -181,6 +220,9 @@ try {
                 $canchaNombre = $row['cancha_nombre'] ?? 'Cancha Central';
                 $clubNombre = $row['club_nombre'] ?? 'Club Pádel';
                 $fechaRef = $row['fecha'] . ' ' . $row['hora_inicio'];
+
+                $stage = getReminderStage($fechaRef, $nowTs, $window2hMin, $window2hMax, $window1hMin, $window1hMax, $isForce);
+                if (!$stage) continue;
 
                 // Gather all 4 players
                 $playerIds = array_filter([
@@ -195,35 +237,49 @@ try {
                 foreach ($uniquePlayers as $pId) {
                     if ($filterUserId && $pId !== $filterUserId) continue;
 
-                    $tipoNotif = 'recordatorio_2h_amistoso';
+                    $tipoNotif = "recordatorio_{$stage}_amistoso";
                     $identificador = "reserva #$reservaId";
 
-                    if (hasBeenNotified2H($conn, $pId, $tipoNotif, $fechaRef, $identificador)) {
+                    if (hasBeenNotifiedStage($conn, $pId, $stage, $fechaRef, $identificador)) {
                         $summary["notifications_skipped_duplicate"]++;
                         continue;
                     }
 
-                    $titulo = "🎾 ¡Tu partido en $canchaNombre es en 2 horas!";
-                    $mensaje = "Hoy a las $horaInicio hrs en $clubNombre. Prepárate con tiempo y activa tu Apple Watch al entrar a la pista.";
-                    
+                    if ($stage === '2h') {
+                        $titulo = "🎾 ¡Tu partido en $canchaNombre es en 2 horas!";
+                        $mensaje = "Hoy a las $horaInicio hrs en $clubNombre. Prepárate con tiempo y activa tu Apple Watch al entrar a la pista.";
+                    } else {
+                        $titulo = "⚡ ¡Tu partido en $canchaNombre arranca en 1 hora!";
+                        $mensaje = "Tu partido comienza a las $horaInicio hrs en $clubNombre. ¡Es momento de calentar y entrar a la pista!";
+                    }
+
                     $extraPayload = [
                         'event_type' => 'reserva_cancha',
                         'reserva_id' => (string)$reservaId,
                         'hora_inicio' => $horaInicio,
                         'club' => $clubNombre,
                         'cancha' => $canchaNombre,
+                        'reminder_stage' => $stage,
                         'route' => '/jugador-partidos'
                     ];
 
                     if (!$isDryRun) {
-                        notifyMatchReminder2H($conn, $pId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
-                        // Neutralizar recordatorios en cola de recordatorios_programados para este partido/usuario y evitar duplicados
-                        @$conn->query("UPDATE recordatorios_programados SET enviado = 1, enviado_at = NOW() WHERE (reserva_id = $reservaId OR (user_id = $pId AND fecha_programada LIKE '" . substr($fechaRef, 0, 10) . "%')) AND tipo LIKE '%2h%' AND enviado = 0");
+                        if ($stage === '2h') {
+                            notifyMatchReminder2H($conn, $pId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
+                        } else {
+                            notifyMatchReminder1H($conn, $pId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
+                        }
+                        // Neutralize only corresponding stage in queue
+                        @$conn->query("UPDATE recordatorios_programados SET enviado = 1, enviado_at = NOW() WHERE (reserva_id = $reservaId OR (user_id = $pId AND fecha_programada LIKE '" . substr($fechaRef, 0, 10) . "%')) AND tipo LIKE '%{$stage}%' AND enviado = 0");
                     }
 
                     $summary["notifications_sent"]++;
+                    if ($stage === '2h') $summary["notifications_sent_2h"]++;
+                    if ($stage === '1h') $summary["notifications_sent_1h"]++;
+
                     $summary["details"][] = [
                         "type" => "reserva_cancha",
+                        "stage" => $stage,
                         "user_id" => $pId,
                         "event_id" => $reservaId,
                         "title" => $titulo,
@@ -292,8 +348,8 @@ try {
 
         if (!$isForce) {
             $sqlLigas .= "
-              AND lp.fecha_hora >= DATE_ADD(NOW(), INTERVAL $windowMinutesMin MINUTE)
-              AND lp.fecha_hora <= DATE_ADD(NOW(), INTERVAL $windowMinutesMax MINUTE)
+              AND lp.fecha_hora >= DATE_ADD(NOW(), INTERVAL $sqlQueryMinMinutes MINUTE)
+              AND lp.fecha_hora <= DATE_ADD(NOW(), INTERVAL $sqlQueryMaxMinutes MINUTE)
             ";
         } else {
             $sqlLigas .= "
@@ -307,7 +363,11 @@ try {
                 $summary["processed_events"]["liga_partidos"]++;
                 $lpId = $lp['id'];
                 $horaInicio = !empty($lp['hora_inicio']) ? substr($lp['hora_inicio'], 0, 5) : '20:00';
-                
+                $fechaRef = $lp['fecha_hora'];
+
+                $stage = getReminderStage($fechaRef, $nowTs, $window2hMin, $window2hMax, $window1hMin, $window1hMax, $isForce);
+                if (!$stage) continue;
+
                 // Format dupla names cleanly
                 $p1Name = !empty($lp['p1_raw_nombre']) ? $lp['p1_raw_nombre'] : trim(($lp['p1_j1_nom'] ?? '') . ' ' . ($lp['p1_j1_ape'] ?? ''));
                 if (empty($p1Name)) $p1Name = !empty($lp['p1_ext1']) ? $lp['p1_ext1'] : 'Dupla 1';
@@ -317,7 +377,6 @@ try {
 
                 $canchaNombre = $lp['cancha_nombre'] ?? 'Cancha Oficial';
                 $clubNombre = $lp['club_nombre'] ?? 'Liga PadelBlox';
-                $fechaRef = $lp['fecha_hora'];
 
                 $players = array_filter([
                     intval($lp['p1_j1']),
@@ -331,16 +390,21 @@ try {
                 foreach ($uniqueLigaPlayers as $pId) {
                     if ($filterUserId && $pId !== $filterUserId) continue;
 
-                    $tipoNotif = 'recordatorio_2h_liga';
+                    $tipoNotif = "recordatorio_{$stage}_liga";
                     $identificador = "liga_match #$lpId";
 
-                    if (hasBeenNotified2H($conn, $pId, $tipoNotif, $fechaRef, $identificador)) {
+                    if (hasBeenNotifiedStage($conn, $pId, $stage, $fechaRef, $identificador)) {
                         $summary["notifications_skipped_duplicate"]++;
                         continue;
                     }
 
-                    $titulo = "🏆 ¡Partido de Liga en 2 horas!";
-                    $mensaje = "Tu partido $p1Name vs $p2Name arranca a las $horaInicio hrs en $canchaNombre ($clubNombre). ¡A darlo todo en la pista!";
+                    if ($stage === '2h') {
+                        $titulo = "🏆 ¡Partido de Liga en 2 horas!";
+                        $mensaje = "Tu partido $p1Name vs $p2Name arranca a las $horaInicio hrs en $canchaNombre ($clubNombre). ¡A darlo todo en la pista!";
+                    } else {
+                        $titulo = "⚡ ¡Partido de Liga en 1 hora!";
+                        $mensaje = "Tu encuentro $p1Name vs $p2Name comienza a las $horaInicio hrs en $canchaNombre ($clubNombre). ¡A la pista!";
+                    }
 
                     $extraPayload = [
                         'event_type' => 'liga_partido',
@@ -348,18 +412,26 @@ try {
                         'hora_inicio' => $horaInicio,
                         'pareja1' => $p1Name,
                         'pareja2' => $p2Name,
+                        'reminder_stage' => $stage,
                         'route' => '/jugador-partidos'
                     ];
 
                     if (!$isDryRun) {
-                        notifyMatchReminder2H($conn, $pId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
-                        // Neutralizar recordatorios programados redundantes
-                        @$conn->query("UPDATE recordatorios_programados SET enviado = 1, enviado_at = NOW() WHERE (user_id = $pId AND fecha_programada LIKE '" . substr($fechaRef, 0, 10) . "%') AND tipo LIKE '%liga%' AND enviado = 0");
+                        if ($stage === '2h') {
+                            notifyMatchReminder2H($conn, $pId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
+                        } else {
+                            notifyMatchReminder1H($conn, $pId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
+                        }
+                        @$conn->query("UPDATE recordatorios_programados SET enviado = 1, enviado_at = NOW() WHERE (user_id = $pId AND fecha_programada LIKE '" . substr($fechaRef, 0, 10) . "%') AND tipo LIKE '%{$stage}%' AND enviado = 0");
                     }
 
                     $summary["notifications_sent"]++;
+                    if ($stage === '2h') $summary["notifications_sent_2h"]++;
+                    if ($stage === '1h') $summary["notifications_sent_1h"]++;
+
                     $summary["details"][] = [
                         "type" => "liga_partido",
+                        "stage" => $stage,
                         "user_id" => $pId,
                         "event_id" => $lpId,
                         "title" => $titulo,
@@ -392,8 +464,8 @@ try {
 
         if (!$isForce) {
             $sqlTorneos .= "
-              AND CONCAT(t.fecha, ' ', t.hora_inicio) >= DATE_ADD(NOW(), INTERVAL $windowMinutesMin MINUTE)
-              AND CONCAT(t.fecha, ' ', t.hora_inicio) <= DATE_ADD(NOW(), INTERVAL $windowMinutesMax MINUTE)
+              AND CONCAT(t.fecha, ' ', t.hora_inicio) >= DATE_ADD(NOW(), INTERVAL $sqlQueryMinMinutes MINUTE)
+              AND CONCAT(t.fecha, ' ', t.hora_inicio) <= DATE_ADD(NOW(), INTERVAL $sqlQueryMaxMinutes MINUTE)
             ";
         }
 
@@ -407,6 +479,9 @@ try {
                 $clubNombre = $tRow['club_nombre'] ?? 'Club Pádel';
                 $fechaRef = $tRow['fecha'] . ' ' . $tRow['hora_inicio'];
 
+                $stage = getReminderStage($fechaRef, $nowTs, $window2hMin, $window2hMax, $window1hMin, $window1hMax, $isForce);
+                if (!$stage) continue;
+
                 $players = array_filter([
                     intval($tRow['j1']),
                     intval($tRow['j2'])
@@ -415,16 +490,21 @@ try {
                 foreach (array_unique($players) as $pId) {
                     if ($filterUserId && $pId !== $filterUserId) continue;
 
-                    $tipoNotif = 'recordatorio_2h_torneo';
+                    $tipoNotif = "recordatorio_{$stage}_torneo";
                     $identificador = "torneo #$tId";
 
-                    if (hasBeenNotified2H($conn, $pId, $tipoNotif, $fechaRef, $identificador)) {
+                    if (hasBeenNotifiedStage($conn, $pId, $stage, $fechaRef, $identificador)) {
                         $summary["notifications_skipped_duplicate"]++;
                         continue;
                     }
 
-                    $titulo = "🏅 ¡Tu Torneo $torneoNombre inicia en 2 horas!";
-                    $mensaje = "El torneo arranca hoy a las $horaInicio hrs en $clubNombre. ¡Mucho éxito en tus partidos!";
+                    if ($stage === '2h') {
+                        $titulo = "🏅 ¡Tu Torneo $torneoNombre inicia en 2 horas!";
+                        $mensaje = "El torneo arranca hoy a las $horaInicio hrs en $clubNombre. ¡Mucho éxito en tus partidos!";
+                    } else {
+                        $titulo = "⚡ ¡Tu Torneo $torneoNombre arranca en 1 hora!";
+                        $mensaje = "La jornada comienza a las $horaInicio hrs en $clubNombre. ¡No olvides llegar temprano a la pista!";
+                    }
 
                     $extraPayload = [
                         'event_type' => 'torneo_americano',
@@ -432,16 +512,25 @@ try {
                         'hora_inicio' => $horaInicio,
                         'torneo' => $torneoNombre,
                         'club' => $clubNombre,
+                        'reminder_stage' => $stage,
                         'route' => '/jugador-campeonatos'
                     ];
 
                     if (!$isDryRun) {
-                        notifyMatchReminder2H($conn, $pId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
+                        if ($stage === '2h') {
+                            notifyMatchReminder2H($conn, $pId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
+                        } else {
+                            notifyMatchReminder1H($conn, $pId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
+                        }
                     }
 
                     $summary["notifications_sent"]++;
+                    if ($stage === '2h') $summary["notifications_sent_2h"]++;
+                    if ($stage === '1h') $summary["notifications_sent_1h"]++;
+
                     $summary["details"][] = [
                         "type" => "torneo_americano",
+                        "stage" => $stage,
                         "user_id" => $pId,
                         "event_id" => $tId,
                         "title" => $titulo,
@@ -484,8 +573,8 @@ try {
 
         if (!$isForce) {
             $sqlEntrenamientos .= "
-              AND CONCAT(r.fecha, ' ', r.hora_inicio) >= DATE_ADD(NOW(), INTERVAL $windowMinutesMin MINUTE)
-              AND CONCAT(r.fecha, ' ', r.hora_inicio) <= DATE_ADD(NOW(), INTERVAL $windowMinutesMax MINUTE)
+              AND CONCAT(r.fecha, ' ', r.hora_inicio) >= DATE_ADD(NOW(), INTERVAL $sqlQueryMinMinutes MINUTE)
+              AND CONCAT(r.fecha, ' ', r.hora_inicio) <= DATE_ADD(NOW(), INTERVAL $sqlQueryMaxMinutes MINUTE)
             ";
         }
 
@@ -504,6 +593,9 @@ try {
                 $coachId = intval($re['entrenador_id']);
                 $fechaRef = $re['fecha'] . ' ' . $re['hora_inicio'];
 
+                $stage = getReminderStage($fechaRef, $nowTs, $window2hMin, $window2hMax, $window1hMin, $window1hMax, $isForce);
+                if (!$stage) continue;
+
                 // 4.A NOTIFY STUDENTS (ALUMNOS)
                 $rawAlumnoIds = !empty($re['alumnos_ids']) ? explode(',', $re['alumnos_ids']) : [];
                 $alumnoIds = array_filter(array_map('intval', $rawAlumnoIds), function($id) { return $id > 0; });
@@ -512,16 +604,21 @@ try {
                 foreach ($uniqueAlumnos as $aId) {
                     if ($filterUserId && $aId !== $filterUserId) continue;
 
-                    $tipoNotif = 'recordatorio_2h_clase';
+                    $tipoNotif = "recordatorio_{$stage}_clase";
                     $identificador = "clase #$reservaId";
 
-                    if (hasBeenNotified2H($conn, $aId, $tipoNotif, $fechaRef, $identificador)) {
+                    if (hasBeenNotifiedStage($conn, $aId, $stage, $fechaRef, $identificador)) {
                         $summary["notifications_skipped_duplicate"]++;
                         continue;
                     }
 
-                    $titulo = "🏋️‍♂️ ¡Tu clase de Pádel es en 2 horas!";
-                    $mensaje = "Tu entrenamiento de $packNombre con $coachNombre comienza a las $horaInicio hrs en $clubNombre. ¡A darlo todo! (Clase #$reservaId)";
+                    if ($stage === '2h') {
+                        $titulo = "🏋️‍♂️ ¡Tu clase de Pádel es en 2 horas!";
+                        $mensaje = "Tu entrenamiento de $packNombre con $coachNombre comienza a las $horaInicio hrs en $clubNombre. ¡A darlo todo! (Clase #$reservaId)";
+                    } else {
+                        $titulo = "⚡ ¡Tu clase de Pádel es en 1 hora!";
+                        $mensaje = "Tu sesión de $packNombre con $coachNombre arranca a las $horaInicio hrs en $clubNombre. ¡Prepárate!";
+                    }
 
                     $extraPayload = [
                         'event_type' => 'clase_padel',
@@ -529,16 +626,25 @@ try {
                         'pack' => $packNombre,
                         'coach' => $coachNombre,
                         'hora' => $horaInicio,
+                        'reminder_stage' => $stage,
                         'route' => '/jugador-reservas'
                     ];
 
                     if (!$isDryRun) {
-                        notifyMatchReminder2H($conn, $aId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
+                        if ($stage === '2h') {
+                            notifyMatchReminder2H($conn, $aId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
+                        } else {
+                            notifyMatchReminder1H($conn, $aId, $titulo, $mensaje, $tipoNotif, $fechaRef, $extraPayload);
+                        }
                     }
 
                     $summary["notifications_sent"]++;
+                    if ($stage === '2h') $summary["notifications_sent_2h"]++;
+                    if ($stage === '1h') $summary["notifications_sent_1h"]++;
+
                     $summary["details"][] = [
                         "type" => "clase_alumno",
+                        "stage" => $stage,
                         "user_id" => $aId,
                         "event_id" => $reservaId,
                         "title" => $titulo,
@@ -549,12 +655,17 @@ try {
 
                 // 4.B NOTIFY COACH (PROFESOR) - Solo si hay alumnos confirmados en la clase
                 if (!empty($uniqueAlumnos) && $coachId > 0 && (!$filterUserId || $coachId === $filterUserId)) {
-                    $tipoCoach = 'recordatorio_2h_coach';
+                    $tipoCoach = "recordatorio_{$stage}_coach";
                     $identificadorCoach = "clase_coach #$reservaId";
 
-                    if (!hasBeenNotified2H($conn, $coachId, $tipoCoach, $fechaRef, $identificadorCoach)) {
-                        $tituloCoach = "📋 ¡Clase programada en 2 horas!";
-                        $mensajeCoach = "Tienes sesión de $packNombre a las $horaInicio hrs en $clubNombre con $alumnosNombres. (Clase #$reservaId)";
+                    if (!hasBeenNotifiedStage($conn, $coachId, $stage, $fechaRef, $identificadorCoach)) {
+                        if ($stage === '2h') {
+                            $tituloCoach = "📋 ¡Clase programada en 2 horas!";
+                            $mensajeCoach = "Tienes sesión de $packNombre a las $horaInicio hrs en $clubNombre con $alumnosNombres. (Clase #$reservaId)";
+                        } else {
+                            $tituloCoach = "⚡ ¡Clase en 1 hora!";
+                            $mensajeCoach = "Tu sesión de $packNombre comienza a las $horaInicio hrs en $clubNombre con $alumnosNombres.";
+                        }
 
                         $extraPayloadCoach = [
                             'event_type' => 'clase_coach',
@@ -562,16 +673,25 @@ try {
                             'pack' => $packNombre,
                             'alumnos' => $alumnosNombres,
                             'hora' => $horaInicio,
+                            'reminder_stage' => $stage,
                             'route' => '/entrenador-entrenamientos'
                         ];
 
                         if (!$isDryRun) {
-                            notifyMatchReminder2H($conn, $coachId, $tituloCoach, $mensajeCoach, $tipoCoach, $fechaRef, $extraPayloadCoach);
+                            if ($stage === '2h') {
+                                notifyMatchReminder2H($conn, $coachId, $tituloCoach, $mensajeCoach, $tipoCoach, $fechaRef, $extraPayloadCoach);
+                            } else {
+                                notifyMatchReminder1H($conn, $coachId, $tituloCoach, $mensajeCoach, $tipoCoach, $fechaRef, $extraPayloadCoach);
+                            }
                         }
 
                         $summary["notifications_sent"]++;
+                        if ($stage === '2h') $summary["notifications_sent_2h"]++;
+                        if ($stage === '1h') $summary["notifications_sent_1h"]++;
+
                         $summary["details"][] = [
                             "type" => "clase_coach",
+                            "stage" => $stage,
                             "user_id" => $coachId,
                             "event_id" => $reservaId,
                             "title" => $tituloCoach,
@@ -610,6 +730,7 @@ try {
                 $recId = intval($rProg['id']);
                 $rResId = isset($rProg['reserva_id']) ? intval($rProg['reserva_id']) : 0;
                 $fProg = $rProg['fecha_programada'] ?? date('Y-m-d H:i:s');
+                $tipoP = $rProg['tipo'] ?? 'recordatorio';
                 if ($filterUserId && $pId !== $filterUserId) continue;
 
                 // 5.A Verificar si el evento vinculado ha sido cancelado (en reservas_cancha o reservas)
@@ -649,29 +770,33 @@ try {
                     }
 
                     if ($isCancelled) {
-                        // Evento cancelado: descartar recordatorio sin enviar
                         $conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE id = $recId");
                         continue;
                     }
                 }
 
-                // 5.B Control estricto de duplicados: si el usuario ya recibió un recordatorio hoy para este evento, omitir
+                // 5.B Control estricto de duplicados por etapa
+                $stage = (strpos($tipoP, '1h') !== false) ? '1h' : '2h';
                 $identificador = ($rResId > 0) ? "#$rResId" : $rProg['titulo'];
-                if (hasBeenNotified2H($conn, $pId, $rProg['tipo'], $fProg, $identificador)) {
-                    // Ya notificado hoy: marcar como enviado y omitir duplicado
+
+                if (hasBeenNotifiedStage($conn, $pId, $stage, $fProg, $identificador)) {
                     $conn->query("UPDATE recordatorios_programados SET enviado = 1, enviado_at = NOW() WHERE id = $recId");
                     $summary["notifications_skipped_duplicate"]++;
                     continue;
                 }
 
                 if (!$isDryRun) {
-                    if (notifyUser($conn, $pId, $rProg['titulo'], $rProg['mensaje'], $rProg['tipo'], $fProg)) {
+                    if (notifyUser($conn, $pId, $rProg['titulo'], $rProg['mensaje'], $tipoP, $fProg)) {
                         $conn->query("UPDATE recordatorios_programados SET enviado = 1, enviado_at = NOW() WHERE id = $recId");
                     }
                 }
                 $summary["notifications_sent"]++;
+                if ($stage === '2h') $summary["notifications_sent_2h"]++;
+                if ($stage === '1h') $summary["notifications_sent_1h"]++;
+
                 $summary["details"][] = [
                     "type" => "recordatorio_programado",
+                    "stage" => $stage,
                     "user_id" => $pId,
                     "event_id" => $recId,
                     "title" => $rProg['titulo'],
@@ -683,16 +808,18 @@ try {
 
     // Response Output
     if ($isCli) {
-        echo "=== [PadelBlox 2-Hour Reminder Engine] ===\n";
+        echo "=== [PadelBlox Precision 2H & 1H Match Reminder Engine] ===\n";
         echo "Timestamp: {$summary['timestamp']}\n";
         echo "Mode: {$summary['mode']}\n";
+        echo "Window 2H: {$summary['windows']['2h_exact_window'][0]} - {$summary['windows']['2h_exact_window'][1]}\n";
+        echo "Window 1H: {$summary['windows']['1h_exact_window'][0]} - {$summary['windows']['1h_exact_window'][1]}\n";
         echo "Partidos Amistosos: {$summary['processed_events']['reservas_cancha']}\n";
         echo "Partidos Liga: {$summary['processed_events']['liga_partidos']}\n";
         echo "Torneos Americanos: {$summary['processed_events']['torneos_americanos']}\n";
         echo "Entrenamientos: {$summary['processed_events']['entrenamientos']}\n";
-        echo "Notificaciones Enviadas: {$summary['notifications_sent']}\n";
+        echo "Total Enviadas: {$summary['notifications_sent']} (2H: {$summary['notifications_sent_2h']} | 1H: {$summary['notifications_sent_1h']})\n";
         echo "Duplicados Omitidos: {$summary['notifications_skipped_duplicate']}\n";
-        echo "==========================================\n";
+        echo "===========================================================\n";
     } else {
         echo json_encode($summary, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     }
