@@ -102,4 +102,16 @@ if (!function_exists('notifyMatchReminder2H')) {
         return notifyUser($conn, $userId, $titulo, $mensaje, $tipo, $fechaRef, $mergedData);
     }
 }
+
+if (!function_exists('notifyMatchReminder1H')) {
+    function notifyMatchReminder1H($conn, $userId, $titulo, $mensaje, $tipo = 'recordatorio_1h', $fechaRef = null, $extraData = []) {
+        $extraDataDefault = [
+            'action' => 'open_match',
+            'channel' => 'match_reminders',
+            'reminder_lead_hours' => '1'
+        ];
+        $mergedData = array_merge($extraDataDefault, $extraData);
+        return notifyUser($conn, $userId, $titulo, $mensaje, $tipo, $fechaRef, $mergedData);
+    }
+}
 ?>
