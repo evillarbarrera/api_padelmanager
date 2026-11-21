@@ -449,7 +449,7 @@
         <textarea id="custom-message" class="custom-msg" oninput="saveCurrentTemplate()"></textarea>
         
         <div class="msg-hint">
-          <span>Usa <code>{CLUB}</code> para autocompletar el nombre del club.</span>
+          <span>Usa <code>{CLUB}</code> para el nombre del club y <code>{CIUDAD}</code> para su ciudad/comuna.</span>
           <span id="char-counter">0 caracteres</span>
         </div>
       </div>
@@ -556,45 +556,51 @@
   <script>
     // Plantillas predeterminadas de alto impacto
     const TEMPLATES = {
-      valle: `¡Hola equipo de {CLUB}! 👋 Les escribe Emmanuel Villar de Padelblox Chile.
+      valle: `¡Hola equipo de {CLUB}! 👋 Les escribe Emmanuel Villar de Padelblox.
 
-Sé que para todo club de pádel uno de los mayores desafíos es rentabilizar las canchas en horarios diurnos/valle (09:00 a 17:00) y evitar fugas en cobros de cantina y clases.
+Les escribo directo porque estamos seleccionando a los clubes más destacados de {CIUDAD} para darles *3 meses de acceso 100% bonificado* a nuestro software para clubes de pádel.
 
-En Padelblox desarrollamos un software todo-en-uno que conecta las reservas con torneos americanos express, punto de venta (POS) y las clases de tus entrenadores para llenar esos horarios.
+A diferencia de los sistemas tradicionales, Padelblox está diseñado para resolver lo que más impacta en el día a día del club:
 
-Estamos seleccionando clubes clave en Santiago para darles *3 meses de acceso completo 100% gratis* sin ningún compromiso.
+🎾 *Llenar canchas en horarios valle:* Torneos americanos express automáticos y módulos de clases para academias.
+📈 *Cero fugas en cantina y mostrador:* Punto de Venta (POS) para bebidas, pelotas y grips con arqueo de caja diario exacto.
+⌚ *Experiencia única en cancha:* Marcadores en pantallas TV y sincronización con Smartwatch para los jugadores.
+💰 *Sin comisiones abusivas:* Tu facturación se queda 100% en tu club.
 
-¿Te gustaría que coordinemos una demo rápida de 5 min por acá?
+¿Te parece si te comparto por acá un video demo de 1 minuto para que veas cómo funciona?
 
 —
 *Emmanuel Villar*
-Padelblox Chile
+Padelblox
 📱 +56 9 6908 3124
 🌐 padelblox.cl`,
 
-      tecnologia: `Hola gente de {CLUB} 🎾, un gusto saludarlos.
+      tecnologia: `¡Hola gente de {CLUB}! 🎾 Les escribe Emmanuel de Padelblox.
 
-Les escribe Emmanuel Villar de Padelblox Chile. Diseñamos la primera plataforma para clubes en Chile que incluye sincronización directa con Smartwatch en cancha (marcador en vivo y estadísticas para los jugadores), además de control de reservas, tienda e inventario.
+Queremos invitarlos a sumarse como club referente en {CIUDAD} con *3 meses 100% gratis* de nuestra tecnología.
 
-Queremos invitarlos a probar la tecnología con *3 meses gratis* de marcha blanca para su club.
+Padelblox es la única plataforma que integra la gestión del club (reservas, caja, inventario) con pantallas de marcador en cancha y app para Smartwatch donde los jugadores llevan el puntaje en vivo. Además, cuenta con generador de torneos express para llenar horarios de baja afluencia.
 
-¿Con quién del club podría conversar unos minutitos para mostrarles cómo funciona?
+¿Te gustaría que te envíe un breve video de 45 segundos para que veas la experiencia en cancha?
+
+—
+*Emmanuel Villar* &bull; Padelblox
+📱 +56 9 6908 3124
+🌐 padelblox.cl`,
+
+      comisiones: `¡Hola {CLUB}! 🎾 ¿Cómo están?
+
+Les escribe Emmanuel Villar de Padelblox. Muchos dueños de club nos comentan lo costoso que resulta pagar comisiones por cada arriendo de cancha o lidiar con sistemas enredados en recepción.
+
+En Padelblox operamos con tarifa fija transparente, control total de caja y cantina, torneos automáticos y app para tus jugadores.
+
+Estamos entregando *3 meses de marcha blanca 100% gratuita* a clubes seleccionados en {CIUDAD} para que lo prueben sin compromiso.
+
+¿Te puedo compartir una breve demo en video por acá para que lo evalúen?
 
 —
 *Emmanuel Villar*
-Padelblox Chile &bull; +56 9 6908 3124`,
-
-      comisiones: `Hola {CLUB} 🎾, ¿cómo están?
-
-Les escribe Emmanuel Villar de Padelblox. Muchos clubes nos comentan lo caro que resulta pagar comisiones por cada reserva o lidiar con sistemas difíciles de usar.
-
-Padelblox funciona con tarifa fija transparente, control de caja diario, torneos americanos automáticos y app móvil para tus clientes.
-
-Nos encantaría darles *3 meses 100% gratis* para que lo prueben y comparen. ¿Te parece bien si te envío una breve presentación o coordinamos una llamada de 5 minutos?
-
-—
-*Emmanuel Villar*
-📱 WhatsApp: +56 9 6908 3124
+📱 +56 9 6908 3124
 🌐 padelblox.cl`
     };
 
@@ -1187,7 +1193,9 @@ Nos encantaría darles *3 meses 100% gratis* para que lo prueben y comparen. ¿T
 
     function triggerSend(clubId, phone, clubName) {
       const rawMsg = document.getElementById('custom-message').value;
-      const personalizedMsg = rawMsg.replace(/\{CLUB\}/g, clubName);
+      const clubObj = clubsData.find(c => c.id === clubId);
+      const ciudad = (clubObj && (clubObj.ciudad || clubObj.comuna)) || 'su zona';
+      const personalizedMsg = rawMsg.replace(/\{CLUB\}/g, clubName).replace(/\{CIUDAD\}/g, ciudad);
       const cleanPhone = getCleanPhone(phone);
       const encodedMsg = encodeURIComponent(personalizedMsg);
 
@@ -1347,7 +1355,7 @@ Nos encantaría darles *3 meses 100% gratis* para que lo prueben y comparen. ¿T
 
       const pendientes = clubsData.filter(c => (c.estado_envio || 'pendiente') === 'pendiente');
       if (pendientes.length === 0) {
-        alert("🎉 ¡Excelente! Se abrieron los chats de WhatsApp para todos los clubes de Santiago.");
+        alert("🎉 ¡Excelente! Se abrieron los chats de WhatsApp para todos los clubes seleccionados.");
         stopAutopilot();
         return;
       }
@@ -1380,7 +1388,7 @@ Nos encantaría darles *3 meses 100% gratis* para que lo prueben y comparen. ¿T
           processNextAutopilot(delaySec);
         }, delaySec * 1000);
       } else {
-        alert("🎉 ¡Has completado la lista de clubes de Santiago!");
+        alert("🎉 ¡Has completado la lista de clubes seleccionados!");
         stopAutopilot();
       }
     }
@@ -1406,7 +1414,7 @@ Nos encantaría darles *3 meses 100% gratis* para que lo prueben y comparen. ¿T
     }
 
     async function resetData() {
-      if (confirm("¿Estás seguro de restaurar el listado original de clubes de Santiago? Se reiniciarán los estados.")) {
+      if (confirm("¿Estás seguro de restaurar el listado original de clubes? Se reiniciarán los estados.")) {
         localStorage.removeItem('padelblox_santiago_clubs');
         const res = await fetch('clubes_santiago_whatsapp.json');
         const json = await res.json();

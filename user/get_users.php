@@ -38,10 +38,14 @@ $search = $_GET['search'] ?? null;
 $limit  = isset($_GET['limit']) ? intval($_GET['limit']) : 1500;
 
 // Incluir apellido para que la búsqueda funcione correctamente (email ya se guarda en usuario)
-$sql = "SELECT id, nombre, apellido, usuario, foto, foto_perfil, rol, categoria, descripcion FROM usuarios WHERE 1=1";
+$sql = "SELECT id, nombre, apellido, usuario, telefono, foto, foto_perfil, rol, categoria, descripcion FROM usuarios WHERE 1=1";
 
 if ($rol && $rol !== 'all' && $rol !== 'any') {
-    $sql .= " AND rol = '" . $conn->real_escape_string($rol) . "'";
+    if ($rol === 'jugador' || $rol === 'alumno') {
+        $sql .= " AND rol IN ('jugador', 'alumno')";
+    } else {
+        $sql .= " AND rol = '" . $conn->real_escape_string($rol) . "'";
+    }
 }
 
 if ($search) {

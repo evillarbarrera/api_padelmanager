@@ -23,9 +23,11 @@ require_once "../system/mail_service.php";
 $inputJSON = file_get_contents("php://input");
 $data = json_decode($inputJSON, true) ?? [];
 
-$nombre = $data['nombre'] ?? $_POST['nombre'] ?? '';
-$email = $data['email'] ?? $_POST['email'] ?? '';
+$nombre = trim($data['nombre'] ?? $_POST['nombre'] ?? '');
+$email = trim($data['email'] ?? $_POST['email'] ?? '');
 $telefono = trim($data['telefono'] ?? $_POST['telefono'] ?? '');
+$alumno_id = intval($data['alumno_id'] ?? $data['jugador_id'] ?? $_POST['alumno_id'] ?? $_POST['jugador_id'] ?? 0);
+$only_associate = !empty($data['only_associate']);
 
 // 🧠 AUTOCORRECCIÓN: Si el nombre contiene una @ y el email no tiene @ (o está vacío), los intercambiamos.
 if (strpos($nombre, '@') !== false && strpos($email, '@') === false) {
@@ -33,19 +35,13 @@ if (strpos($nombre, '@') !== false && strpos($email, '@') === false) {
     $nombre = $email;
     $email = $temp;
 }
-$entrenador_id = $data['entrenador_id'] ?? $_POST['entrenador_id'] ?? 0;
+$entrenador_id = intval($data['entrenador_id'] ?? $_POST['entrenador_id'] ?? 0);
 
-// Validar campos obligatorios con Debug
-if (empty($nombre) || empty($email) || empty($entrenador_id)) {
+if (empty($entrenador_id)) {
     http_response_code(400);
     echo json_encode([
-        "success" => false, 
-        "error" => "Faltan datos obligatorios",
-        "details" => [
-            "nombre_ok" => !empty($nombre),
-            "email_ok" => !empty($email),
-            "coach_ok" => !empty($entrenador_id)
-        ]
+        "success" => false,
+        "error" => "entrenador_id es obligatorio"
     ]);
     exit;
 }
@@ -70,16 +66,29 @@ $conn->query("CREATE TABLE IF NOT EXISTS entrenador_alumno (
     UNIQUE KEY unique_rel (entrenador_id, alumno_id)
 )");
 
-// 1. Verificar si el usuario ya existe
-$sqlCheck = "SELECT id, nombre, usuario, telefono, entrenador_creador_id FROM usuarios WHERE usuario = ?";
-$stmtCheck = $conn->prepare($sqlCheck);
-$stmtCheck->bind_param("s", $email);
-$stmtCheck->execute();
-$resultCheck = $stmtCheck->get_result();
-$existingUser = $resultCheck->fetch_assoc();
+// 1. Verificar si el usuario ya existe (por ID o por Email)
+$existingUser = null;
+
+if ($alumno_id > 0) {
+    $sqlCheckId = "SELECT id, nombre, usuario, telefono, entrenador_creador_id FROM usuarios WHERE id = ?";
+    $stmtCheckId = $conn->prepare($sqlCheckId);
+    $stmtCheckId->bind_param("i", $alumno_id);
+    $stmtCheckId->execute();
+    $resCheckId = $stmtCheckId->get_result();
+    $existingUser = $resCheckId->fetch_assoc();
+}
+
+if (!$existingUser && !empty($email)) {
+    $sqlCheck = "SELECT id, nombre, usuario, telefono, entrenador_creador_id FROM usuarios WHERE LOWER(TRIM(usuario)) = LOWER(TRIM(?))";
+    $stmtCheck = $conn->prepare($sqlCheck);
+    $stmtCheck->bind_param("s", $email);
+    $stmtCheck->execute();
+    $resultCheck = $stmtCheck->get_result();
+    $existingUser = $resultCheck->fetch_assoc();
+}
 
 if ($existingUser) {
-    $existingId = $existingUser['id'];
+    $existingId = intval($existingUser['id']);
     
     // Si ya existe, simplemente creamos la relación con este entrenador
     $sqlRel = "INSERT INTO entrenador_alumno (entrenador_id, alumno_id, creado_por_entrenador) VALUES (?, ?, 0) ON DUPLICATE KEY UPDATE entrenador_id = entrenador_id";
@@ -107,7 +116,33 @@ if ($existingUser) {
         "message" => "El usuario ya existe y ha sido asociado a tu lista.",
         "mail_sent" => false,
         "already_exists" => true,
-        "user_id" => $existingId
+        "user_id" => $existingId,
+        "nombre" => $existingUser['nombre'],
+        "email" => $existingUser['usuario']
+    ]);
+    exit;
+}
+
+if ($only_associate || ($alumno_id > 0 && !$existingUser)) {
+    http_response_code(404);
+    echo json_encode([
+        "success" => false,
+        "error" => "No se encontró ninguna cuenta de jugador registrada con esos datos."
+    ]);
+    exit;
+}
+
+// Validar campos obligatorios para creación de nuevo usuario
+if (empty($nombre) || empty($email) || empty($entrenador_id)) {
+    http_response_code(400);
+    echo json_encode([
+        "success" => false, 
+        "error" => "Faltan datos obligatorios",
+        "details" => [
+            "nombre_ok" => !empty($nombre),
+            "email_ok" => !empty($email),
+            "coach_ok" => !empty($entrenador_id)
+        ]
     ]);
     exit;
 }

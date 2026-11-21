@@ -8,20 +8,21 @@
  */
 
 header('Access-Control-Allow-Origin: *');
+require_once __DIR__ . '/../system/mail_config.php';
 @set_time_limit(300);
 
-$leads_file = __DIR__ . '/leads_clubs_chile.json';
+$leads_file = file_exists(__DIR__ . '/leads_email_consolidados.json') ? __DIR__ . '/leads_email_consolidados.json' : __DIR__ . '/leads_clubs_chile.json';
 $test_email = 'e.villarbarrera@gmail.com';
 $from_email = 'no_reply@padelmanager.cl';
 $from_name  = 'PADELBLOX Chile';
 $reply_to   = 'e.villarbarrera@gmail.com';
-$resend_api_key = getenv('RESEND_API_KEY') ?: '';
+$resend_api_key = defined('RESEND_API_KEY') ? RESEND_API_KEY : (getenv('RESEND_API_KEY') ?: '');
 
 // Determinar modo y parámetros
 $is_cli = (php_sapi_name() === 'cli');
 $modo   = $_GET['modo'] ?? ($argv[1] ?? 'test');
 $token  = $_GET['token'] ?? ($argv[2] ?? '');
-$action = $_GET['action'] ?? ($is_cli ? 'send' : 'view');
+$action = $_GET['action'] ?? (isset($argv[1]) ? $argv[1] : 'view');
 
 // Contar clubes pendientes
 $data_leads_info = file_exists($leads_file) ? json_decode(file_get_contents($leads_file), true) : null;
@@ -320,7 +321,7 @@ HTML;
  */
 function enviar_correo_resend($destinatario, $nombre_club, $apiKey, $asunto = null) {
     if (empty($asunto)) {
-        $asunto = "🎾 [3 Meses Gratis] Gestiona 1 o más sedes a un solo costo fijo + Reloj en Cancha | Padelblox Chile";
+        $asunto = "🎾 [3 Meses Gratis] Software Integral para Clubes de Pádel: Torneos, Caja POS y Smartwatch en Cancha";
     }
 
     $cuerpoHTML = generar_html_promocion($nombre_club, $destinatario);
@@ -349,7 +350,7 @@ function enviar_correo_resend($destinatario, $nombre_club, $apiKey, $asunto = nu
     $response = curl_exec($ch);
     $curl_err = curl_error($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+    @curl_close($ch);
 
     $decoded = json_decode($response, true);
     $es_exito = ($httpCode >= 200 && $httpCode < 300 && !empty($decoded['id']));
@@ -430,8 +431,9 @@ if ($action === 'send') {
     }
 }
 
-// Vista previa HTML
-$preview_html = generar_html_promocion('Club Padel Oriente (Ejemplo)', $test_email);
+// Vista previa HTML solo si es invocado directamente (no si es incluido por CLI)
+if (basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
+    $preview_html = generar_html_promocion('Club Padel Oriente (Ejemplo)', $test_email);
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -511,3 +513,5 @@ $preview_html = generar_html_promocion('Club Padel Oriente (Ejemplo)', $test_ema
 
 </body>
 </html>
+
+<?php } ?>
