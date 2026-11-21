@@ -13,19 +13,22 @@ import urllib.parse
 
 JSON_PATH = os.path.join(os.path.dirname(__file__), "clubes_chile_argentina_whatsapp.json")
 
-MENSAJE_OFICIAL = """¡Hola equipo de {CLUB}! 👋 Les escribe Emmanuel Villar de Padelblox Chile.
+MENSAJE_OFICIAL = """¡Hola equipo de {CLUB}! 👋 Les escribe Emmanuel Villar de Padelblox.
 
-Sé que para todo club de pádel uno de los mayores desafíos es rentabilizar las canchas en horarios diurnos/valle (09:00 a 17:00) y evitar fugas en cobros de cantina y clases.
+Les escribo directo porque estamos seleccionando a los clubes más destacados de {CIUDAD} para darles *3 meses de acceso 100% bonificado* a nuestro software para clubes de pádel.
 
-En Padelblox desarrollamos un software todo-en-uno que conecta las reservas con torneos americanos express, punto de venta (POS) y las clases de tus entrenadores para llenar esos horarios.
+A diferencia de los sistemas tradicionales, Padelblox está diseñado para resolver lo que más impacta en el día a día del club:
 
-Estamos seleccionando clubes clave en Santiago para darles *3 meses de acceso completo 100% gratis* sin ningún compromiso.
+🎾 *Llenar canchas en horarios valle:* Torneos americanos express automáticos y módulos de clases para academias.
+📈 *Cero fugas en cantina y mostrador:* Punto de Venta (POS) para bebidas, pelotas y grips con arqueo de caja diario exacto.
+⌚ *Experiencia única en cancha:* Marcadores en pantallas TV y sincronización con Smartwatch para los jugadores.
+💰 *Sin comisiones abusivas:* Tu facturación se queda 100% en tu club.
 
-¿Te gustaría que coordinemos una demo rápida de 5 min por acá?
+¿Te parece si te comparto por acá un video demo de 1 minuto para que veas cómo funciona?
 
 —
 *Emmanuel Villar*
-Padelblox Chile
+Padelblox
 📱 +56 9 6908 3124
 🌐 padelblox.cl"""
 
@@ -150,7 +153,8 @@ def main():
             telefono = clean_phone(club["telefono"])
             ubicacion = f"{club.get('ciudad', '')} ({club.get('comuna', '')})"
 
-            msg = MENSAJE_OFICIAL.replace("{CLUB}", nombre)
+            ciudad = club.get("ciudad") or club.get("comuna") or "su zona"
+            msg = MENSAJE_OFICIAL.replace("{CLUB}", nombre).replace("{CIUDAD}", ciudad)
             encoded_msg = urllib.parse.quote(msg)
 
             if use_desktop:
