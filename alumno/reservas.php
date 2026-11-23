@@ -334,11 +334,26 @@ try {
 
     $conn->commit();
 
+    // Verificar si se deben enviar notificaciones y correo (por defecto: true)
+    $enviarNotificacion = true;
+    if (isset($data['enviar_notificacion'])) {
+        $valNotif = $data['enviar_notificacion'];
+        $enviarNotificacion = !($valNotif === false || $valNotif === 'false' || $valNotif === 0 || $valNotif === '0');
+    } elseif (isset($data['notificar'])) {
+        $valNotif = $data['notificar'];
+        $enviarNotificacion = !($valNotif === false || $valNotif === 'false' || $valNotif === 0 || $valNotif === '0');
+    }
+
     echo json_encode([
         "ok" => true,
         "message" => "Reserva realizada con éxito",
-        "reservas" => $reservas_creadas
+        "reservas" => $reservas_creadas,
+        "notificaciones_enviadas" => $enviarNotificacion
     ]);
+
+    if (!$enviarNotificacion) {
+        exit;
+    }
 
     // Background notifications
     if (function_exists('fastcgi_finish_request')) {
