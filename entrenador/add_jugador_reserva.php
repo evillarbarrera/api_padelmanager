@@ -64,7 +64,25 @@ $stmt = $conn->prepare($sql_insert);
 $stmt->bind_param("ii", $reserva_id, $jugador_id);
 
 if ($stmt->execute()) {
-    echo json_encode(["success" => true, "message" => "Jugador agregado a la sesión"]);
+    // Verificar si se deben enviar notificaciones y correo (por defecto: true)
+    $enviarNotificacion = true;
+    if (isset($data['enviar_notificacion'])) {
+        $valNotif = $data['enviar_notificacion'];
+        $enviarNotificacion = !($valNotif === false || $valNotif === 'false' || $valNotif === 0 || $valNotif === '0');
+    } elseif (isset($data['notificar'])) {
+        $valNotif = $data['notificar'];
+        $enviarNotificacion = !($valNotif === false || $valNotif === 'false' || $valNotif === 0 || $valNotif === '0');
+    }
+
+    echo json_encode([
+        "success" => true,
+        "message" => "Jugador agregado a la sesión",
+        "notificaciones_enviadas" => $enviarNotificacion
+    ]);
+
+    if (!$enviarNotificacion) {
+        exit;
+    }
 
     if (function_exists('fastcgi_finish_request')) {
         fastcgi_finish_request();
