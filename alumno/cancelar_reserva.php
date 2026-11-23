@@ -202,13 +202,35 @@ try {
     // Cancelar recordatorios programados pendientes de esta clase para el alumno
     @$conn->query("UPDATE recordatorios_programados SET enviado = 2, enviado_at = NOW() WHERE (reserva_id = $reserva_id OR (user_id = $jugador_id AND fecha_programada LIKE '" . $conn->real_escape_string($reserva['fecha']) . "%')) AND enviado = 0");
 
+    // Verificar si se deben enviar notificaciones y correo (por defecto: true)
+    $enviarNotificacion = true;
+    if (isset($data['enviar_notificacion'])) {
+        $valNotif = $data['enviar_notificacion'];
+        $enviarNotificacion = !($valNotif === false || $valNotif === 'false' || $valNotif === 0 || $valNotif === '0');
+    } elseif (isset($data['notificar'])) {
+        $valNotif = $data['notificar'];
+        $enviarNotificacion = !($valNotif === false || $valNotif === 'false' || $valNotif === 0 || $valNotif === '0');
+    } elseif (isset($data['action']) && $data['action'] === 'silent') {
+        $enviarNotificacion = false;
+    } elseif (!empty($data['silent'])) {
+        $enviarNotificacion = false;
+    }
+
     // --- SEND RESPONSE IMMEDIATELY ---
     echo json_encode([
         "ok" => true,
         "message" => $msgFinal,
         "reserva_id" => $reserva_id,
-        "modo" => $soloRemoverJugador ? "remover_jugador" : "cancelar_total"
+        "modo" => $soloRemoverJugador ? "remover_jugador" : "cancelar_total",
+        "notificaciones_enviadas" => $enviarNotificacion
     ]);
+
+    if (!$enviarNotificacion) {
+        if (isset($conn)) {
+            $conn->close();
+        }
+        exit;
+    }
 
     // Flush and close connection if possible
     if (function_exists('fastcgi_finish_request')) {
