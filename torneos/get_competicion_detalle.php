@@ -493,13 +493,70 @@ try {
                         $tablaPosiciones[] = $posRow;
                     }
 
+                    // Playoffs / Fase Final
+                    $sqlPlayoffs = "SELECT p.*, cn.nombre as cancha_nombre,
+                                           par1.nombre_pareja as pareja1_nombre, par1.nombre_externo1 as p1_ext1, par1.nombre_externo2 as p1_ext2,
+                                           par2.nombre_pareja as pareja2_nombre, par2.nombre_externo1 as p2_ext1, par2.nombre_externo2 as p2_ext2,
+                                           par1.jugador1_id as p1_j1_id, par1.jugador2_id as p1_j2_id,
+                                           par2.jugador1_id as p2_j1_id, par2.jugador2_id as p2_j2_id,
+                                           u1.nombre as p1_u1_nom, COALESCE(u1.apellido, '') as p1_u1_ape,
+                                           u2.nombre as p1_u2_nom, COALESCE(u2.apellido, '') as p1_u2_ape,
+                                           u3.nombre as p2_u1_nom, COALESCE(u3.apellido, '') as p2_u1_ape,
+                                           u4.nombre as p2_u2_nom, COALESCE(u4.apellido, '') as p2_u2_ape
+                                    FROM liga_partidos p
+                                    LEFT JOIN canchas cn ON p.cancha_id = cn.id
+                                    LEFT JOIN liga_parejas par1 ON p.pareja1_id = par1.id
+                                    LEFT JOIN usuarios u1 ON par1.jugador1_id = u1.id
+                                    LEFT JOIN usuarios u2 ON par1.jugador2_id = u2.id
+                                    LEFT JOIN liga_parejas par2 ON p.pareja2_id = par2.id
+                                    LEFT JOIN usuarios u3 ON par2.jugador1_id = u3.id
+                                    LEFT JOIN usuarios u4 ON par2.jugador2_id = u4.id
+                                    WHERE (p.categoria_id = $catId OR par1.categoria_id = $catId) AND p.es_playoff = 1
+                                    ORDER BY p.id ASC";
+                    $resPo = $conn->query($sqlPlayoffs);
+                    $playoffs = [];
+                    if ($resPo) {
+                        while ($po = $resPo->fetch_assoc()) {
+                            $obs = !empty($po['observaciones']) ? json_decode($po['observaciones'], true) : [];
+                            if (!empty($po['pareja1_id'])) {
+                                $n1 = trim(($po['p1_u1_nom'] ?? '') . ' ' . ($po['p1_u1_ape'] ?? ''));
+                                if (empty($n1)) $n1 = !empty($po['p1_ext1']) ? $po['p1_ext1'] : 'Jugador 1';
+                                $n2 = trim(($po['p1_u2_nom'] ?? '') . ' ' . ($po['p1_u2_ape'] ?? ''));
+                                if (empty($n2)) $n2 = !empty($po['p1_ext2']) ? $po['p1_ext2'] : 'Jugador 2';
+                                if (empty($po['pareja1_nombre']) || strpos($po['pareja1_nombre'], ' / ') !== false || $po['pareja1_nombre'] === 'Pareja') {
+                                    $po['pareja1_nombre'] = $n1 . ' / ' . $n2;
+                                }
+                            } else {
+                                $po['pareja1_nombre'] = $obs['seed1_label'] ?? 'Por definir';
+                            }
+
+                            if (!empty($po['pareja2_id'])) {
+                                $n3 = trim(($po['p2_u1_nom'] ?? '') . ' ' . ($po['p2_u1_ape'] ?? ''));
+                                if (empty($n3)) $n3 = !empty($po['p2_ext1']) ? $po['p2_ext1'] : 'Jugador 1';
+                                $n4 = trim(($po['p2_u2_nom'] ?? '') . ' ' . ($po['p2_u2_ape'] ?? ''));
+                                if (empty($n4)) $n4 = !empty($po['p2_ext2']) ? $po['p2_ext2'] : 'Jugador 2';
+                                if (empty($po['pareja2_nombre']) || strpos($po['pareja2_nombre'], ' / ') !== false || $po['pareja2_nombre'] === 'Pareja') {
+                                    $po['pareja2_nombre'] = $n3 . ' / ' . $n4;
+                                }
+                            } else {
+                                $po['pareja2_nombre'] = $obs['seed2_label'] ?? 'Por definir';
+                            }
+
+                            $po['meta_playoff'] = $obs;
+                            $playoffs[] = $po;
+                        }
+                    }
+
                     $categorias[] = [
                         'id' => $catId,
                         'nombre' => $cat['nombre'],
+                        'max_parejas' => (int)($cat['max_parejas'] ?? 16),
+                        'parejas_clasifican_playoff' => (int)($cat['parejas_clasifican_playoff'] ?? count($inscritos)),
                         'inscritos' => $inscritos,
                         'jornadas' => $jornadas,
                         'tabla_posiciones' => $tablaPosiciones,
-                        'posiciones' => $tablaPosiciones
+                        'posiciones' => $tablaPosiciones,
+                        'playoffs' => $playoffs
                     ];
                 }
             }
