@@ -44,6 +44,7 @@ $nombre = trim($input['nombre'] ?? '');
 $descripcion = trim($input['descripcion'] ?? '');
 $imagen_url = trim($input['imagen_url'] ?? '');
 $fecha_inicio = $input['fecha_inicio'] ?? '';
+$fecha_fin = $input['fecha_fin'] ?? '';
 $raw_precio = $input['precio'] ?? 0;
 if (is_string($raw_precio)) {
     $clean_str = trim(str_replace(['$', ' '], '', $raw_precio));
