@@ -19,6 +19,13 @@ if (!empty($input['jornada_ids']) && is_array($input['jornada_ids'])) {
     $jornada_ids = [(int)$input['jornada_id']];
 }
 
+$partido_ids = [];
+if (!empty($input['partido_ids']) && is_array($input['partido_ids'])) {
+    $partido_ids = array_values(array_unique(array_filter(array_map('intval', $input['partido_ids']))));
+}
+$categoria_id_playoff = !empty($input['categoria_id']) ? (int)$input['categoria_id'] : null;
+$ronda_playoff = !empty($input['ronda_playoff']) ? trim((string)$input['ronda_playoff']) : null;
+
 $fecha_inicio = !empty($input['fecha_inicio']) ? trim($input['fecha_inicio']) : date('Y-m-d');
 $dias_semana = !empty($input['dias_semana']) && is_array($input['dias_semana']) ? $input['dias_semana'] : ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 $horarios_raw = !empty($input['horarios']) && is_array($input['horarios']) ? $input['horarios'] : ['18:00', '19:30', '21:00'];
@@ -43,8 +50,8 @@ if (empty($horarios)) {
     $horarios = ['18:00', '19:30', '21:00'];
 }
 
-if (empty($jornada_ids)) {
-    echo json_encode(["success" => false, "error" => "ID de jornada requerido"]);
+if (empty($jornada_ids) && empty($partido_ids) && (!$categoria_id_playoff || !$ronda_playoff)) {
+    echo json_encode(["success" => false, "error" => "ID de jornada o partidos de playoff requeridos"]);
     exit;
 }
 
@@ -73,9 +80,19 @@ function tieneRestriccion($restriccionesJson, $diaNombre, $horaStr) {
 }
 
 try {
-    // 1. Obtener los partidos de las jornadas con los 4 jugadores de ambas parejas
-    $j_ids_str = implode(',', $jornada_ids);
-    $sql_partidos = "SELECT p.id, p.pareja1_id, p.pareja2_id,
+    // 1. Obtener los partidos de las jornadas (o fase de playoffs) con los 4 jugadores de ambas parejas
+    $j_ids_str = !empty($jornada_ids) ? implode(',', $jornada_ids) : '';
+    if (!empty($partido_ids)) {
+        $p_in_str = implode(',', $partido_ids);
+        $where_clause = "p.id IN ($p_in_str) AND p.estado != 'Jugado'";
+    } elseif ($categoria_id_playoff && $ronda_playoff) {
+        $ronda_esc = $conn->real_escape_string($ronda_playoff);
+        $where_clause = "p.categoria_id = $categoria_id_playoff AND p.es_playoff = 1 AND p.ronda_playoff = '$ronda_esc' AND p.estado != 'Jugado'";
+    } else {
+        $where_clause = "p.jornada_id IN ($j_ids_str) AND p.estado != 'Jugado'";
+    }
+
+    $sql_partidos = "SELECT p.id, p.pareja1_id, p.pareja2_id, p.categoria_id, p.es_playoff, p.ronda_playoff, p.observaciones,
                             cat.dias_juego_json as cat_dias_restr,
                             par1.nombre_pareja as p1_nom, par2.nombre_pareja as p2_nom,
                             par1.jugador1_id as p1_j1_id, par1.jugador2_id as p1_j2_id,
@@ -95,7 +112,7 @@ try {
                      LEFT JOIN usuarios u12 ON par1.jugador2_id = u12.id
                      LEFT JOIN usuarios u21 ON par2.jugador1_id = u21.id
                      LEFT JOIN usuarios u22 ON par2.jugador2_id = u22.id
-                     WHERE p.jornada_id IN ($j_ids_str) AND p.estado != 'Jugado'
+                     WHERE $where_clause
                      ORDER BY p.id ASC";
     $res_m = $conn->query($sql_partidos);
     $partidos = [];
@@ -138,11 +155,19 @@ try {
 
     // Si NO se pasaron canchas específicas desde el frontend, buscar las canchas del club asociado
     if (empty($canchas_ids)) {
-        $res_c = $conn->query("SELECT DISTINCT c.id FROM canchas c 
-                               JOIN ligas l ON (c.club_id = l.club_id OR l.club_id IS NULL OR l.club_id = 0)
-                               JOIN liga_categorias cat ON cat.liga_id = l.id
-                               JOIN liga_jornadas j ON j.categoria_id = cat.id
-                               WHERE j.id IN ($j_ids_str) AND c.activa = 1");
+        if (!empty($j_ids_str)) {
+            $res_c = $conn->query("SELECT DISTINCT c.id FROM canchas c 
+                                   JOIN ligas l ON (c.club_id = l.club_id OR l.club_id IS NULL OR l.club_id = 0)
+                                   JOIN liga_categorias cat ON cat.liga_id = l.id
+                                   JOIN liga_jornadas j ON j.categoria_id = cat.id
+                                   WHERE j.id IN ($j_ids_str) AND c.activa = 1");
+        } else {
+            $res_c = $conn->query("SELECT DISTINCT c.id FROM canchas c 
+                                   JOIN ligas l ON (c.club_id = l.club_id OR l.club_id IS NULL OR l.club_id = 0)
+                                   JOIN liga_categorias cat ON cat.liga_id = l.id
+                                   JOIN liga_partidos p ON p.categoria_id = cat.id
+                                   WHERE p.id IN ($partidosIdsList) AND c.activa = 1");
+        }
         if ($res_c && $res_c->num_rows > 0) {
             while ($row_c = $res_c->fetch_assoc()) {
                 $canchas_ids[] = (int)$row_c['id'];
@@ -558,7 +583,9 @@ try {
     }
 
     $ultimaFecha = date('Y-m-d', strtotime("+" . ($diasLoop - 1) . " days", $inicioTimestamp));
-    $conn->query("UPDATE liga_jornadas SET fecha_limite = '$ultimaFecha' WHERE id IN ($j_ids_str)");
+    if (!empty($j_ids_str)) {
+        $conn->query("UPDATE liga_jornadas SET fecha_limite = '$ultimaFecha' WHERE id IN ($j_ids_str)");
+    }
 
     // Enviar notificaciones por correo y push para los partidos asignados
     if (!empty($partidosProgramadosIds)) {

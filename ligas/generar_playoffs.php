@@ -54,29 +54,13 @@ try {
         $num_clasificados = $total;
     }
 
-    // Validar y ajustar pases directos a cuartos
-    if ($directos_cuartos < 0) {
-        // Por defecto: Si hay 12 o más y son 12, 4 directos; si son 8, 0 directos
-        if ($num_clasificados == 12) {
-            $directos_cuartos = 4;
-        } elseif ($num_clasificados == 10) {
-            $directos_cuartos = 6;
-        } elseif ($num_clasificados == 14) {
-            $directos_cuartos = 2;
-        } else {
-            $directos_cuartos = ($num_clasificados > 8) ? 4 : 0;
-        }
-    }
-
+    // Validar y ajustar pases directos a cuartos respetando SIEMPRE los directos seleccionados (ej. 4 primeros a Cuartos)
     if ($num_clasificados <= 8) {
         $directos_cuartos = 0;
-    }
-
-    // Si hay directos a cuartos, la cantidad que va a previa debe ser par
-    $previa_count = $num_clasificados - $directos_cuartos;
-    if ($previa_count % 2 !== 0) {
-        $num_clasificados = $num_clasificados - 1;
-        $previa_count = $num_clasificados - $directos_cuartos;
+    } elseif ($directos_cuartos < 0) {
+        $directos_cuartos = 4;
+    } elseif ($directos_cuartos > 7) {
+        $directos_cuartos = 7;
     }
 
     // Limitar clasificados exactos
@@ -103,140 +87,193 @@ try {
     };
 
     // ==========================================
-    // CASO 1: CUADRO CON RONDA PREVIA / OCTAVOS (N > 8 con BYEs a 4tos o 16 completos)
+    // CASO 1: CUADRO CON RONDA PREVIA / OCTAVOS (N > 8, respetando los BYEs a Cuartos y generando Play-In si sobran parejas)
     // ==========================================
-    if ($n > 8 && $directos_cuartos > 0) {
-        $ronda_inicial = "Octavos de Final";
-        $p_previa = ($n - $directos_cuartos) / 2; // Partidos de previa necesarios
+    if ($n > 8) {
+        $qOpenSlots = 8 - $directos_cuartos;
+        $octavosCapacity = $qOpenSlots * 2;
+        $remainingCount = $n - $directos_cuartos;
 
-        // Previa Matches (ej. con B=4, N=12 -> 4 partidos con 5º al 12º)
-        // 1º al B-ésimo están exentos (pasan directo)
-        $previaTeams = array_slice($clasificados, $directos_cuartos); // Parejas que juegan previa
-        $numPrevia = count($previaTeams); // 8 parejas para B=4, N=12
+        if ($remainingCount < $octavosCapacity) {
+            $directos_cuartos = max(0, 16 - $n);
+            $qOpenSlots = 8 - $directos_cuartos;
+            $octavosCapacity = $qOpenSlots * 2;
+            $remainingCount = $n - $directos_cuartos;
+        }
 
-        // Parejas directas a Cuartos
-        $d1 = $clasificados[0]; // 1º
-        $d2 = ($directos_cuartos >= 2) ? $clasificados[1] : null; // 2º
-        $d3 = ($directos_cuartos >= 3) ? $clasificados[2] : null; // 3º
-        $d4 = ($directos_cuartos >= 4) ? $clasificados[3] : null; // 4º
-        $d5 = ($directos_cuartos >= 5) ? $clasificados[4] : null; // 5º
-        $d6 = ($directos_cuartos >= 6) ? $clasificados[5] : null; // 6º
+        $numPlayIn = max(0, $remainingCount - $octavosCapacity);
+        $ronda_inicial = ($numPlayIn > 0) ? "Repechaje (Play-In)" : "Octavos de Final";
 
-        // Insertar Partidos de Previa (Octavos)
-        // Matchups: Best seed of previa vs Worst seed of previa
-        // PREV1 (Rival de 1º en Q1): 8º vs 9º (o correspondiente)
-        // PREV2 (Rival de 4º en Q2): 5º vs 12º
-        // PREV3 (Rival de 3º en Q3): 6º vs 11º
-        // PREV4 (Rival de 2º en Q4): 7º vs 10º
-        
-        $prevMatchesConfig = [];
-        if ($directos_cuartos == 4 && $n == 12) {
-            // Estándar 12 parejas (4 directos, 4 partidos de previa):
-            // 8º vs 9º -> Q1
-            // 5º vs 12º -> Q2
-            // 6º vs 11º -> Q3
-            // 7º vs 10º -> Q4
-            $prevMatchesConfig = [
-                ['t1' => $clasificados[7], 'pos1' => 8, 't2' => $clasificados[8], 'pos2' => 9, 'code' => 'PREV1', 'next' => 'Q1', 'slot' => 2, 'title' => 'Previa 1 (8º vs 9º)'],
-                ['t1' => $clasificados[4], 'pos1' => 5, 't2' => $clasificados[11], 'pos2' => 12, 'code' => 'PREV2', 'next' => 'Q2', 'slot' => 2, 'title' => 'Previa 2 (5º vs 12º)'],
-                ['t1' => $clasificados[5], 'pos1' => 6, 't2' => $clasificados[10], 'pos2' => 11, 'code' => 'PREV3', 'next' => 'Q3', 'slot' => 2, 'title' => 'Previa 3 (6º vs 11º)'],
-                ['t1' => $clasificados[6], 'pos1' => 7, 't2' => $clasificados[9], 'pos2' => 10, 'code' => 'PREV4', 'next' => 'Q4', 'slot' => 2, 'title' => 'Previa 4 (7º vs 10º)'],
+        $directToOctavosCount = $octavosCapacity - $numPlayIn;
+        $octavosEntries = [];
+        for ($i = 0; $i < $directToOctavosCount; $i++) {
+            $t = $clasificados[$directos_cuartos + $i];
+            $seedNum = $directos_cuartos + $i + 1;
+            $octavosEntries[] = [
+                'id' => $t['id'],
+                'seed' => $seedNum,
+                'nombre' => "{$seedNum}º {$t['nombre']}",
+                'is_playin' => false
             ];
-        } elseif ($directos_cuartos == 6 && $n == 10) {
-            // 6 directos (1º al 6º), 2 partidos de previa (7º al 10º):
-            // 8º vs 9º -> Q1 (contra 1º)
-            // 7º vs 10º -> Q4 (contra 2º)
-            $prevMatchesConfig = [
-                ['t1' => $clasificados[7], 'pos1' => 8, 't2' => $clasificados[8], 'pos2' => 9, 'code' => 'PREV1', 'next' => 'Q1', 'slot' => 2, 'title' => 'Previa 1 (8º vs 9º)'],
-                ['t1' => $clasificados[6], 'pos1' => 7, 't2' => $clasificados[9], 'pos2' => 10, 'code' => 'PREV4', 'next' => 'Q4', 'slot' => 2, 'title' => 'Previa 2 (7º vs 10º)'],
+        }
+
+        $playInStartIdx = $directos_cuartos + $directToOctavosCount;
+        $playInTeams = array_slice($clasificados, $playInStartIdx);
+        $playInMatchesCreated = [];
+
+        for ($pIdx = 0; $pIdx < $numPlayIn; $pIdx++) {
+            $tA = $playInTeams[$pIdx];
+            $tB = $playInTeams[count($playInTeams) - 1 - $pIdx];
+            $sA = $playInStartIdx + $pIdx + 1;
+            $sB = $n - $pIdx;
+            $piCode = 'PI' . ($pIdx + 1);
+            $octavosEntries[] = [
+                'id' => null,
+                'seed' => $sA,
+                'nombre' => "Ganador Play-In " . ($pIdx + 1) . " ({$sA}º vs {$sB}º)",
+                'is_playin' => true,
+                'pi_code' => $piCode,
+                'pi_label' => "{$sA}º/{$sB}º"
             ];
-        } else {
-            // Genérico: emparejar los extremos de previa
-            for ($k = 0; $k < $p_previa; $k++) {
-                $idx1 = $directos_cuartos + $k;
-                $idx2 = $n - 1 - $k;
-                $t1 = $clasificados[$idx1];
-                $t2 = $clasificados[$idx2];
-                $code = 'PREV' . ($k + 1);
-                $targetQ = 'Q' . (($k % 4) + 1);
-                $prevMatchesConfig[] = [
-                    't1' => $t1, 'pos1' => $idx1 + 1,
-                    't2' => $t2, 'pos2' => $idx2 + 1,
-                    'code' => $code, 'next' => $targetQ, 'slot' => 2,
-                    'title' => "Previa " . ($k + 1) . " (" . ($idx1 + 1) . "º vs " . ($idx2 + 1) . "º)"
-                ];
+            $playInMatchesCreated[] = [
+                'code' => $piCode,
+                'p1_id' => $tA['id'],
+                'p2_id' => $tB['id'],
+                's1_label' => "{$sA}º {$tA['nombre']}",
+                's2_label' => "{$sB}º {$tB['nombre']}",
+                'next_code' => 'PREV1',
+                'next_slot' => 2
+            ];
+        }
+
+        $directOct = array_values(array_filter($octavosEntries, function($e) { return !$e['is_playin']; }));
+        $playInOct = array_reverse(array_values(array_filter($octavosEntries, function($e) { return $e['is_playin']; })));
+        $orderedOctavosSlots = array_merge($directOct, $playInOct);
+
+        // Mapa de posiciones de Cuartos para los seeds 1 al 8:
+        $quarterSlotForTop8 = [
+            1 => ['q' => 'Q1', 'slot' => 1],
+            2 => ['q' => 'Q4', 'slot' => 1],
+            3 => ['q' => 'Q3', 'slot' => 1],
+            4 => ['q' => 'Q2', 'slot' => 1],
+            5 => ['q' => 'Q2', 'slot' => 2],
+            6 => ['q' => 'Q3', 'slot' => 2],
+            7 => ['q' => 'Q4', 'slot' => 2],
+            8 => ['q' => 'Q1', 'slot' => 2],
+        ];
+
+        $quartersMap = [
+            'Q1' => ['p1_id' => null, 's1' => 'Por definir', 'p2_id' => null, 's2' => 'Por definir', 'next' => 'S1', 'slot' => 1],
+            'Q2' => ['p1_id' => null, 's1' => 'Por definir', 'p2_id' => null, 's2' => 'Por definir', 'next' => 'S1', 'slot' => 2],
+            'Q3' => ['p1_id' => null, 's1' => 'Por definir', 'p2_id' => null, 's2' => 'Por definir', 'next' => 'S2', 'slot' => 1],
+            'Q4' => ['p1_id' => null, 's1' => 'Por definir', 'p2_id' => null, 's2' => 'Por definir', 'next' => 'S2', 'slot' => 2],
+        ];
+
+        // 1. Asignar BYEs directos a Cuartos (seeds 1..directos_cuartos)
+        for ($s = 1; $s <= $directos_cuartos; $s++) {
+            $team = $clasificados[$s - 1];
+            $target = $quarterSlotForTop8[$s];
+            if ($target['slot'] === 1) {
+                $quartersMap[$target['q']]['p1_id'] = $team['id'];
+                $quartersMap[$target['q']]['s1'] = "{$s}º {$team['nombre']}";
+            } else {
+                $quartersMap[$target['q']]['p2_id'] = $team['id'];
+                $quartersMap[$target['q']]['s2'] = "{$s}º {$team['nombre']}";
             }
         }
 
-        foreach ($prevMatchesConfig as $pm) {
-            $obs = [
-                'bracket_code' => $pm['code'],
-                'next_bracket' => $pm['next'],
-                'next_slot' => $pm['slot'],
-                'seed1_label' => "{$pm['pos1']}º {$pm['t1']['nombre']}",
-                'seed2_label' => "{$pm['pos2']}º {$pm['t2']['nombre']}"
+        // 2. Preparar Partidos de Octavos / Previa
+        $octavosToInsert = [];
+        for ($k = 0; $k < $qOpenSlots; $k++) {
+            $top8SlotNum = $directos_cuartos + 1 + $k;
+            $entry1 = $orderedOctavosSlots[$k];
+            $entry2 = $orderedOctavosSlots[count($orderedOctavosSlots) - 1 - $k];
+            $target = $quarterSlotForTop8[$top8SlotNum] ?? ['q' => 'Q1', 'slot' => 2];
+            $prevNum = $k + 1;
+            $code = 'PREV' . $prevNum;
+
+            if (!empty($entry1['is_playin'])) {
+                foreach ($playInMatchesCreated as &$pim) {
+                    if ($pim['code'] === $entry1['pi_code']) { $pim['next_code'] = $code; $pim['next_slot'] = 1; }
+                }
+                unset($pim);
+            }
+            if (!empty($entry2['is_playin'])) {
+                foreach ($playInMatchesCreated as &$pim) {
+                    if ($pim['code'] === $entry2['pi_code']) { $pim['next_code'] = $code; $pim['next_slot'] = 2; }
+                }
+                unset($pim);
+            }
+
+            $octavosToInsert[] = [
+                'p1_id' => $entry1['id'],
+                'p2_id' => $entry2['id'],
+                'obs' => [
+                    'bracket_code' => $code,
+                    'next_bracket' => $target['q'],
+                    'next_slot' => $target['slot'],
+                    'seed1_label' => $entry1['nombre'],
+                    'seed2_label' => $entry2['nombre']
+                ],
+                'target_q' => $target['q']
             ];
-            $insertMatch($pm['t1']['id'], $pm['t2']['id'], 'Octavos de Final', $obs);
+
+            $s1Short = !empty($entry1['is_playin']) ? "Play-In ({$entry1['pi_label']})" : "{$entry1['seed']}º";
+            $s2Short = !empty($entry2['is_playin']) ? "Play-In ({$entry2['pi_label']})" : "{$entry2['seed']}º";
+            $winnerLabel = "Ganador Octavos $prevNum ($s1Short vs $s2Short)";
+            if ($target['slot'] === 1) {
+                $quartersMap[$target['q']]['s1'] = $winnerLabel;
+            } else {
+                $quartersMap[$target['q']]['s2'] = $winnerLabel;
+            }
+        }
+
+        // Insertar primero los partidos de Repechaje (Play-In)
+        foreach ($playInMatchesCreated as $pim) {
+            $insertMatch($pim['p1_id'], $pim['p2_id'], 'Repechaje (Play-In)', [
+                'bracket_code' => $pim['code'],
+                'next_bracket' => $pim['next_code'],
+                'next_slot' => $pim['next_slot'],
+                'seed1_label' => $pim['s1_label'],
+                'seed2_label' => $pim['s2_label']
+            ]);
             $crucesDetalle[] = [
-                "ronda" => "Octavos de Final (Previa)",
-                "pareja1" => "{$pm['pos1']}º {$pm['t1']['nombre']}",
-                "pareja2" => "{$pm['pos2']}º {$pm['t2']['nombre']}",
-                "destino" => "Avanza a Cuartos ({$pm['next']})"
+                "ronda" => "Repechaje (Play-In)",
+                "pareja1" => $pim['s1_label'],
+                "pareja2" => $pim['s2_label'],
+                "destino" => "Avanza a Octavos ({$pim['next_code']})"
             ];
         }
 
-        // Insertar Cuartos de Final (Q1, Q2, Q3, Q4)
-        // Q1: 1º vs Ganador PREV1
-        $insertMatch($d1['id'], null, 'Cuartos de Final', [
-            'bracket_code' => 'Q1', 'next_bracket' => 'S1', 'next_slot' => 1,
-            'seed1_label' => "1º {$d1['nombre']}", 'seed2_label' => "Ganador Previa 1"
-        ]);
-        $crucesDetalle[] = [
-            "ronda" => "Cuartos de Final (Q1)",
-            "pareja1" => "1º {$d1['nombre']} (BYE Directo)",
-            "pareja2" => "Ganador Previa 1"
-        ];
+        // Insertar partidos de Octavos
+        foreach ($octavosToInsert as $oct) {
+            $insertMatch($oct['p1_id'], $oct['p2_id'], 'Octavos de Final', $oct['obs']);
+            $crucesDetalle[] = [
+                "ronda" => "Octavos de Final (Previa)",
+                "pareja1" => $oct['obs']['seed1_label'],
+                "pareja2" => $oct['obs']['seed2_label'],
+                "destino" => "Avanza a Cuartos ({$oct['target_q']})"
+            ];
+        }
 
-        // Q2: 4º (o Directo) vs Ganador PREV2 (o 5º)
-        $q2_p1 = ($d4 ? $d4['id'] : null);
-        $q2_p2 = ($d5 ? $d5['id'] : null);
-        $insertMatch($q2_p1, $q2_p2, 'Cuartos de Final', [
-            'bracket_code' => 'Q2', 'next_bracket' => 'S1', 'next_slot' => 2,
-            'seed1_label' => $d4 ? "4º {$d4['nombre']}" : "Ganador Previa 2A",
-            'seed2_label' => $d5 ? "5º {$d5['nombre']}" : "Ganador Previa 2"
-        ]);
-        $crucesDetalle[] = [
-            "ronda" => "Cuartos de Final (Q2)",
-            "pareja1" => $d4 ? "4º {$d4['nombre']} (BYE Directo)" : "Por definir",
-            "pareja2" => $d5 ? "5º {$d5['nombre']} (BYE Directo)" : "Ganador Previa 2"
-        ];
+        // 3. Insertar los 4 Cuartos de Final (Q1, Q2, Q3, Q4)
+        foreach (['Q1', 'Q2', 'Q3', 'Q4'] as $qCode) {
+            $qm = $quartersMap[$qCode];
+            $insertMatch($qm['p1_id'], $qm['p2_id'], 'Cuartos de Final', [
+                'bracket_code' => $qCode,
+                'next_bracket' => $qm['next'],
+                'next_slot' => $qm['slot'],
+                'seed1_label' => $qm['s1'],
+                'seed2_label' => $qm['s2']
+            ]);
+            $crucesDetalle[] = [
+                "ronda" => "Cuartos de Final ($qCode)",
+                "pareja1" => $qm['s1'],
+                "pareja2" => $qm['s2']
+            ];
+        }
 
-        // Q3: 3º (o Directo) vs Ganador PREV3 (o 6º)
-        $q3_p1 = ($d3 ? $d3['id'] : null);
-        $q3_p2 = ($d6 ? $d6['id'] : null);
-        $insertMatch($q3_p1, $q3_p2, 'Cuartos de Final', [
-            'bracket_code' => 'Q3', 'next_bracket' => 'S2', 'next_slot' => 1,
-            'seed1_label' => $d3 ? "3º {$d3['nombre']}" : "Ganador Previa 3A",
-            'seed2_label' => $d6 ? "6º {$d6['nombre']}" : "Ganador Previa 3"
-        ]);
-        $crucesDetalle[] = [
-            "ronda" => "Cuartos de Final (Q3)",
-            "pareja1" => $d3 ? "3º {$d3['nombre']} (BYE Directo)" : "Por definir",
-            "pareja2" => $d6 ? "6º {$d6['nombre']} (BYE Directo)" : "Ganador Previa 3"
-        ];
-
-        // Q4: 2º vs Ganador PREV4
-        $insertMatch($d2['id'], null, 'Cuartos de Final', [
-            'bracket_code' => 'Q4', 'next_bracket' => 'S2', 'next_slot' => 2,
-            'seed1_label' => "2º {$d2['nombre']}", 'seed2_label' => "Ganador Previa 4"
-        ]);
-        $crucesDetalle[] = [
-            "ronda" => "Cuartos de Final (Q4)",
-            "pareja1" => "2º {$d2['nombre']} (BYE Directo)",
-            "pareja2" => "Ganador Previa 4"
-        ];
-
-        // Semifinales (S1, S2)
+        // 4. Semifinales (S1, S2) y Final (F1)
         $insertMatch(null, null, 'Semifinales', [
             'bracket_code' => 'S1', 'next_bracket' => 'F1', 'next_slot' => 1,
             'seed1_label' => 'Ganador Cuartos 1', 'seed2_label' => 'Ganador Cuartos 2'
@@ -245,8 +282,6 @@ try {
             'bracket_code' => 'S2', 'next_bracket' => 'F1', 'next_slot' => 2,
             'seed1_label' => 'Ganador Cuartos 3', 'seed2_label' => 'Ganador Cuartos 4'
         ]);
-
-        // Final (F1)
         $insertMatch(null, null, 'Final', [
             'bracket_code' => 'F1',
             'seed1_label' => 'Ganador Semifinal 1', 'seed2_label' => 'Ganador Semifinal 2'
