@@ -54,11 +54,16 @@ try {
         $num_clasificados = $total;
     }
 
-    // Validar y ajustar pases directos a cuartos respetando SIEMPRE los directos seleccionados (ej. 4 primeros a Cuartos)
+    // Validar y ajustar pases directos a cuartos:
+    // Por defecto ($directos_cuartos < 0) se aplica el Estándar Oficial FIP (potencia de 2 más cercana):
+    // - Si N <= 8: 0 BYEs
+    // - Si 9 <= N <= 15: (16 - N) BYEs a Cuartos (ej. 12 -> 4 BYEs, 14 -> 2 BYEs, 15 -> 1 BYE)
+    // - Si N >= 16: 0 BYEs a Cuartos (8 partidos de Octavos completos, y si N=17 -> 1 partido de Dieciseisavos 16º vs 17º)
+    // Si el usuario selecciona explícitamente un número de BYEs (1..7), se respeta ese número.
     if ($num_clasificados <= 8) {
         $directos_cuartos = 0;
     } elseif ($directos_cuartos < 0) {
-        $directos_cuartos = 4;
+        $directos_cuartos = ($num_clasificados >= 16) ? 0 : (16 - $num_clasificados);
     } elseif ($directos_cuartos > 7) {
         $directos_cuartos = 7;
     }
@@ -102,7 +107,7 @@ try {
         }
 
         $numPlayIn = max(0, $remainingCount - $octavosCapacity);
-        $ronda_inicial = ($numPlayIn > 0) ? "Repechaje (Play-In)" : "Octavos de Final";
+        $ronda_inicial = ($numPlayIn > 0) ? "Dieciseisavos de Final" : "Octavos de Final";
 
         $directToOctavosCount = $octavosCapacity - $numPlayIn;
         $octavosEntries = [];
@@ -130,7 +135,7 @@ try {
             $octavosEntries[] = [
                 'id' => null,
                 'seed' => $sA,
-                'nombre' => "Ganador Play-In " . ($pIdx + 1) . " ({$sA}º vs {$sB}º)",
+                'nombre' => "Ganador 16avos " . ($pIdx + 1) . " ({$sA}º vs {$sB}º)",
                 'is_playin' => true,
                 'pi_code' => $piCode,
                 'pi_label' => "{$sA}º/{$sB}º"
@@ -218,8 +223,8 @@ try {
                 'target_q' => $target['q']
             ];
 
-            $s1Short = !empty($entry1['is_playin']) ? "Play-In ({$entry1['pi_label']})" : "{$entry1['seed']}º";
-            $s2Short = !empty($entry2['is_playin']) ? "Play-In ({$entry2['pi_label']})" : "{$entry2['seed']}º";
+            $s1Short = !empty($entry1['is_playin']) ? "16avos ({$entry1['pi_label']})" : "{$entry1['seed']}º";
+            $s2Short = !empty($entry2['is_playin']) ? "16avos ({$entry2['pi_label']})" : "{$entry2['seed']}º";
             $winnerLabel = "Ganador Octavos $prevNum ($s1Short vs $s2Short)";
             if ($target['slot'] === 1) {
                 $quartersMap[$target['q']]['s1'] = $winnerLabel;
@@ -228,9 +233,9 @@ try {
             }
         }
 
-        // Insertar primero los partidos de Repechaje (Play-In)
+        // Insertar primero los partidos de Dieciseisavos de Final
         foreach ($playInMatchesCreated as $pim) {
-            $insertMatch($pim['p1_id'], $pim['p2_id'], 'Repechaje (Play-In)', [
+            $insertMatch($pim['p1_id'], $pim['p2_id'], 'Dieciseisavos de Final', [
                 'bracket_code' => $pim['code'],
                 'next_bracket' => $pim['next_code'],
                 'next_slot' => $pim['next_slot'],
@@ -238,7 +243,7 @@ try {
                 'seed2_label' => $pim['s2_label']
             ]);
             $crucesDetalle[] = [
-                "ronda" => "Repechaje (Play-In)",
+                "ronda" => "Dieciseisavos de Final",
                 "pareja1" => $pim['s1_label'],
                 "pareja2" => $pim['s2_label'],
                 "destino" => "Avanza a Octavos ({$pim['next_code']})"
