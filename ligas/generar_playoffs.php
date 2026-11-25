@@ -108,7 +108,7 @@ try {
                 'seed' => $seedNum,
                 'nombre' => "{$seedNum}º {$t['nombre']}",
                 'is_playin' => false,
-                'is_bye' => true
+                'is_bye' => false // En Octavos juegan su partido regular, no llevan badge de BYE
             ];
         }
 
