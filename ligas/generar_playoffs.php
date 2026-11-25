@@ -54,18 +54,13 @@ try {
         $num_clasificados = $total;
     }
 
-    // Validar y ajustar pases directos a cuartos:
-    // Por defecto ($directos_cuartos < 0) se aplica el Estándar Oficial FIP (potencia de 2 más cercana):
-    // - Si N <= 8: 0 BYEs
-    // - Si 9 <= N <= 15: (16 - N) BYEs a Cuartos (ej. 12 -> 4 BYEs, 14 -> 2 BYEs, 15 -> 1 BYE)
-    // - Si N >= 16: 0 BYEs a Cuartos (8 partidos de Octavos completos, y si N=17 -> 1 partido de Dieciseisavos 16º vs 17º)
-    // Si el usuario selecciona explícitamente un número de BYEs (1..7), se respeta ese número.
+    // Validar y ajustar pases directos a la siguiente fase:
+    // - Si N > 16: Pases directos son a Octavos (32 - N por FIP). Los 8 partidos de Octavos se juegan hacia Cuartos.
+    // - Si 9 <= N <= 16: Pases directos son a Cuartos (16 - N por FIP).
+    // - Si 5 <= N <= 8: Pases directos son a Semifinales (8 - N por FIP).
+    // - Si N <= 4: Semifinales / Final.
     if ($num_clasificados <= 8) {
         $directos_cuartos = 0;
-    } elseif ($directos_cuartos < 0) {
-        $directos_cuartos = ($num_clasificados >= 16) ? 0 : (16 - $num_clasificados);
-    } elseif ($directos_cuartos > 7) {
-        $directos_cuartos = 7;
     }
 
     // Limitar clasificados exactos
@@ -91,10 +86,196 @@ try {
         return $conn->insert_id;
     };
 
-    // ==========================================
-    // CASO 1: CUADRO CON RONDA PREVIA / OCTAVOS (N > 8, respetando los BYEs a Cuartos y generando Play-In si sobran parejas)
-    // ==========================================
-    if ($n > 8) {
+    if ($n > 16) {
+        // ==========================================
+        // CASO 1: DIECISEISAVOS DE FINAL (17 a 32 parejas)
+        // Los BYEs van DIRECTOS A OCTAVOS (nadie pasa directo a Cuartos desde 16avos)
+        // ==========================================
+        $ronda_inicial = "Dieciseisavos de Final";
+        $fipOptimo = max(0, 32 - $n);
+        $directos_octavos = ($directos_cuartos < 0) ? $fipOptimo : max((int)$directos_cuartos, $fipOptimo);
+        $directos_octavos = min(15, $directos_octavos);
+
+        $num16avos = 16 - $directos_octavos;
+        $directToOctavosCount = $directos_octavos;
+
+        $octavosEntries = [];
+        for ($i = 0; $i < $directToOctavosCount; $i++) {
+            $t = $clasificados[$i];
+            $seedNum = $i + 1;
+            $octavosEntries[] = [
+                'id' => $t['id'],
+                'seed' => $seedNum,
+                'nombre' => "{$seedNum}º {$t['nombre']}",
+                'is_playin' => false,
+                'is_bye' => true
+            ];
+        }
+
+        $playInTeams = array_slice($clasificados, $directToOctavosCount, 2 * $num16avos);
+        $playInMatchesCreated = [];
+
+        for ($pIdx = 0; $pIdx < $num16avos; $pIdx++) {
+            $tA = $playInTeams[$pIdx];
+            $tB = $playInTeams[count($playInTeams) - 1 - $pIdx];
+            $sA = $directToOctavosCount + $pIdx + 1;
+            $sB = $n - $pIdx;
+            $piCode = 'PI' . ($pIdx + 1);
+            $octavosEntries[] = [
+                'id' => null,
+                'seed' => $sA,
+                'nombre' => "Ganador 16avos " . ($pIdx + 1) . " ({$sA}º vs {$sB}º)",
+                'is_playin' => true,
+                'pi_code' => $piCode,
+                'pi_label' => "{$sA}º/{$sB}º"
+            ];
+            $playInMatchesCreated[] = [
+                'code' => $piCode,
+                'p1_id' => $tA['id'],
+                'p2_id' => $tB['id'],
+                's1_label' => "{$sA}º {$tA['nombre']}",
+                's2_label' => "{$sB}º {$tB['nombre']}",
+                'next_code' => 'PREV1',
+                'next_slot' => 2
+            ];
+        }
+
+        $directOct = array_values(array_filter($octavosEntries, function($e) { return empty($e['is_playin']); }));
+        $playInOct = array_reverse(array_values(array_filter($octavosEntries, function($e) { return !empty($e['is_playin']); })));
+        $orderedOctavosSlots = array_merge($directOct, $playInOct);
+
+        $octavosConfig = [
+            ['code' => 'PREV1', 'q' => 'Q1', 'slot' => 1],
+            ['code' => 'PREV2', 'q' => 'Q1', 'slot' => 2],
+            ['code' => 'PREV3', 'q' => 'Q2', 'slot' => 1],
+            ['code' => 'PREV4', 'q' => 'Q2', 'slot' => 2],
+            ['code' => 'PREV5', 'q' => 'Q3', 'slot' => 1],
+            ['code' => 'PREV6', 'q' => 'Q3', 'slot' => 2],
+            ['code' => 'PREV7', 'q' => 'Q4', 'slot' => 1],
+            ['code' => 'PREV8', 'q' => 'Q4', 'slot' => 2],
+        ];
+
+        $quartersMap = [
+            'Q1' => ['p1_id' => null, 's1' => 'Ganador Octavos 1', 'p2_id' => null, 's2' => 'Ganador Octavos 2', 'next' => 'S1', 'slot' => 1],
+            'Q2' => ['p1_id' => null, 's1' => 'Ganador Octavos 3', 'p2_id' => null, 's2' => 'Ganador Octavos 4', 'next' => 'S1', 'slot' => 2],
+            'Q3' => ['p1_id' => null, 's1' => 'Ganador Octavos 5', 'p2_id' => null, 's2' => 'Ganador Octavos 6', 'next' => 'S2', 'slot' => 1],
+            'Q4' => ['p1_id' => null, 's1' => 'Ganador Octavos 7', 'p2_id' => null, 's2' => 'Ganador Octavos 8', 'next' => 'S2', 'slot' => 2],
+        ];
+
+        $octavosToInsert = [];
+        for ($k = 0; $k < 8; $k++) {
+            $cfg = $octavosConfig[$k];
+            $entry1 = $orderedOctavosSlots[$k];
+            $entry2 = $orderedOctavosSlots[15 - $k];
+
+            if (!empty($entry1['is_playin'])) {
+                foreach ($playInMatchesCreated as &$pim) {
+                    if ($pim['code'] === $entry1['pi_code']) { $pim['next_code'] = $cfg['code']; $pim['next_slot'] = 1; }
+                }
+                unset($pim);
+            }
+            if (!empty($entry2['is_playin'])) {
+                foreach ($playInMatchesCreated as &$pim) {
+                    if ($pim['code'] === $entry2['pi_code']) { $pim['next_code'] = $cfg['code']; $pim['next_slot'] = 2; }
+                }
+                unset($pim);
+            }
+
+            $s1Short = !empty($entry1['is_playin']) ? "16avos ({$entry1['pi_label']})" : "{$entry1['seed']}º";
+            $s2Short = !empty($entry2['is_playin']) ? "16avos ({$entry2['pi_label']})" : "{$entry2['seed']}º";
+            $winnerLabel = "Ganador Octavos " . ($k + 1) . " ({$s1Short} vs {$s2Short})";
+
+            if ($cfg['slot'] === 1) {
+                $quartersMap[$cfg['q']]['s1'] = $winnerLabel;
+            } else {
+                $quartersMap[$cfg['q']]['s2'] = $winnerLabel;
+            }
+
+            $octavosToInsert[] = [
+                'p1_id' => $entry1['id'],
+                'p2_id' => $entry2['id'],
+                'target_q' => $cfg['q'],
+                'obs' => [
+                    'bracket_code' => $cfg['code'],
+                    'next_bracket' => $cfg['q'],
+                    'next_slot' => $cfg['slot'],
+                    'seed1_label' => $entry1['nombre'],
+                    'seed2_label' => $entry2['nombre'],
+                    'seed1_is_bye' => !empty($entry1['is_bye']),
+                    'seed2_is_bye' => !empty($entry2['is_bye'])
+                ]
+            ];
+        }
+
+        // Insertar partidos de Dieciseisavos
+        foreach ($playInMatchesCreated as $pim) {
+            $insertMatch($pim['p1_id'], $pim['p2_id'], 'Dieciseisavos de Final', [
+                'bracket_code' => $pim['code'],
+                'next_bracket' => $pim['next_code'],
+                'next_slot' => $pim['next_slot'],
+                'seed1_label' => $pim['s1_label'],
+                'seed2_label' => $pim['s2_label']
+            ]);
+            $crucesDetalle[] = [
+                "ronda" => "Dieciseisavos de Final",
+                "pareja1" => $pim['s1_label'],
+                "pareja2" => $pim['s2_label'],
+                "destino" => "Avanza a Octavos ({$pim['next_code']})"
+            ];
+        }
+
+        // Insertar partidos de Octavos
+        foreach ($octavosToInsert as $oct) {
+            $insertMatch($oct['p1_id'], $oct['p2_id'], 'Octavos de Final', $oct['obs']);
+            $crucesDetalle[] = [
+                "ronda" => "Octavos de Final",
+                "pareja1" => $oct['obs']['seed1_label'],
+                "pareja2" => $oct['obs']['seed2_label'],
+                "destino" => "Avanza a Cuartos ({$oct['target_q']})"
+            ];
+        }
+
+        // Insertar los 4 Cuartos de Final (Q1, Q2, Q3, Q4)
+        foreach (['Q1', 'Q2', 'Q3', 'Q4'] as $qCode) {
+            $qm = $quartersMap[$qCode];
+            $insertMatch(null, null, 'Cuartos de Final', [
+                'bracket_code' => $qCode,
+                'next_bracket' => $qm['next'],
+                'next_slot' => $qm['slot'],
+                'seed1_label' => $qm['s1'],
+                'seed2_label' => $qm['s2']
+            ]);
+            $crucesDetalle[] = [
+                "ronda" => "Cuartos de Final ($qCode)",
+                "pareja1" => $qm['s1'],
+                "pareja2" => $qm['s2']
+            ];
+        }
+
+        // Semifinales y Final
+        $insertMatch(null, null, 'Semifinales', [
+            'bracket_code' => 'S1', 'next_bracket' => 'F1', 'next_slot' => 1,
+            'seed1_label' => 'Ganador Cuartos 1', 'seed2_label' => 'Ganador Cuartos 2'
+        ]);
+        $insertMatch(null, null, 'Semifinales', [
+            'bracket_code' => 'S2', 'next_bracket' => 'F1', 'next_slot' => 2,
+            'seed1_label' => 'Ganador Cuartos 3', 'seed2_label' => 'Ganador Cuartos 4'
+        ]);
+        $insertMatch(null, null, 'Final', [
+            'bracket_code' => 'F1',
+            'seed1_label' => 'Ganador Semifinal 1', 'seed2_label' => 'Ganador Semifinal 2'
+        ]);
+
+    } elseif ($n > 8) {
+        // ==========================================
+        // CASO 2: OCTAVOS DE FINAL (9 a 16 parejas)
+        // Los BYEs van DIRECTOS A CUARTOS (4tos)
+        // ==========================================
+        $ronda_inicial = "Octavos de Final";
+        $fipOptimo = 16 - $n;
+        $directos_cuartos = ($directos_cuartos < 0) ? $fipOptimo : max((int)$directos_cuartos, $fipOptimo);
+        $directos_cuartos = min(7, $directos_cuartos);
+
         $qOpenSlots = 8 - $directos_cuartos;
         $octavosCapacity = $qOpenSlots * 2;
         $remainingCount = $n - $directos_cuartos;
